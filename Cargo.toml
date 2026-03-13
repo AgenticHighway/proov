@@ -5,6 +5,10 @@ members = [
     "crates/ah-scan-sdk",
     "crates/ah-scan-engine",
 ]
+exclude = [
+    "examples/detector-cursor-rules",
+    "examples/detector-template",
+]
 
 [workspace.package]
 version = "0.1.0"

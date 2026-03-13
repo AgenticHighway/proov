@@ -8,6 +8,7 @@ mod lite_mode;
 mod models;
 mod network;
 mod payload;
+mod plugins;
 mod progress;
 mod risk_engine;
 mod scan;

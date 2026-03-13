@@ -2,10 +2,11 @@
 //!
 //! Scans a directory for `.wasm` files and optional sidecar manifests,
 //! loads them as `DetectorPlugin` instances, and provides iteration.
+//! Validates SDK version compatibility when a manifest is present.
 
 use std::path::{Path, PathBuf};
 
-use ah_scan_sdk::DetectorManifest;
+use ah_scan_sdk::{DetectorManifest, SDK_VERSION};
 
 use crate::plugin::DetectorPlugin;
 
@@ -53,6 +54,15 @@ impl PluginRegistry {
             match DetectorPlugin::from_file(&path) {
                 Ok(mut plugin) => {
                     if let Some(manifest) = load_sidecar_manifest(&path) {
+                        if !is_sdk_compatible(&manifest.sdk_version) {
+                            eprintln!(
+                                "Warning: plugin {} targets SDK {} (host is {}), skipping",
+                                path.display(),
+                                manifest.sdk_version,
+                                SDK_VERSION,
+                            );
+                            continue;
+                        }
                         plugin.set_manifest(manifest);
                     }
                     self.plugins.push((plugin, PluginSource::File(path)));
@@ -126,4 +136,18 @@ fn load_sidecar_manifest(wasm_path: &Path) -> Option<DetectorManifest> {
 
     let content = std::fs::read_to_string(&manifest_path).ok()?;
     serde_json::from_str(&content).ok()
+}
+
+/// Check if a plugin's SDK version is compatible with the host.
+///
+/// Requires matching major and minor version. Patch differences are allowed.
+fn is_sdk_compatible(plugin_sdk_version: &str) -> bool {
+    let host_parts: Vec<&str> = SDK_VERSION.split('.').collect();
+    let plugin_parts: Vec<&str> = plugin_sdk_version.split('.').collect();
+
+    if host_parts.len() < 2 || plugin_parts.len() < 2 {
+        return false;
+    }
+
+    host_parts[0] == plugin_parts[0] && host_parts[1] == plugin_parts[1]
 }

@@ -146,7 +146,7 @@ pub fn run_wasm_detectors(
     };
 
     let mut artifacts = Vec::new();
-    for (plugin, source) in registry.plugins_mut() {
+    for (plugin, _source) in registry.plugins_mut() {
         tick(&format!("WASM detector: {}", plugin.name()));
         match plugin.detect(&request) {
             Ok(response) => {

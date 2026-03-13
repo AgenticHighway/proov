@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::formatters::{print_human, print_overview, print_summary};
 use crate::lite_mode::{limit_lite_mode_report, print_locked_summary, LITE_MODE_VISIBLE_RESULTS};
 use crate::models::ScanReport;
+use crate::plugins;
 use crate::scan::run_scan;
 use crate::submit::load_submission_config;
 
@@ -51,6 +52,32 @@ pub enum Commands {
         path: PathBuf,
         #[command(flatten)]
         output: OutputArgs,
+    },
+    /// Manage detector plugins
+    Plugins {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PluginAction {
+    /// List installed detector plugins
+    List,
+    /// Install a .wasm detector plugin
+    Install {
+        /// Path to the .wasm file to install
+        path: PathBuf,
+    },
+    /// Remove an installed detector plugin
+    Remove {
+        /// Name of the plugin to remove (without .wasm extension)
+        name: String,
+    },
+    /// Show details about an installed plugin
+    Info {
+        /// Name of the plugin
+        name: String,
     },
 }
 
@@ -192,6 +219,7 @@ fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
             file: None,
             deep: true,
         },
+        Commands::Plugins { .. } => unreachable!("handled before scan dispatch"),
     }
 }
 
@@ -202,6 +230,7 @@ fn output_args(cmd: &Commands) -> &OutputArgs {
         | Commands::File { output, .. }
         | Commands::Folder { output, .. }
         | Commands::Repo { output, .. } => output,
+        Commands::Plugins { .. } => unreachable!("handled before output dispatch"),
     }
 }
 
@@ -271,6 +300,12 @@ pub fn run() {
             return;
         }
     };
+
+    // Handle plugin management separately
+    if let Commands::Plugins { action } = cmd {
+        plugins::handle_plugin_action(&action);
+        return;
+    }
 
     let access = load_access_config();
     let _submission = load_submission_config(None);

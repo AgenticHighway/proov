@@ -1,0 +1,13 @@
+[package]
+name = "detector-template"
+version = "0.1.0"
+edition = "2021"
+description = "Template for writing an ah-scan WASM detector plugin."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ah-scan-sdk = { path = "../../crates/ah-scan-sdk" }
+extism-pdk = "1"
+serde_json = "1"
