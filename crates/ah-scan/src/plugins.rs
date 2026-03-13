@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use ah_scan_engine::PluginRegistry;
+use crate::engine::PluginRegistry;
 use ah_scan_sdk::DetectorManifest;
 
 use crate::cli::PluginAction;
@@ -84,8 +84,8 @@ fn cmd_list() {
 
     for (name, source) in registry.list() {
         let location = match source {
-            ah_scan_engine::PluginSource::File(p) => p.display().to_string(),
-            ah_scan_engine::PluginSource::Bundled(n) => format!("(bundled: {n})"),
+            crate::engine::PluginSource::File(p) => p.display().to_string(),
+            crate::engine::PluginSource::Bundled(n) => format!("(bundled: {n})"),
         };
         println!("  {CYAN}{name:<24}{RESET} {DIM}{location}{RESET}");
     }

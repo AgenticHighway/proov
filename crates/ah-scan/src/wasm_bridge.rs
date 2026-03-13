@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ah_scan_engine::PluginRegistry;
+use crate::engine::PluginRegistry;
 use ah_scan_sdk::{DetectRequest, Finding, ScanCandidate};
 
 use crate::discovery::Candidate;

@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 ah-scan-sdk = { path = "../ah-scan-sdk" }
-ah-scan-engine = { path = "../ah-scan-engine" }
+extism = "1"
 
 clap = { version = "4", features = ["derive"] }
 serde = { workspace = true }

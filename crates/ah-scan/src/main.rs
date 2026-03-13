@@ -2,6 +2,7 @@ mod capabilities;
 mod cli;
 mod detectors;
 mod discovery;
+mod engine;
 mod formatters;
 mod identity;
 mod lite_mode;

@@ -21,12 +21,12 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "ah-scan"
 version = "0.1.0"
 dependencies = [
- "ah-scan-engine",
  "ah-scan-sdk",
  "chrono",
  "clap",
  "crossterm",
  "dirs",
+ "extism",
  "glob",
  "regex",
  "serde",
@@ -35,16 +35,6 @@ dependencies = [
  "toml 0.8.23",
  "uuid",
  "walkdir",
-]
-
-[[package]]
-name = "ah-scan-engine"
-version = "0.1.0"
-dependencies = [
- "ah-scan-sdk",
- "extism",
- "serde",
- "serde_json",
 ]
 
 [[package]]

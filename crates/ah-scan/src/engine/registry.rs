@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use ah_scan_sdk::{DetectorManifest, SDK_VERSION};
 
-use crate::plugin::DetectorPlugin;
+use super::plugin::DetectorPlugin;
 
 /// Where a plugin was loaded from.
 #[derive(Debug, Clone)]
