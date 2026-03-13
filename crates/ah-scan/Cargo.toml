@@ -1,0 +1,26 @@
+[package]
+name = "ah-scan"
+version.workspace = true
+edition.workspace = true
+description = "Agentic Highway scanner CLI — detect, analyze, and report AI execution artifacts."
+
+[[bin]]
+name = "ah-scan"
+path = "src/main.rs"
+
+[dependencies]
+ah-scan-sdk = { path = "../ah-scan-sdk" }
+ah-scan-engine = { path = "../ah-scan-engine" }
+
+clap = { version = "4", features = ["derive"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+walkdir = "2"
+uuid = { version = "1", features = ["v4"] }
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+glob = "0.3"
+regex = "1"
+dirs = "5"
+crossterm = "0.28"

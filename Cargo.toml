@@ -1,26 +1,18 @@
-[package]
-name = "ah-scanner"
+[workspace]
+resolver = "2"
+members = [
+    "crates/ah-scan",
+    "crates/ah-scan-sdk",
+    "crates/ah-scan-engine",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-description = "Agentic Highway scanner — detect, analyze, and report AI execution artifacts on a host."
 
-[[bin]]
-name = "ah-scan"
-path = "src/main.rs"
-
-[dependencies]
-clap = { version = "4", features = ["derive"] }
+[workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-walkdir = "2"
-uuid = { version = "1", features = ["v4"] }
-toml = "0.8"
-chrono = { version = "0.4", features = ["serde"] }
-glob = "0.3"
-regex = "1"
-dirs = "5"
-crossterm = "0.28"
 
 [profile.release]
 lto = true

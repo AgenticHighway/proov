@@ -1,0 +1,9 @@
+[package]
+name = "ah-scan-sdk"
+version.workspace = true
+edition.workspace = true
+description = "SDK types and detector interface for ah-scan WASM plugins."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

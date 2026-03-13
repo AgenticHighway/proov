@@ -1,0 +1,11 @@
+[package]
+name = "ah-scan-engine"
+version.workspace = true
+edition.workspace = true
+description = "WASM plugin host engine for ah-scan detectors."
+
+[dependencies]
+ah-scan-sdk = { path = "../ah-scan-sdk" }
+extism = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
