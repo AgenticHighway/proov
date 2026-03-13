@@ -1,7 +1,7 @@
 {
-    "name": "cursor_rules",
-    "description": "Detects .cursorrules and agents.md files, analyzes content for AI execution signals.",
-    "version": "0.1.0",
-    "sdk_version": "0.1.0",
-    "artifact_types": ["cursor_rules", "agents_md"]
+	"name": "cursor_rules",
+	"description": "Detects .cursorrules and agents.md files, analyzes content for AI execution signals.",
+	"version": "0.1.0",
+	"sdk_version": "0.1.0",
+	"artifact_types": ["cursor_rules", "agents_md"]
 }

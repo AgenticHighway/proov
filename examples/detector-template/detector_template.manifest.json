@@ -1,7 +1,7 @@
 {
-    "name": "my_detector",
-    "description": "A custom ah-scan detector plugin.",
-    "version": "0.1.0",
-    "sdk_version": "0.1.0",
-    "artifact_types": ["my_artifact_type"]
+	"name": "my_detector",
+	"description": "A custom ah-scan detector plugin.",
+	"version": "0.1.0",
+	"sdk_version": "0.1.0",
+	"artifact_types": ["my_artifact_type"]
 }
