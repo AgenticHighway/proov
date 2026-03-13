@@ -296,7 +296,7 @@ pub fn run() {
     let cmd = match cli.command {
         Some(c) => c,
         None => {
-            println!("Interactive wizard — run with a subcommand");
+            crate::wizard::run_wizard();
             return;
         }
     };

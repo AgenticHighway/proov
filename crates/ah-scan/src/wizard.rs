@@ -196,6 +196,7 @@ fn step_choose_mode() -> (String, Option<PathBuf>) {
         "Quick scan  (host config areas)",
         "Full scan   (entire filesystem)",
         "Folder scan (specific directory)",
+        "Repo scan   (deep git repo scan)",
         "File scan   (single file)",
     ];
     let idx = pick("Scan mode", modes, 0);
@@ -211,6 +212,13 @@ fn step_choose_mode() -> (String, Option<PathBuf>) {
             )
         }
         3 => {
+            let dir = ask("Repo path", ".");
+            (
+                "workdir_deep".to_string(),
+                Some(PathBuf::from(dir)),
+            )
+        }
+        4 => {
             let path = ask("File path", "");
             ("file".to_string(), Some(PathBuf::from(path)))
         }
@@ -223,11 +231,14 @@ fn step_run_scan(mode: &str, workdir: Option<&PathBuf>) -> ScanReport {
     let mut progress = ScanProgress::new(false);
     progress.phase("Scanning");
 
+    let deep = mode == "workdir_deep";
+    let scan_mode = if mode == "workdir_deep" { "workdir" } else { mode };
+
     let report = run_scan(
-        mode,
+        scan_mode,
         workdir.map(|p| p.as_path()),
-        workdir.filter(|_| mode == "file").map(|p| p.as_path()),
-        mode == "workdir",
+        workdir.filter(|_| scan_mode == "file").map(|p| p.as_path()),
+        deep,
         Some(&|detail: &str| {
             // Progress tick writes directly — ScanProgress is not accessible
             // from the closure without interior mutability, so we write inline.
