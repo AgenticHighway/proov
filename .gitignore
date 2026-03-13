@@ -1,0 +1,14 @@
+/target/
+**/*.rs.bk
+*.pdb
+.env
+.env.*
+.ahscan.toml
+.ahscan-submissions.json
+.ahscan-submissions.jsonl
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+._*
