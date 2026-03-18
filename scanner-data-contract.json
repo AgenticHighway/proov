@@ -2,7 +2,7 @@
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"title": "AH-Verify Scanner Data Contract",
 	"description": "Defines the exact payload shape the Endpoint Scanner must send to the AH-Verify ingestion endpoint. Every field listed here is required unless explicitly marked otherwise. If a field is not requested in this contract, it will not be accepted.",
-	"version": "1.0.0",
+	"version": "2.0.0",
 	"type": "object",
 	"required": [
 		"scanMeta",
@@ -22,7 +22,8 @@
 				"endpointHostname",
 				"scannedAt",
 				"scannerVersion",
-				"scanDurationMs"
+				"scanDurationMs",
+				"scanRoots"
 			],
 			"additionalProperties": false,
 			"properties": {
@@ -48,19 +49,28 @@
 					"type": "integer",
 					"minimum": 0,
 					"description": "Wall-clock duration of the scan in milliseconds."
+				},
+				"scanRoots": {
+					"type": "array",
+					"description": "Absolute directory paths the scanner walked. Tells the dashboard what scope the results cover.",
+					"items": {"type": "string"},
+					"minItems": 1
 				}
 			}
 		},
 
 		"prompts": {
 			"type": "array",
-			"description": "Every prompt template discovered on the endpoint.",
+			"description": "Every prompt template discovered on the endpoint. Each entry MUST have a globally-unique 'id'.",
 			"items": {
 				"type": "object",
 				"required": [
+					"id",
 					"name",
+					"sourceFilePath",
 					"classification",
 					"tokens",
+					"contentHash",
 					"lastChangedDate",
 					"capabilities",
 					"secretRefs",
@@ -70,9 +80,17 @@
 				],
 				"additionalProperties": false,
 				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Globally unique identifier for this prompt. Use '<sourceFilePath>:<startLine>' or a deterministic UUID derived from file path + content hash. Must be stable across scans of the same file with the same content."
+					},
 					"name": {
 						"type": "string",
-						"description": "Unique slug for this prompt (e.g. 'code-review-agent-system')."
+						"description": "Human-readable display name. Derive from filename, front-matter title, or containing folder. MUST NOT be a generic label like 'agents' — if the source file is 'agents.md', use the parent directory or a distinguishing qualifier (e.g. 'zeroclaw/agents', 'ah-verify/agents'). When multiple prompts share a source filename, prepend the project or parent directory name."
+					},
+					"sourceFilePath": {
+						"type": "string",
+						"description": "Absolute path to the file where the prompt was found (e.g. '/Users/will/project/.github/copilot-instructions.md'). This is what the dashboard uses to distinguish items that would otherwise share a name."
 					},
 					"classification": {
 						"type": "string",
@@ -83,6 +101,10 @@
 						"type": "integer",
 						"minimum": 0,
 						"description": "Token count of the prompt body (using the model's tokenizer or cl100k_base)."
+					},
+					"contentHash": {
+						"type": "string",
+						"description": "SHA-256 hex digest of the raw prompt body. Used for change detection across scans."
 					},
 					"lastChangedDate": {
 						"type": "string",
@@ -174,6 +196,7 @@
 			"items": {
 				"type": "object",
 				"required": [
+					"id",
 					"name",
 					"type",
 					"trustLevel",
@@ -185,9 +208,13 @@
 				],
 				"additionalProperties": false,
 				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Globally unique identifier for this skill. Use the skill name if unique, or '<name>-<hash>' if collisions exist."
+					},
 					"name": {
 						"type": "string",
-						"description": "Unique slug for this skill (e.g. 'file-search')."
+						"description": "Display name for this skill (e.g. 'python', 'filesystem', 'shell'). May share a name if two different configs define the same capability — use 'id' for dedup."
 					},
 					"type": {
 						"type": "string",
@@ -211,7 +238,7 @@
 					},
 					"description": {
 						"type": "string",
-						"description": "One-line summary of what the skill does."
+						"description": "One-line summary of what the skill does. Must be specific — not just 'python capability' but e.g. 'Executes Python scripts via local interpreter with unrestricted filesystem access'."
 					},
 					"permissions": {
 						"type": "array",
@@ -250,22 +277,26 @@
 							},
 							"apis": {
 								"type": "array",
-								"description": "External API services the skill calls (e.g. 'GitHub API', 'npm Registry').",
+								"description": "External API services the skill calls (e.g. 'GitHub API', 'npm Registry'). Do NOT put documentation URLs here — only runtime service dependencies.",
 								"items": {"type": "string"}
 							}
 						}
 					},
 					"consumers": {
 						"type": "array",
-						"description": "Agents and apps that invoke this skill.",
+						"description": "Agents and apps that invoke this skill. Each consumer entry MUST reference the agent or app by its unique 'id', not by a generic name.",
 						"items": {
 							"type": "object",
-							"required": ["name", "type", "invocations"],
+							"required": ["id", "name", "type", "invocations"],
 							"additionalProperties": false,
 							"properties": {
+								"id": {
+									"type": "string",
+									"description": "The unique 'id' of the consuming agent or app (matching agents[].id or agenticApps[].id)."
+								},
 								"name": {
 									"type": "string",
-									"description": "Name of the consuming agent or app."
+									"description": "Display name of the consuming agent or app."
 								},
 								"type": {
 									"type": "string",
@@ -275,7 +306,7 @@
 								"invocations": {
 									"type": "integer",
 									"minimum": 0,
-									"description": "Total invocation count observed during the scan window."
+									"description": "Total invocation count observed during the scan window. Use 0 only if invocation tracking is not available — do not fabricate counts."
 								}
 							}
 						}
@@ -290,18 +321,24 @@
 			"items": {
 				"type": "object",
 				"required": [
+					"id",
 					"name",
 					"network",
 					"auth",
 					"verified",
+					"command",
 					"tools",
 					"dependentAgents"
 				],
 				"additionalProperties": false,
 				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Globally unique identifier for this MCP server. Use the package identifier (e.g. 'io.github.github/github-mcp-server') or '<name>-<hash>' if needed."
+					},
 					"name": {
 						"type": "string",
-						"description": "Server identifier (e.g. 'filesystem-server')."
+						"description": "Display name for the server (e.g. 'github-mcp-server', 'playwright-mcp'). Use the short package name, not the full reverse-DNS identifier."
 					},
 					"network": {
 						"type": "string",
@@ -317,9 +354,13 @@
 						"type": "boolean",
 						"description": "Whether the server's identity and integrity have been cryptographically verified."
 					},
+					"command": {
+						"type": "string",
+						"description": "The shell command used to launch this MCP server (e.g. 'npx -y @anthropic/mcp-server-github'). Useful for audit trail and identifying supply chain risk."
+					},
 					"tools": {
 						"type": "array",
-						"description": "Every tool the MCP server exposes.",
+						"description": "Every tool the MCP server exposes. The scanner MUST enumerate individual tools from the server's tool manifest — do NOT emit a single generic '<server>_invoke' entry. If tool enumeration fails, set this to an empty array and note the failure in the tool description.",
 						"items": {
 							"type": "object",
 							"required": ["name", "risk", "description"],
@@ -327,7 +368,7 @@
 							"properties": {
 								"name": {
 									"type": "string",
-									"description": "Tool function name (e.g. 'run_shell_command')."
+									"description": "Actual tool function name as declared by the server (e.g. 'create_issue', 'run_shell_command', 'browser_navigate'). NOT a synthetic '<server>_invoke' stub."
 								},
 								"risk": {
 									"type": "string",
@@ -336,14 +377,14 @@
 								},
 								"description": {
 									"type": "string",
-									"description": "One-line summary of what the tool does."
+									"description": "One-line summary of what the tool does. Pull from the server's tool schema description field."
 								}
 							}
 						}
 					},
 					"dependentAgents": {
 						"type": "array",
-						"description": "Agents that reference or invoke tools on this server.",
+						"description": "IDs of agents that reference or invoke tools on this server. These MUST be cross-referenced from the agents[].tools array — if an agent lists a tool of type 'mcp' whose name matches this server, include that agent's id here.",
 						"items": {"type": "string"}
 					}
 				}
@@ -352,11 +393,13 @@
 
 		"agents": {
 			"type": "array",
-			"description": "Every AI agent definition discovered on the endpoint.",
+			"description": "Every AI agent definition discovered on the endpoint. Each entry MUST have a globally-unique 'id'.",
 			"items": {
 				"type": "object",
 				"required": [
+					"id",
 					"name",
+					"sourceFilePath",
 					"classification",
 					"executionModel",
 					"trustScore",
@@ -369,9 +412,17 @@
 				],
 				"additionalProperties": false,
 				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Globally unique identifier for this agent. Use '<sourceFilePath>:<startLine>' or a deterministic UUID derived from content. Must be stable across scans of the same file with the same content."
+					},
 					"name": {
 						"type": "string",
-						"description": "Agent identifier (e.g. 'code-review-bot')."
+						"description": "Human-readable display name. Derive from the filename, front-matter title, 'name' field in the agent config, or containing project directory. MUST NOT be a generic label like 'agents'. When the source file is 'AGENTS.md', use the project directory as a prefix (e.g. 'zeroclaw/agents', 'ah-verify/agents') or extract the agent's declared name from the file's content."
+					},
+					"sourceFilePath": {
+						"type": "string",
+						"description": "Absolute path to the file where the agent definition was found."
 					},
 					"classification": {
 						"type": "string",
@@ -391,15 +442,15 @@
 					},
 					"version": {
 						"type": "string",
-						"description": "Semantic version of the agent definition (e.g. 'v2.1.0')."
+						"description": "Semantic version of the agent definition (e.g. 'v2.1.0'). Use 'unknown' only if genuinely undetectable."
 					},
 					"author": {
 						"type": "string",
-						"description": "Team or individual who authored the agent."
+						"description": "Team or individual who authored the agent. Check git blame, package.json author, or file metadata. Use 'unknown' only if genuinely undetectable."
 					},
 					"sourceRepo": {
 						"type": "string",
-						"description": "Full repository path (e.g. 'github.com/agentichighway/code-review-bot')."
+						"description": "Repository URL or local path where the agent source lives. Check nearest .git/config for remote origin. Use 'unknown' only if genuinely undetectable."
 					},
 					"capabilities": {
 						"type": "array",
@@ -430,7 +481,7 @@
 							"properties": {
 								"name": {
 									"type": "string",
-									"description": "Tool identifier (e.g. 'file-search')."
+									"description": "Tool identifier — must match either a skills[].id or mcpServers[].id for cross-referencing."
 								},
 								"type": {
 									"type": "string",
@@ -450,7 +501,7 @@
 							"properties": {
 								"label": {
 									"type": "string",
-									"description": "Explanation of the trust factor (e.g. 'High external tool usage')."
+									"description": "Human-readable explanation of the trust factor (e.g. 'High external tool usage'). Avoid opaque identifiers like 'dangerous_keyword:rm' — expand to 'Dangerous keyword detected: rm command'."
 								},
 								"delta": {
 									"type": "integer",
@@ -469,7 +520,9 @@
 			"items": {
 				"type": "object",
 				"required": [
+					"id",
 					"name",
+					"sourceFilePath",
 					"framework",
 					"agentCount",
 					"risk",
@@ -485,17 +538,25 @@
 				],
 				"additionalProperties": false,
 				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Globally unique identifier for this app. Use '<sourceFilePath>' or a deterministic UUID."
+					},
 					"name": {
 						"type": "string",
-						"description": "Application identifier (e.g. 'code-review-pipeline')."
+						"description": "Human-readable display name. Derive from the project directory + file (e.g. 'zeroclaw/Dockerfile', 'ah-verify/docker-compose'). MUST NOT be a bare generic like 'dockerfile' — always include the project context."
+					},
+					"sourceFilePath": {
+						"type": "string",
+						"description": "Absolute path to the file that defines or anchors this app (e.g. '/Users/will/project/docker-compose.yml'). This replaces embedding the path inside the 'description' field."
 					},
 					"framework": {
 						"type": "string",
-						"description": "Orchestration framework (e.g. 'LangGraph', 'CrewAI', 'AutoGen', 'Custom')."
+						"description": "Orchestration framework (e.g. 'LangGraph', 'CrewAI', 'AutoGen', 'Custom'). Detect from imports, config files, or framework-specific manifests."
 					},
 					"agentCount": {
 						"type": "integer",
-						"minimum": 1,
+						"minimum": 0,
 						"description": "Number of distinct agents participating in this app."
 					},
 					"risk": {
@@ -510,19 +571,23 @@
 					},
 					"description": {
 						"type": "string",
-						"description": "One-line summary of what the app does."
+						"description": "One-line functional summary of what the app does. Do NOT embed the file path here — use 'sourceFilePath' for that. Focus on behavior (e.g. 'Multi-agent code review system with linting, security checks, and style feedback')."
 					},
 					"agents": {
 						"type": "array",
-						"description": "The ordered list of agents in the pipeline. Index aligns with toolsByAgent.",
+						"description": "The ordered list of agents participating in this app. Each MUST reference the agent by its unique 'id' from the agents[] array. Index aligns with toolsByAgent.",
 						"items": {
 							"type": "object",
-							"required": ["name"],
+							"required": ["id", "name"],
 							"additionalProperties": false,
 							"properties": {
+								"id": {
+									"type": "string",
+									"description": "Unique agent id matching agents[].id."
+								},
 								"name": {
 									"type": "string",
-									"description": "Agent identifier within this app."
+									"description": "Display name of the agent."
 								}
 							}
 						}
@@ -538,7 +603,7 @@
 					},
 					"workflow": {
 						"type": "array",
-						"description": "Ordered steps in the app's execution pipeline.",
+						"description": "Ordered steps in the app's execution pipeline. If the pipeline cannot be statically determined, this may be empty.",
 						"items": {
 							"type": "object",
 							"required": ["step", "agent", "action"],
@@ -596,7 +661,7 @@
 					},
 					"riskSummary": {
 						"type": "string",
-						"description": "Paragraph-length risk narrative for this app."
+						"description": "Paragraph-length risk narrative for this app. Do NOT embed absolute file paths — reference the app by name."
 					}
 				}
 			}
