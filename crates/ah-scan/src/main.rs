@@ -1,5 +1,6 @@
 mod capabilities;
 mod cli;
+mod contract;
 mod detectors;
 mod discovery;
 mod engine;

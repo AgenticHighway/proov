@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::contract::build_contract_payload;
 use crate::formatters::{print_human, print_overview, print_summary};
 use crate::lite_mode::{limit_lite_mode_report, print_locked_summary, LITE_MODE_VISIBLE_RESULTS};
 use crate::models::ScanReport;
@@ -98,6 +99,9 @@ pub struct OutputArgs {
     /// Minimum severity: critical|high|medium|low|info
     #[arg(long, default_value = "info")]
     pub min_severity: String,
+    /// Output JSON conforming to the AH-Verify data contract
+    #[arg(long)]
+    pub contract: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -314,10 +318,31 @@ pub fn run() {
     let out = output_args(&cmd);
     let min_score = min_severity_score(&out.min_severity);
 
+    let scan_start = std::time::Instant::now();
     let mut report = run_scan(params.mode, params.workdir, params.file, params.deep, None);
+    let scan_duration_ms = scan_start.elapsed().as_millis() as u64;
 
     report = apply_access_gate(report, &access);
     filter_by_severity(&mut report, min_score);
 
-    emit(&report, out.json, &out.out, out.summary, out.full);
+    if out.contract {
+        let payload = build_contract_payload(&report, scan_duration_ms);
+        let json = serde_json::to_string_pretty(&payload)
+            .expect("contract payload serialization");
+        println!("{json}");
+
+        if let Some(maybe_path) = &out.out {
+            let dest = match maybe_path {
+                Some(p) => p.clone(),
+                None => PathBuf::from("ahscan-contract.json"),
+            };
+            if let Err(e) = fs::write(&dest, &json) {
+                eprintln!("Error writing contract to {}: {}", dest.display(), e);
+            } else {
+                eprintln!("Contract written to {}", dest.display());
+            }
+        }
+    } else {
+        emit(&report, out.json, &out.out, out.summary, out.full);
+    }
 }
