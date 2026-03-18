@@ -1,10 +1,11 @@
-//! Transforms a [`ScanReport`] into the AH-Verify Scanner Data Contract (v1).
+//! Transforms a [`ScanReport`] into the AH-Verify Scanner Data Contract (v2).
 //!
 //! The contract defines the exact payload shape the ingestion endpoint
 //! expects:  `scanMeta`, `prompts`, `skills`, `mcpServers`, `agents`,
 //! and `agenticApps`.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::capabilities::derive_capabilities;
 use crate::models::{ArtifactReport, ScanReport};
@@ -36,6 +37,7 @@ pub struct ScanMeta {
     pub scanned_at: String,
     pub scanner_version: String,
     pub scan_duration_ms: u64,
+    pub scan_roots: Vec<String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -45,9 +47,12 @@ pub struct ScanMeta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Prompt {
+    pub id: String,
     pub name: String,
+    pub source_file_path: String,
     pub classification: String,
     pub tokens: u64,
+    pub content_hash: String,
     pub last_changed_date: String,
     pub capabilities: Vec<PromptCapability>,
     pub secret_refs: Vec<SecretRef>,
@@ -82,6 +87,7 @@ pub struct InjectionSurface {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Skill {
+    pub id: String,
     pub name: String,
     #[serde(rename = "type")]
     pub skill_type: String,
@@ -108,6 +114,7 @@ pub struct SkillDependencies {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillConsumer {
+    pub id: String,
     pub name: String,
     #[serde(rename = "type")]
     pub consumer_type: String,
@@ -121,10 +128,12 @@ pub struct SkillConsumer {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServer {
+    pub id: String,
     pub name: String,
     pub network: String,
     pub auth: String,
     pub verified: bool,
+    pub command: String,
     pub tools: Vec<McpTool>,
     pub dependent_agents: Vec<String>,
 }
@@ -143,7 +152,9 @@ pub struct McpTool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Agent {
+    pub id: String,
     pub name: String,
+    pub source_file_path: String,
     pub classification: String,
     pub execution_model: String,
     pub trust_score: i32,
@@ -181,7 +192,9 @@ pub struct TrustFactor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgenticApp {
+    pub id: String,
     pub name: String,
+    pub source_file_path: String,
     pub framework: String,
     pub agent_count: u32,
     pub risk: String,
@@ -198,6 +211,7 @@ pub struct AgenticApp {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppAgent {
+    pub id: String,
     pub name: String,
 }
 
@@ -217,7 +231,7 @@ pub struct Integration {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Builder — transform ScanReport → ContractPayload
+// Builder — transform ScanReport → ContractPayload (v2)
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub fn build_contract_payload(report: &ScanReport, scan_duration_ms: u64) -> ContractPayload {
@@ -232,9 +246,10 @@ pub fn build_contract_payload(report: &ScanReport, scan_duration_ms: u64) -> Con
         scanned_at: report.timestamp.clone(),
         scanner_version: env!("CARGO_PKG_VERSION").to_string(),
         scan_duration_ms,
+        scan_roots: vec![report.scanned_path.clone()],
     };
 
-    // Partition artifacts by type for mapping
+    // Partition artifacts by type
     let mut prompt_artifacts: Vec<&ArtifactReport> = Vec::new();
     let mut mcp_artifacts: Vec<&ArtifactReport> = Vec::new();
     let mut container_artifacts: Vec<&ArtifactReport> = Vec::new();
@@ -254,16 +269,41 @@ pub fn build_contract_payload(report: &ScanReport, scan_duration_ms: u64) -> Con
     }
 
     let prompts = build_prompts(&prompt_artifacts);
-    let mcp_servers = build_mcp_servers(&mcp_artifacts);
     let agents = build_agents(&agent_artifacts, &mcp_artifacts);
     let skills = build_skills(&report.artifacts, &agents);
     let agentic_apps = build_agentic_apps(&container_artifacts, &agents);
+
+    // Cross-link MCP server dependentAgents using agent IDs
+    let agent_ids_by_mcp: std::collections::HashMap<String, Vec<String>> = {
+        let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        for agent in &agents {
+            for tool in &agent.tools {
+                if tool.tool_type == "mcp" {
+                    map.entry(tool.name.clone())
+                        .or_default()
+                        .push(agent.id.clone());
+                }
+            }
+        }
+        map
+    };
+
+    // We need to rebuild mcp_servers with the cross-links
+    let mcp_servers_linked: Vec<McpServer> = {
+        let mut servers = build_mcp_servers(&mcp_artifacts);
+        for server in &mut servers {
+            if let Some(ids) = agent_ids_by_mcp.get(&server.name) {
+                server.dependent_agents = ids.clone();
+            }
+        }
+        servers
+    };
 
     ContractPayload {
         scan_meta,
         prompts,
         skills,
-        mcp_servers,
+        mcp_servers: mcp_servers_linked,
         agents,
         agentic_apps,
     }
@@ -276,32 +316,26 @@ fn build_prompts(artifacts: &[&ArtifactReport]) -> Vec<Prompt> {
 }
 
 fn artifact_to_prompt(a: &ArtifactReport) -> Prompt {
-    let location = first_path(a);
-    let name = slug_from_path(location);
+    let source_path = first_path(a).to_string();
+    let name = qualified_name(&source_path);
+    let id = make_id(&source_path, &a.artifact_hash);
+
     let classification = match a.artifact_type.as_str() {
         "cursor_rules" => "System Prompt",
         "agents_md" => "System Prompt",
         _ => "User Prompt",
     };
 
-    // Rough token estimate: ~4 chars per token for English text
-    let tokens = a
-        .metadata
-        .get("paths")
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.as_str())
-        .and_then(|p| std::fs::metadata(p).ok())
+    // Token estimate: ~4 chars per token
+    let tokens = std::fs::metadata(&source_path)
+        .ok()
         .map(|m| m.len() / 4)
         .unwrap_or(0);
 
-    let last_changed_date = a
-        .metadata
-        .get("paths")
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.as_str())
-        .and_then(|p| std::fs::metadata(p).ok())
+    let content_hash = compute_file_hash(&source_path);
+
+    let last_changed_date = std::fs::metadata(&source_path)
+        .ok()
         .and_then(|m| m.modified().ok())
         .map(|t| {
             let dt: chrono::DateTime<chrono::Utc> = t.into();
@@ -335,15 +369,18 @@ fn artifact_to_prompt(a: &ArtifactReport) -> Prompt {
         .unwrap_or_default();
 
     Prompt {
+        id,
         name,
+        source_file_path: source_path,
         classification: classification.to_string(),
         tokens,
+        content_hash,
         last_changed_date,
         capabilities,
         secret_refs,
         injection_surfaces,
         dependencies,
-        risk_score: a.risk_score.min(100).max(0),
+        risk_score: a.risk_score.clamp(0, 100),
     }
 }
 
@@ -359,11 +396,9 @@ fn build_secret_refs(a: &ArtifactReport) -> Vec<SecretRef> {
         }
     }
 
-    // Check metadata for env-var-style references (safe)
     if let Some(content) = read_artifact_head(a) {
         for pattern in &["$", "process.env.", "os.environ"] {
             if content.contains(pattern) {
-                // Only flag env var refs if we haven't already flagged as dangerous
                 let already_dangerous = refs.iter().any(|r| r.tone == "danger");
                 if !already_dangerous {
                     refs.push(SecretRef {
@@ -397,7 +432,6 @@ fn build_injection_surfaces(a: &ArtifactReport) -> Vec<InjectionSurface> {
         }
     }
 
-    // Check for user-controlled input surfaces
     if let Some(content) = read_artifact_head(a) {
         let lowered = content.to_lowercase();
         if lowered.contains("{{") || lowered.contains("{%") || lowered.contains("${") {
@@ -431,7 +465,7 @@ fn build_skills(artifacts: &[ArtifactReport], agents: &[Agent]) -> Vec<Skill> {
         }
     }
 
-    // Add skills from MCP server tools
+    // Add skills from MCP server tool commands
     for artifact in artifacts.iter().filter(|a| a.artifact_type == "mcp_config") {
         if let Some(content) = read_artifact_head(artifact) {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -448,12 +482,30 @@ fn build_skills(artifacts: &[ArtifactReport], agents: &[Agent]) -> Vec<Skill> {
                                 .unwrap_or(cmd)
                                 .to_string();
                             if seen.insert(skill_name.clone()) {
+                                let args_str = server_val
+                                    .get("args")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str())
+                                            .collect::<Vec<_>>()
+                                            .join(" ")
+                                    })
+                                    .unwrap_or_default();
+                                let full_cmd = if args_str.is_empty() {
+                                    cmd.to_string()
+                                } else {
+                                    format!("{cmd} {args_str}")
+                                };
                                 skills.push(Skill {
+                                    id: skill_name.clone(),
                                     name: skill_name.clone(),
                                     skill_type: "CLI Tool".to_string(),
                                     trust_level: "Conditional".to_string(),
                                     execution_environment: "Local Process".to_string(),
-                                    description: format!("MCP server command: {cmd}"),
+                                    description: format!(
+                                        "Executes MCP server via: {full_cmd}"
+                                    ),
                                     permissions: vec![SkillPermission {
                                         name: "Shell execution".to_string(),
                                         required: true,
@@ -505,21 +557,52 @@ fn tool_to_skill(tool_name: &str, artifact: &ArtifactReport, agents: &[Agent]) -
         _ => Vec::new(),
     };
 
-    let apis: Vec<String> = a_metadata_endpoints(artifact);
+    let description = skill_description(tool_name);
 
     Skill {
+        id: tool_name.to_string(),
         name: tool_name.to_string(),
         skill_type: skill_type.to_string(),
         trust_level: trust_level.to_string(),
         execution_environment: exec_env.to_string(),
-        description: format!("{} capability", humanize_capability(tool_name)),
+        description,
         permissions,
         dependencies: SkillDependencies {
             libraries: Vec::new(),
             binaries,
-            apis,
+            apis: Vec::new(),
         },
         consumers: find_skill_consumers(tool_name, agents),
+    }
+}
+
+fn skill_description(tool_name: &str) -> String {
+    match tool_name {
+        "shell" | "bash" => {
+            "Executes shell commands via local bash interpreter with unrestricted system access"
+                .to_string()
+        }
+        "python" => {
+            "Executes Python scripts via local interpreter with unrestricted filesystem access"
+                .to_string()
+        }
+        "node" => {
+            "Executes Node.js scripts via local runtime with unrestricted filesystem access"
+                .to_string()
+        }
+        "filesystem" => {
+            "Reads and writes files on the local filesystem".to_string()
+        }
+        "browser" => {
+            "Controls a browser instance for web navigation and interaction".to_string()
+        }
+        "api" => {
+            "Makes HTTP requests to external API services".to_string()
+        }
+        "docker" => {
+            "Manages Docker containers and images via the Docker CLI".to_string()
+        }
+        other => format!("Provides {other} functionality", other = other.replace('_', " ")),
     }
 }
 
@@ -551,10 +634,9 @@ fn infer_permissions(tool_name: &str) -> Vec<SkillPermission> {
 fn find_skill_consumers(tool_name: &str, agents: &[Agent]) -> Vec<SkillConsumer> {
     agents
         .iter()
-        .filter(|agent| {
-            agent.tools.iter().any(|t| t.name == tool_name)
-        })
+        .filter(|agent| agent.tools.iter().any(|t| t.name == tool_name))
         .map(|agent| SkillConsumer {
+            id: agent.id.clone(),
             name: agent.name.clone(),
             consumer_type: "Agent".to_string(),
             invocations: 0,
@@ -618,23 +700,44 @@ fn mcp_entry_to_server(
 
     let verified = artifact.verification_status == "pass";
 
+    // Extract the launch command
+    let command_str = val
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let args: Vec<&str> = val
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    let full_command = if args.is_empty() {
+        command_str.to_string()
+    } else {
+        format!("{} {}", command_str, args.join(" "))
+    };
+
     let tools = extract_mcp_tools(val, name);
 
+    // Build a deterministic ID from the server name + source file
+    let source_path = first_path(artifact);
+    let id = format!("{}-{}", name, short_hash(source_path));
+
     McpServer {
+        id,
         name: name.to_string(),
         network: network.to_string(),
         auth: auth.to_string(),
         verified,
+        command: full_command,
         tools,
         dependent_agents: Vec::new(), // cross-linked after agent building
     }
 }
 
 fn extract_mcp_tools(server_val: &serde_json::Value, server_name: &str) -> Vec<McpTool> {
-    // MCP configs typically declare tools via args or command — infer from structure
     let mut tools = Vec::new();
 
-    // If there's an explicit `tools` array
+    // Explicit tools array
     if let Some(tool_arr) = server_val.get("tools").and_then(|v| v.as_array()) {
         for tool in tool_arr {
             let tool_name = tool
@@ -653,7 +756,7 @@ fn extract_mcp_tools(server_val: &serde_json::Value, server_name: &str) -> Vec<M
         }
     }
 
-    // If no explicit tools, infer from command/args
+    // Infer from command/args when no explicit tools
     if tools.is_empty() {
         let command = server_val
             .get("command")
@@ -687,14 +790,7 @@ fn extract_mcp_tools(server_val: &serde_json::Value, server_name: &str) -> Vec<M
             });
         }
 
-        // Generic fallback if nothing detected
-        if tools.is_empty() {
-            tools.push(McpTool {
-                name: format!("{server_name}_invoke"),
-                risk: "Low".to_string(),
-                description: format!("Invoke {server_name} server"),
-            });
-        }
+        // Per v2 contract: empty array if enumeration fails, no generic stubs
     }
 
     tools
@@ -706,28 +802,25 @@ fn build_agents(
     agent_artifacts: &[&ArtifactReport],
     mcp_artifacts: &[&ArtifactReport],
 ) -> Vec<Agent> {
-    let mut agents = Vec::new();
-
-    for artifact in agent_artifacts {
-        agents.push(artifact_to_agent(artifact, mcp_artifacts));
-    }
-
-    // Also promote cursor_rules that declare significant capabilities as implicit agents
-    agents
+    agent_artifacts
+        .iter()
+        .map(|a| artifact_to_agent(a, mcp_artifacts))
+        .collect()
 }
 
 fn artifact_to_agent(
     a: &ArtifactReport,
     mcp_artifacts: &[&ArtifactReport],
 ) -> Agent {
-    let location = first_path(a);
-    let name = slug_from_path(location);
+    let source_path = first_path(a).to_string();
+    let name = qualified_name(&source_path);
+    let id = make_id(&source_path, &a.artifact_hash);
 
     let caps = derive_capabilities(a);
     let classification = infer_agent_classification(&caps, a);
     let execution_model = infer_execution_model(a);
 
-    let trust_score = (100 - a.risk_score).max(0).min(100);
+    let trust_score = (100 - a.risk_score).clamp(0, 100);
 
     let capabilities: Vec<AgentCapability> = [
         "Filesystem", "Browser", "Network", "Shell", "Database",
@@ -781,14 +874,19 @@ fn artifact_to_agent(
 
     let trust_breakdown = build_trust_breakdown(a);
 
+    // Try to detect source repo from nearest .git/config
+    let source_repo = detect_source_repo(&source_path);
+
     Agent {
+        id,
         name,
+        source_file_path: source_path,
         classification,
         execution_model,
         trust_score,
-        version: "v0.1.0".to_string(),
+        version: "unknown".to_string(),
         author: "unknown".to_string(),
-        source_repo: "unknown".to_string(),
+        source_repo,
         capabilities,
         tools,
         trust_breakdown,
@@ -818,7 +916,6 @@ fn infer_agent_classification(caps: &[String], a: &ArtifactReport) -> String {
 }
 
 fn infer_execution_model(a: &ArtifactReport) -> String {
-    // Look for scheduling/autonomous indicators in signals
     let has_dangerous = a
         .signals
         .iter()
@@ -834,7 +931,6 @@ fn infer_execution_model(a: &ArtifactReport) -> String {
 fn build_trust_breakdown(a: &ArtifactReport) -> Vec<TrustFactor> {
     let mut factors = Vec::new();
 
-    // Base trust from artifact type
     let base = match a.artifact_type.as_str() {
         "agents_md" => 10,
         "cursor_rules" => 5,
@@ -842,30 +938,31 @@ fn build_trust_breakdown(a: &ArtifactReport) -> Vec<TrustFactor> {
     };
     if base > 0 {
         factors.push(TrustFactor {
-            label: format!("Known artifact type: {}", a.artifact_type),
+            label: format!(
+                "Known artifact type: {}",
+                a.artifact_type.replace('_', " ")
+            ),
             delta: base,
         });
     }
 
-    // Deductions from signals
     for signal in &a.signals {
-        let delta = match signal.as_str() {
-            "credential_exposure_signal" => -25,
-            "dangerous_combo:shell+network+fs" => -30,
-            s if s.starts_with("dangerous_keyword:") => -15,
-            "execution_tokens_present" => -10,
-            "shell_access_detected" => -10,
-            _ => 0,
+        let (delta, label) = match signal.as_str() {
+            "credential_exposure_signal" => (-25, "Hardcoded credential or secret pattern detected".to_string()),
+            "dangerous_combo:shell+network+fs" => (-30, "Combined shell, network, and filesystem access — high exfiltration risk".to_string()),
+            s if s.starts_with("dangerous_keyword:") => {
+                let kw = s.strip_prefix("dangerous_keyword:").unwrap_or(s);
+                (-15, format!("Dangerous keyword detected: '{kw}' command"))
+            }
+            "execution_tokens_present" => (-10, "Execution tokens present in MCP configuration".to_string()),
+            "shell_access_detected" => (-10, "Shell access detected in MCP configuration".to_string()),
+            _ => (0, String::new()),
         };
         if delta != 0 {
-            factors.push(TrustFactor {
-                label: signal.clone(),
-                delta,
-            });
+            factors.push(TrustFactor { label, delta });
         }
     }
 
-    // Positive signals
     if a.verification_status == "pass" {
         factors.push(TrustFactor {
             label: "Verification passed".to_string(),
@@ -882,22 +979,18 @@ fn build_agentic_apps(
     container_artifacts: &[&ArtifactReport],
     agents: &[Agent],
 ) -> Vec<AgenticApp> {
-    let mut apps = Vec::new();
-
-    for artifact in container_artifacts {
-        if artifact.artifact_type == "container_config" {
-            apps.push(container_to_app(artifact, agents));
-        }
-    }
-
-    apps
+    container_artifacts
+        .iter()
+        .filter(|a| a.artifact_type == "container_config")
+        .map(|a| container_to_app(a, agents))
+        .collect()
 }
 
 fn container_to_app(a: &ArtifactReport, agents: &[Agent]) -> AgenticApp {
-    let location = first_path(a);
-    let name = slug_from_path(location);
+    let source_path = first_path(a).to_string();
+    let name = qualified_name(&source_path);
+    let id = make_id(&source_path, &a.artifact_hash);
 
-    // Detect framework from AI signals
     let framework = detect_framework(a);
 
     let risk = if a.risk_score >= 70 {
@@ -914,20 +1007,31 @@ fn container_to_app(a: &ArtifactReport, agents: &[Agent]) -> AgenticApp {
         _ => "Unreviewed",
     };
 
-    // Map agents that could participate in this app
-    let app_agents: Vec<AppAgent> = agents
+    // Find agents local to this container's project directory
+    let container_dir = std::path::Path::new(&source_path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let local_agents: Vec<&Agent> = agents
+        .iter()
+        .filter(|ag| ag.source_file_path.starts_with(&container_dir))
+        .collect();
+
+    let app_agents: Vec<AppAgent> = local_agents
         .iter()
         .map(|ag| AppAgent {
+            id: ag.id.clone(),
             name: ag.name.clone(),
         })
         .collect();
 
-    let tools_by_agent: Vec<Vec<String>> = agents
+    let tools_by_agent: Vec<Vec<String>> = local_agents
         .iter()
         .map(|ag| ag.tools.iter().map(|t| t.name.clone()).collect())
         .collect();
 
-    let workflow: Vec<WorkflowStep> = agents
+    let workflow: Vec<WorkflowStep> = local_agents
         .iter()
         .enumerate()
         .map(|(i, ag)| WorkflowStep {
@@ -944,18 +1048,20 @@ fn container_to_app(a: &ArtifactReport, agents: &[Agent]) -> AgenticApp {
     let integrations = build_integrations(a);
     let verification_checks = build_verification_checks(a);
     let risk_tags = build_risk_tags(a);
-    let risk_summary = build_risk_summary(a, risk);
+    let risk_summary = build_risk_summary(&name, a, risk);
+
+    // Derive description from framework + signals
+    let description = build_app_description(a, &framework, &local_agents);
 
     AgenticApp {
+        id,
         name,
+        source_file_path: source_path,
         framework,
-        agent_count: app_agents.len().max(1) as u32,
+        agent_count: app_agents.len() as u32,
         risk: risk.to_string(),
         review_status: review_status.to_string(),
-        description: format!(
-            "Containerized agentic application at {}",
-            location
-        ),
+        description,
         agents: app_agents,
         tools_by_agent,
         workflow,
@@ -963,6 +1069,36 @@ fn container_to_app(a: &ArtifactReport, agents: &[Agent]) -> AgenticApp {
         verification_checks,
         risk_tags,
         risk_summary,
+    }
+}
+
+fn build_app_description(
+    a: &ArtifactReport,
+    framework: &str,
+    local_agents: &[&Agent],
+) -> String {
+    let agent_count = local_agents.len();
+    let has_ai_proximity = a.signals.iter().any(|s| s == "ai_artifact_proximity");
+
+    if agent_count > 0 && has_ai_proximity {
+        let classifications: Vec<&str> = local_agents
+            .iter()
+            .map(|ag| ag.classification.as_str())
+            .collect();
+        let unique_classes: std::collections::BTreeSet<&str> =
+            classifications.into_iter().collect();
+        format!(
+            "Containerized {framework} application with {agent_count} agent(s) performing {} tasks",
+            unique_classes
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(", ")
+                .to_lowercase()
+        )
+    } else if has_ai_proximity {
+        format!("Containerized {framework} application co-located with AI agent artifacts")
+    } else {
+        format!("Containerized application using {framework} orchestration")
     }
 }
 
@@ -993,6 +1129,11 @@ fn build_integrations(a: &ArtifactReport) -> Vec<Integration> {
         .unwrap_or_default();
 
     for ep in &endpoints {
+        // Skip documentation URLs — only include runtime service deps
+        let lower = ep.to_lowercase();
+        if lower.contains("docs.") || lower.contains("/docs/") || lower.contains("readme") {
+            continue;
+        }
         let (name, itype, risk) = classify_endpoint(ep);
         integrations.push(Integration {
             name,
@@ -1053,17 +1194,16 @@ fn build_risk_tags(a: &ArtifactReport) -> Vec<String> {
     tags
 }
 
-fn build_risk_summary(a: &ArtifactReport, risk_level: &str) -> String {
-    let location = first_path(a);
+fn build_risk_summary(app_name: &str, a: &ArtifactReport, risk_level: &str) -> String {
     let reasons: Vec<&str> = a.risk_reasons.iter().map(|r| r.as_str()).collect();
 
     if reasons.is_empty() {
         format!(
-            "{risk_level}-risk containerized application at {location}. No specific risk drivers identified."
+            "{risk_level}-risk containerized application '{app_name}'. No specific risk drivers identified."
         )
     } else {
         format!(
-            "{risk_level}-risk containerized application at {location}. Key risk drivers: {}.",
+            "{risk_level}-risk containerized application '{app_name}'. Key risk drivers: {}.",
             reasons.join(", ")
         )
     }
@@ -1082,30 +1222,88 @@ fn first_path(a: &ArtifactReport) -> &str {
         .unwrap_or("unknown")
 }
 
-fn slug_from_path(path: &str) -> String {
-    std::path::Path::new(path)
+/// Build a project-qualified display name from an absolute path.
+///
+/// E.g. `/Users/will/project/foo/agents.md` → `foo/agents`
+///      `/Users/will/bar/.cursorrules`      → `bar/.cursorrules`
+fn qualified_name(path: &str) -> String {
+    let p = std::path::Path::new(path);
+    let file_name = p
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    let parent_name = p
+        .parent()
+        .and_then(|pp| pp.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+
+    let stem = p
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_lowercase()
-        .replace(' ', "-")
+        .unwrap_or(file_name);
+
+    // For dotfiles, keep the full filename
+    if file_name.starts_with('.') {
+        format!("{parent_name}/{file_name}")
+    } else {
+        format!("{parent_name}/{stem}")
+    }
+}
+
+/// Build a deterministic ID from source path + content hash.
+fn make_id(source_path: &str, artifact_hash: &str) -> String {
+    if !artifact_hash.is_empty() {
+        format!("{}:{}", source_path, &artifact_hash[..12.min(artifact_hash.len())])
+    } else {
+        format!("{}:{}", source_path, short_hash(source_path))
+    }
+}
+
+fn short_hash(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let result = format!("{:x}", hasher.finalize());
+    result[..12].to_string()
+}
+
+fn compute_file_hash(path: &str) -> String {
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        }
+        Err(_) => String::new(),
+    }
+}
+
+/// Try to find the git remote origin URL for a file path.
+fn detect_source_repo(file_path: &str) -> String {
+    let mut dir = std::path::Path::new(file_path).parent();
+    while let Some(d) = dir {
+        let git_config = d.join(".git").join("config");
+        if git_config.exists() {
+            if let Ok(content) = std::fs::read_to_string(&git_config) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("url = ") {
+                        return trimmed
+                            .strip_prefix("url = ")
+                            .unwrap_or("unknown")
+                            .to_string();
+                    }
+                }
+            }
+        }
+        dir = d.parent();
+    }
+    "unknown".to_string()
 }
 
 fn declared_tools(a: &ArtifactReport) -> Vec<String> {
     a.metadata
         .get("declared_tools")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn a_metadata_endpoints(a: &ArtifactReport) -> Vec<String> {
-    a.metadata
-        .get("api_endpoints")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -1149,7 +1347,6 @@ fn read_artifact_head(a: &ArtifactReport) -> Option<String> {
         return None;
     }
     let path = std::path::Path::new(path_str);
-    // Only read files on the content-read allowlist
     if !crate::models::is_content_read_allowed(path) {
         return None;
     }
