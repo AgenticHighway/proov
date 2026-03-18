@@ -1,0 +1,605 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"title": "AH-Verify Scanner Data Contract",
+	"description": "Defines the exact payload shape the Endpoint Scanner must send to the AH-Verify ingestion endpoint. Every field listed here is required unless explicitly marked otherwise. If a field is not requested in this contract, it will not be accepted.",
+	"version": "1.0.0",
+	"type": "object",
+	"required": [
+		"scanMeta",
+		"prompts",
+		"skills",
+		"mcpServers",
+		"agents",
+		"agenticApps"
+	],
+	"additionalProperties": false,
+	"properties": {
+		"scanMeta": {
+			"description": "Metadata about the scan itself. Sent once per payload.",
+			"type": "object",
+			"required": [
+				"scanId",
+				"endpointHostname",
+				"scannedAt",
+				"scannerVersion",
+				"scanDurationMs"
+			],
+			"additionalProperties": false,
+			"properties": {
+				"scanId": {
+					"type": "string",
+					"format": "uuid",
+					"description": "Unique identifier for this scan run."
+				},
+				"endpointHostname": {
+					"type": "string",
+					"description": "Hostname of the scanned endpoint (e.g. 'prod-gpu-node-01')."
+				},
+				"scannedAt": {
+					"type": "string",
+					"format": "date-time",
+					"description": "ISO-8601 timestamp when the scan completed."
+				},
+				"scannerVersion": {
+					"type": "string",
+					"description": "Semantic version of the scanner binary (e.g. '0.3.1')."
+				},
+				"scanDurationMs": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Wall-clock duration of the scan in milliseconds."
+				}
+			}
+		},
+
+		"prompts": {
+			"type": "array",
+			"description": "Every prompt template discovered on the endpoint.",
+			"items": {
+				"type": "object",
+				"required": [
+					"name",
+					"classification",
+					"tokens",
+					"lastChangedDate",
+					"capabilities",
+					"secretRefs",
+					"injectionSurfaces",
+					"dependencies",
+					"riskScore"
+				],
+				"additionalProperties": false,
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Unique slug for this prompt (e.g. 'code-review-agent-system')."
+					},
+					"classification": {
+						"type": "string",
+						"enum": ["System Prompt", "User Prompt", "Tool Prompt"],
+						"description": "Functional role of the prompt."
+					},
+					"tokens": {
+						"type": "integer",
+						"minimum": 0,
+						"description": "Token count of the prompt body (using the model's tokenizer or cl100k_base)."
+					},
+					"lastChangedDate": {
+						"type": "string",
+						"format": "date",
+						"description": "ISO-8601 date (YYYY-MM-DD) when the prompt file was last modified on disk."
+					},
+					"capabilities": {
+						"type": "array",
+						"description": "Capabilities the prompt grants or implies when executed.",
+						"items": {
+							"type": "object",
+							"required": ["text", "level"],
+							"additionalProperties": false,
+							"properties": {
+								"text": {
+									"type": "string",
+									"description": "Human-readable capability label (e.g. 'Shell execution')."
+								},
+								"level": {
+									"type": "string",
+									"enum": ["info", "warn", "danger"],
+									"description": "Severity of the capability."
+								}
+							}
+						}
+					},
+					"secretRefs": {
+						"type": "array",
+						"description": "Credential material found or referenced inside the prompt body.",
+						"items": {
+							"type": "object",
+							"required": ["label", "detail", "tone"],
+							"additionalProperties": false,
+							"properties": {
+								"label": {
+									"type": "string",
+									"description": "Short descriptor (e.g. 'Env var reference (safe)' or 'Hardcoded token found')."
+								},
+								"detail": {
+									"type": "string",
+									"description": "The literal reference or redacted value (e.g. '$OPENAI_API_KEY' or 'sk-proj-****...a4f2')."
+								},
+								"tone": {
+									"type": "string",
+									"enum": ["safe", "danger"],
+									"description": "'safe' for env-var refs. 'danger' for inline/hardcoded secrets."
+								}
+							}
+						}
+					},
+					"injectionSurfaces": {
+						"type": "array",
+						"description": "Prompt injection attack surfaces detected via static analysis.",
+						"items": {
+							"type": "object",
+							"required": ["text", "severity"],
+							"additionalProperties": false,
+							"properties": {
+								"text": {
+									"type": "string",
+									"description": "Description of the injection surface."
+								},
+								"severity": {
+									"type": "string",
+									"enum": ["low", "medium", "high"],
+									"description": "Assessed severity."
+								}
+							}
+						}
+					},
+					"dependencies": {
+						"type": "array",
+						"description": "External services, models, or tools this prompt depends on at runtime.",
+						"items": {"type": "string"}
+					},
+					"riskScore": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 100,
+						"description": "Composite risk score. 0 = no risk, 100 = critical."
+					}
+				}
+			}
+		},
+
+		"skills": {
+			"type": "array",
+			"description": "Every reusable skill/tool discovered on the endpoint.",
+			"items": {
+				"type": "object",
+				"required": [
+					"name",
+					"type",
+					"trustLevel",
+					"executionEnvironment",
+					"description",
+					"permissions",
+					"dependencies",
+					"consumers"
+				],
+				"additionalProperties": false,
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Unique slug for this skill (e.g. 'file-search')."
+					},
+					"type": {
+						"type": "string",
+						"enum": [
+							"Local Function",
+							"HTTP Integration",
+							"CLI Tool",
+							"Remote Service"
+						],
+						"description": "How this skill is implemented."
+					},
+					"trustLevel": {
+						"type": "string",
+						"enum": ["Trusted", "Conditional", "Untrusted"],
+						"description": "Assessed trust posture."
+					},
+					"executionEnvironment": {
+						"type": "string",
+						"enum": ["Local Process", "Container", "Remote API"],
+						"description": "Where this skill runs."
+					},
+					"description": {
+						"type": "string",
+						"description": "One-line summary of what the skill does."
+					},
+					"permissions": {
+						"type": "array",
+						"description": "OS/runtime permissions this skill requires.",
+						"items": {
+							"type": "object",
+							"required": ["name", "required"],
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"type": "string",
+									"description": "Permission label (e.g. 'Filesystem read/write', 'Network access', 'Shell execution', 'Database access', 'Secrets access')."
+								},
+								"required": {
+									"type": "boolean",
+									"description": "Whether this permission is actively used by the skill."
+								}
+							}
+						}
+					},
+					"dependencies": {
+						"type": "object",
+						"description": "Runtime dependency tree.",
+						"required": ["libraries", "binaries", "apis"],
+						"additionalProperties": false,
+						"properties": {
+							"libraries": {
+								"type": "array",
+								"description": "Package dependencies with pinned versions (e.g. 'typescript@5.7').",
+								"items": {"type": "string"}
+							},
+							"binaries": {
+								"type": "array",
+								"description": "System binaries required at runtime (e.g. 'bash', 'git', 'curl').",
+								"items": {"type": "string"}
+							},
+							"apis": {
+								"type": "array",
+								"description": "External API services the skill calls (e.g. 'GitHub API', 'npm Registry').",
+								"items": {"type": "string"}
+							}
+						}
+					},
+					"consumers": {
+						"type": "array",
+						"description": "Agents and apps that invoke this skill.",
+						"items": {
+							"type": "object",
+							"required": ["name", "type", "invocations"],
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"type": "string",
+									"description": "Name of the consuming agent or app."
+								},
+								"type": {
+									"type": "string",
+									"enum": ["Agent", "App"],
+									"description": "Whether the consumer is an agent or an agentic app."
+								},
+								"invocations": {
+									"type": "integer",
+									"minimum": 0,
+									"description": "Total invocation count observed during the scan window."
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+
+		"mcpServers": {
+			"type": "array",
+			"description": "Every MCP server instance discovered on the endpoint.",
+			"items": {
+				"type": "object",
+				"required": [
+					"name",
+					"network",
+					"auth",
+					"verified",
+					"tools",
+					"dependentAgents"
+				],
+				"additionalProperties": false,
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Server identifier (e.g. 'filesystem-server')."
+					},
+					"network": {
+						"type": "string",
+						"enum": ["Local Only", "LAN", "Internet Exposed"],
+						"description": "Network exposure level."
+					},
+					"auth": {
+						"type": "string",
+						"enum": ["API Key", "OAuth", "mTLS", "None"],
+						"description": "Authentication mechanism protecting the server surface."
+					},
+					"verified": {
+						"type": "boolean",
+						"description": "Whether the server's identity and integrity have been cryptographically verified."
+					},
+					"tools": {
+						"type": "array",
+						"description": "Every tool the MCP server exposes.",
+						"items": {
+							"type": "object",
+							"required": ["name", "risk", "description"],
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"type": "string",
+									"description": "Tool function name (e.g. 'run_shell_command')."
+								},
+								"risk": {
+									"type": "string",
+									"enum": ["Low", "Medium", "High"],
+									"description": "Assessed risk level based on capability scope."
+								},
+								"description": {
+									"type": "string",
+									"description": "One-line summary of what the tool does."
+								}
+							}
+						}
+					},
+					"dependentAgents": {
+						"type": "array",
+						"description": "Agents that reference or invoke tools on this server.",
+						"items": {"type": "string"}
+					}
+				}
+			}
+		},
+
+		"agents": {
+			"type": "array",
+			"description": "Every AI agent definition discovered on the endpoint.",
+			"items": {
+				"type": "object",
+				"required": [
+					"name",
+					"classification",
+					"executionModel",
+					"trustScore",
+					"version",
+					"author",
+					"sourceRepo",
+					"capabilities",
+					"tools",
+					"trustBreakdown"
+				],
+				"additionalProperties": false,
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Agent identifier (e.g. 'code-review-bot')."
+					},
+					"classification": {
+						"type": "string",
+						"enum": ["Code", "Automation", "Research", "System"],
+						"description": "Behavioral classification of the agent."
+					},
+					"executionModel": {
+						"type": "string",
+						"enum": ["Autonomous", "User-in-the-loop", "Scheduled"],
+						"description": "How the agent is triggered and supervised."
+					},
+					"trustScore": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 100,
+						"description": "Composite trust score. 0 = untrusted, 100 = fully trusted."
+					},
+					"version": {
+						"type": "string",
+						"description": "Semantic version of the agent definition (e.g. 'v2.1.0')."
+					},
+					"author": {
+						"type": "string",
+						"description": "Team or individual who authored the agent."
+					},
+					"sourceRepo": {
+						"type": "string",
+						"description": "Full repository path (e.g. 'github.com/agentichighway/code-review-bot')."
+					},
+					"capabilities": {
+						"type": "array",
+						"description": "System capabilities the agent has access to.",
+						"items": {
+							"type": "object",
+							"required": ["name", "enabled"],
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"type": "string",
+									"description": "Capability label (e.g. 'Filesystem', 'Browser', 'Network', 'Shell', 'Database')."
+								},
+								"enabled": {
+									"type": "boolean",
+									"description": "Whether this capability is active for the agent."
+								}
+							}
+						}
+					},
+					"tools": {
+						"type": "array",
+						"description": "Tools bound to this agent.",
+						"items": {
+							"type": "object",
+							"required": ["name", "type"],
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"type": "string",
+									"description": "Tool identifier (e.g. 'file-search')."
+								},
+								"type": {
+									"type": "string",
+									"enum": ["skill", "mcp"],
+									"description": "Whether the tool is a local skill or exposed via an MCP server."
+								}
+							}
+						}
+					},
+					"trustBreakdown": {
+						"type": "array",
+						"description": "Line-item factors that contribute to the trust score.",
+						"items": {
+							"type": "object",
+							"required": ["label", "delta"],
+							"additionalProperties": false,
+							"properties": {
+								"label": {
+									"type": "string",
+									"description": "Explanation of the trust factor (e.g. 'High external tool usage')."
+								},
+								"delta": {
+									"type": "integer",
+									"description": "Signed integer adjustment to the trust score. Negative = risk factor, positive = trust signal."
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+
+		"agenticApps": {
+			"type": "array",
+			"description": "Every multi-agent application or workflow discovered on the endpoint.",
+			"items": {
+				"type": "object",
+				"required": [
+					"name",
+					"framework",
+					"agentCount",
+					"risk",
+					"reviewStatus",
+					"description",
+					"agents",
+					"toolsByAgent",
+					"workflow",
+					"integrations",
+					"verificationChecks",
+					"riskTags",
+					"riskSummary"
+				],
+				"additionalProperties": false,
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Application identifier (e.g. 'code-review-pipeline')."
+					},
+					"framework": {
+						"type": "string",
+						"description": "Orchestration framework (e.g. 'LangGraph', 'CrewAI', 'AutoGen', 'Custom')."
+					},
+					"agentCount": {
+						"type": "integer",
+						"minimum": 1,
+						"description": "Number of distinct agents participating in this app."
+					},
+					"risk": {
+						"type": "string",
+						"enum": ["Low", "Medium", "High"],
+						"description": "Overall assessed risk level."
+					},
+					"reviewStatus": {
+						"type": "string",
+						"enum": ["Reviewed", "Unreviewed", "Flagged"],
+						"description": "Whether a human has reviewed this app's configuration."
+					},
+					"description": {
+						"type": "string",
+						"description": "One-line summary of what the app does."
+					},
+					"agents": {
+						"type": "array",
+						"description": "The ordered list of agents in the pipeline. Index aligns with toolsByAgent.",
+						"items": {
+							"type": "object",
+							"required": ["name"],
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"type": "string",
+									"description": "Agent identifier within this app."
+								}
+							}
+						}
+					},
+					"toolsByAgent": {
+						"type": "array",
+						"description": "Tools grouped by agent. toolsByAgent[i] corresponds to agents[i].",
+						"items": {
+							"type": "array",
+							"items": {"type": "string"},
+							"description": "List of tool names available to this agent."
+						}
+					},
+					"workflow": {
+						"type": "array",
+						"description": "Ordered steps in the app's execution pipeline.",
+						"items": {
+							"type": "object",
+							"required": ["step", "agent", "action"],
+							"additionalProperties": false,
+							"properties": {
+								"step": {
+									"type": "integer",
+									"minimum": 1,
+									"description": "1-based step ordinal."
+								},
+								"agent": {
+									"type": "string",
+									"description": "Display name of the agent performing this step."
+								},
+								"action": {
+									"type": "string",
+									"description": "Description of what happens in this step."
+								}
+							}
+						}
+					},
+					"integrations": {
+						"type": "array",
+						"description": "External systems the app connects to.",
+						"items": {
+							"type": "object",
+							"required": ["name", "type", "risk"],
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"type": "string",
+									"description": "Integration target (e.g. 'GitHub API', 'CRM API')."
+								},
+								"type": {
+									"type": "string",
+									"description": "Category (e.g. 'REST API', 'Database', 'Webhook', 'Execution Env', 'Internal Service', 'Web Source')."
+								},
+								"risk": {
+									"type": "string",
+									"enum": ["Low", "Medium", "High"],
+									"description": "Risk level of this integration."
+								}
+							}
+						}
+					},
+					"verificationChecks": {
+						"type": "array",
+						"description": "Checklist labels the scanner evaluated. The dashboard derives pass/warn/fail from this list plus risk and reviewStatus.",
+						"items": {"type": "string"}
+					},
+					"riskTags": {
+						"type": "array",
+						"description": "Short risk labels surfaced in the UI (e.g. 'Autonomous Code Execution', 'No Sandbox Isolation').",
+						"items": {"type": "string"}
+					},
+					"riskSummary": {
+						"type": "string",
+						"description": "Paragraph-length risk narrative for this app."
+					}
+				}
+			}
+		}
+	}
+}
