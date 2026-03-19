@@ -8,7 +8,7 @@ use crate::lite_mode::{limit_lite_mode_report, print_locked_summary, LITE_MODE_V
 use crate::models::ScanReport;
 use crate::plugins;
 use crate::scan::run_scan;
-use crate::submit::load_submission_config;
+use crate::submit::{load_auth_config, load_submission_config, save_auth_config, submit_contract_payload, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT};
 
 // ---------------------------------------------------------------------------
 // CLI argument definitions
@@ -59,6 +59,15 @@ pub enum Commands {
         #[command(subcommand)]
         action: PluginAction,
     },
+    /// Configure API credentials for scan submission
+    Auth {
+        /// API key (e.g. ah_xxxx)
+        #[arg(long)]
+        key: String,
+        /// Ingest endpoint URL (defaults to production)
+        #[arg(long)]
+        endpoint: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -102,6 +111,9 @@ pub struct OutputArgs {
     /// Output JSON conforming to the AH-Verify data contract
     #[arg(long)]
     pub contract: bool,
+    /// Submit scan results to the configured ingest endpoint
+    #[arg(long)]
+    pub submit: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +235,9 @@ fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
             file: None,
             deep: true,
         },
-        Commands::Plugins { .. } => unreachable!("handled before scan dispatch"),
+        Commands::Plugins { .. } | Commands::Auth { .. } => {
+            unreachable!("handled before scan dispatch")
+        }
     }
 }
 
@@ -234,7 +248,9 @@ fn output_args(cmd: &Commands) -> &OutputArgs {
         | Commands::File { output, .. }
         | Commands::Folder { output, .. }
         | Commands::Repo { output, .. } => output,
-        Commands::Plugins { .. } => unreachable!("handled before output dispatch"),
+        Commands::Plugins { .. } | Commands::Auth { .. } => {
+            unreachable!("handled before output dispatch")
+        }
     }
 }
 
@@ -311,6 +327,27 @@ pub fn run() {
         return;
     }
 
+    // Handle auth command
+    if let Commands::Auth { key, endpoint } = &cmd {
+        let config = AuthConfig {
+            endpoint: endpoint
+                .clone()
+                .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string()),
+            api_key: key.clone(),
+        };
+        match save_auth_config(&config) {
+            Ok(()) => {
+                eprintln!("Credentials saved.");
+                eprintln!("  Endpoint: {}", config.endpoint);
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     let access = load_access_config();
     let _submission = load_submission_config(None);
 
@@ -329,7 +366,10 @@ pub fn run() {
         let payload = build_contract_payload(&report, scan_duration_ms);
         let json = serde_json::to_string_pretty(&payload)
             .expect("contract payload serialization");
-        println!("{json}");
+
+        if !out.submit {
+            println!("{json}");
+        }
 
         if let Some(maybe_path) = &out.out {
             let dest = match maybe_path {
@@ -340,6 +380,56 @@ pub fn run() {
                 eprintln!("Error writing contract to {}: {}", dest.display(), e);
             } else {
                 eprintln!("Contract written to {}", dest.display());
+            }
+        }
+
+        if out.submit {
+            let auth = match load_auth_config() {
+                Some(a) => a,
+                None => {
+                    eprintln!("No credentials configured. Run `ahscan auth --key <your-key>` first.");
+                    std::process::exit(1);
+                }
+            };
+            eprintln!("Submitting scan to {}...", auth.endpoint);
+            match submit_contract_payload(&json, &auth) {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("Submission failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    } else if out.submit {
+        // --submit without --contract: build contract payload automatically
+        let payload = build_contract_payload(&report, scan_duration_ms);
+        let json = serde_json::to_string_pretty(&payload)
+            .expect("contract payload serialization");
+
+        // Write to file
+        let dest = match &out.out {
+            Some(Some(p)) => p.clone(),
+            _ => PathBuf::from("ahscan-contract.json"),
+        };
+        if let Err(e) = fs::write(&dest, &json) {
+            eprintln!("Error writing contract to {}: {}", dest.display(), e);
+        } else {
+            eprintln!("Contract written to {}", dest.display());
+        }
+
+        let auth = match load_auth_config() {
+            Some(a) => a,
+            None => {
+                eprintln!("No credentials configured. Run `ahscan auth --key <your-key>` first.");
+                std::process::exit(1);
+            }
+        };
+        eprintln!("Submitting scan to {}...", auth.endpoint);
+        match submit_contract_payload(&json, &auth) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Submission failed: {e}");
+                std::process::exit(1);
             }
         }
     } else {

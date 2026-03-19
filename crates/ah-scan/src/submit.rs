@@ -2,12 +2,14 @@
 //!
 //! All pure payload-building logic lives in `crate::payload`.  This module
 //! handles the parts that touch the outside world: reading config files,
-//! resolving identities, writing audit logs, and (eventually) posting to the
-//! ingest API.
+//! resolving identities, writing audit logs, and posting to the ingest API.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::identity::{is_valid_uuid, resolve_scanner_account_uuid, resolve_scanner_uuid};
@@ -15,6 +17,7 @@ use crate::network::ensure_endpoint_allowed;
 use crate::payload::build_ingest_payload;
 
 pub const DEFAULT_INGEST_ENDPOINT: &str = "http://localhost:3000/api/ingest";
+pub const DEFAULT_PRODUCTION_ENDPOINT: &str = "https://verify.agentichighway.ai/api/scans/ingest";
 pub const DEFAULT_TIMEOUT_SECONDS: f64 = 10.0;
 
 // ---------------------------------------------------------------------------
@@ -164,30 +167,171 @@ pub fn append_submission_audit(audit_path: &Path, event: &Value) {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP submission (stub)
+// Global auth config (~/.config/ahscan/config.json)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthConfig {
+    pub endpoint: String,
+    #[serde(rename = "apiKey")]
+    pub api_key: String,
+}
+
+/// Return the path to `~/.config/ahscan/config.json`.
+pub fn auth_config_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("ahscan").join("config.json"))
+}
+
+/// Load the global auth config. Returns `None` if the file doesn't exist.
+pub fn load_auth_config() -> Option<AuthConfig> {
+    let path = auth_config_path()?;
+    let content = fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Save the global auth config to `~/.config/ahscan/config.json`.
+pub fn save_auth_config(config: &AuthConfig) -> Result<(), String> {
+    let path = auth_config_path()
+        .ok_or_else(|| "Could not determine config directory".to_string())?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {e}"))?;
+    }
+    let json = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("Failed to serialize config: {e}"))?;
+    fs::write(&path, json)
+        .map_err(|e| format!("Failed to write config to {}: {e}", path.display()))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// HTTP submission with retry
+// ---------------------------------------------------------------------------
+
+/// Backoff schedule in seconds for transient failures.
+const BACKOFF_SECONDS: [u64; 3] = [5, 30, 120];
+const MAX_ATTEMPTS: usize = 3;
+
+/// HTTP status codes considered transient (retryable).
+fn is_retryable(status: u16) -> bool {
+    matches!(status, 429 | 502 | 503 | 504)
+}
+
+/// Submit the contract payload to the ingest endpoint.
+///
+/// Uses the global `AuthConfig` for the endpoint and bearer token.
+/// Retries transient failures with exponential backoff.
+pub fn submit_contract_payload(
+    payload_json: &str,
+    auth: &AuthConfig,
+) -> Result<(), String> {
+    let mut last_err = String::new();
+
+    for attempt in 0..MAX_ATTEMPTS {
+        if attempt > 0 {
+            eprintln!("  Attempt {}/{MAX_ATTEMPTS}...", attempt + 1);
+        }
+
+        let result = ureq::post(&auth.endpoint)
+            .set("Content-Type", "application/json")
+            .set("Authorization", &format!("Bearer {}", auth.api_key))
+            .send_string(payload_json);
+
+        match result {
+            Ok(response) => {
+                let status = response.status();
+                match status {
+                    201 => {
+                        let body: Value = response.into_json().unwrap_or(json!({}));
+                        let scan_id = body.get("scanId")
+                            .or_else(|| body.get("scan_id"))
+                            .or_else(|| body.get("id"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        eprintln!("Scan accepted: {scan_id}");
+                        return Ok(());
+                    }
+                    200 => {
+                        eprintln!("Scan already submitted (duplicate).");
+                        return Ok(());
+                    }
+                    _ => {
+                        // Shouldn't reach here for 2xx — treat as success
+                        return Ok(());
+                    }
+                }
+            }
+            Err(ureq::Error::Status(status, response)) => {
+                match status {
+                    400 => {
+                        let body = response.into_string().unwrap_or_default();
+                        return Err(format!(
+                            "Server rejected payload (400): {body}\n\
+                             This is likely a scanner bug — the payload doesn't match the contract."
+                        ));
+                    }
+                    401 => {
+                        return Err(
+                            "Authentication failed (401). Run `ahscan auth --key <your-key>` to configure credentials."
+                                .into(),
+                        );
+                    }
+                    413 => {
+                        let size_kb = payload_json.len() / 1024;
+                        return Err(format!(
+                            "Payload too large (413): ~{size_kb} KB. Try reducing scan scope."
+                        ));
+                    }
+                    s if is_retryable(s) => {
+                        let wait = if s == 429 {
+                            // Respect Retry-After header if present
+                            response
+                                .header("Retry-After")
+                                .and_then(|v| v.parse::<u64>().ok())
+                                .unwrap_or(BACKOFF_SECONDS[attempt])
+                        } else {
+                            BACKOFF_SECONDS[attempt]
+                        };
+                        last_err = format!("Server returned {s}");
+                        eprintln!("  {last_err}, retrying in {wait}s...");
+                        thread::sleep(Duration::from_secs(wait));
+                        continue;
+                    }
+                    _ => {
+                        let body = response.into_string().unwrap_or_default();
+                        return Err(format!("Server error ({status}): {body}"));
+                    }
+                }
+            }
+            Err(ureq::Error::Transport(e)) => {
+                last_err = format!("Connection error: {e}");
+                if attempt < MAX_ATTEMPTS - 1 {
+                    let wait = BACKOFF_SECONDS[attempt];
+                    eprintln!("  {last_err}, retrying in {wait}s...");
+                    thread::sleep(Duration::from_secs(wait));
+                    continue;
+                }
+            }
+        }
+    }
+
+    Err(format!("Failed after {MAX_ATTEMPTS} attempts: {last_err}"))
+}
+
+// ---------------------------------------------------------------------------
+// Legacy HTTP submission (stub, kept for old submit flow)
 // ---------------------------------------------------------------------------
 
 /// Submit the pre-built payload to the configured ingest endpoint.
-///
-/// # Errors
-///
-/// Returns `Err` if the endpoint fails validation or if the HTTP client is
-/// not yet wired up.
 pub fn submit_payload(
     payload: &Value,
     config: &SubmissionConfig,
 ) -> Result<Value, String> {
     ensure_endpoint_allowed(&config.endpoint, config.allow_public_endpoint)?;
 
-    // TODO: implement HTTP POST once an HTTP client crate (ureq or reqwest)
-    //       is added to Cargo.toml.  The call should:
-    //       1. Set Content-Type: application/json
-    //       2. Attach Bearer token from config.token if present
-    //       3. Respect config.timeout_seconds
-    //       4. Return the parsed JSON response body on 2xx
-    let _ = payload; // suppress unused-variable warning in stub
+    let _ = payload;
     Err(
-        "HTTP submission not yet implemented — use JSON output and submit manually"
+        "Legacy submission path — use --submit with auth config instead"
             .into(),
     )
 }
@@ -281,11 +425,11 @@ mod tests {
     }
 
     #[test]
-    fn submit_payload_stub_returns_not_implemented() {
+    fn submit_payload_stub_returns_legacy_message() {
         let cfg = SubmissionConfig::default();
         let result = submit_payload(&json!({}), &cfg);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not yet implemented"));
+        assert!(result.unwrap_err().contains("Legacy"));
     }
 
     #[test]
