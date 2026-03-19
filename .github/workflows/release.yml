@@ -38,39 +38,20 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - name: Install Rust toolchain (Windows)
-              if: runner.os == 'Windows'
-              uses: useblacksmith/rust-toolchain@v1
-              with:
-                  targets: ${{ matrix.target }}
-
-            - name: Cache Cargo (Windows)
-              if: runner.os == 'Windows'
-              uses: useblacksmith/rust-cache@v3
-              with:
-                  key: ${{ matrix.target }}
-
-            - name: Install Rust toolchain (macOS)
-              if: runner.os == 'macOS'
+            - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
               with:
                   targets: ${{ matrix.target }}
 
-            - name: Cache Cargo (macOS)
-              if: runner.os == 'macOS'
-              uses: Swatinem/rust-cache@v2
+            - name: Cache Cargo (Blacksmith runners)
+              if: runner.os == 'Linux' || runner.os == 'Windows'
+              uses: useblacksmith/rust-cache@v3
               with:
                   key: ${{ matrix.target }}
 
-            - name: Install Rust toolchain (Linux)
-              if: runner.os == 'Linux'
-              uses: useblacksmith/rust-toolchain@v1
-              with:
-                  targets: ${{ matrix.target }}
-
-            - name: Cache Cargo (Linux)
-              if: runner.os == 'Linux'
-              uses: useblacksmith/rust-cache@v3
+            - name: Cache Cargo (macOS)
+              if: runner.os == 'macOS'
+              uses: Swatinem/rust-cache@v2
               with:
                   key: ${{ matrix.target }}
 
