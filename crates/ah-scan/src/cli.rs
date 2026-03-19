@@ -111,9 +111,12 @@ pub struct OutputArgs {
     /// Output JSON conforming to the AH-Verify data contract
     #[arg(long)]
     pub contract: bool,
-    /// Submit scan results to the configured ingest endpoint
-    #[arg(long)]
-    pub submit: bool,
+    /// Submit scan results to the given URL (or the configured default)
+    #[arg(long, value_name = "URL")]
+    pub submit: Option<Option<String>>,
+    /// API key for submission (overrides config file)
+    #[arg(long, value_name = "KEY")]
+    pub api_key: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -362,12 +365,14 @@ pub fn run() {
     report = apply_access_gate(report, &access);
     filter_by_severity(&mut report, min_score);
 
+    let wants_submit = out.submit.is_some();
+
     if out.contract {
         let payload = build_contract_payload(&report, scan_duration_ms);
         let json = serde_json::to_string_pretty(&payload)
             .expect("contract payload serialization");
 
-        if !out.submit {
+        if !wants_submit {
             println!("{json}");
         }
 
@@ -383,24 +388,10 @@ pub fn run() {
             }
         }
 
-        if out.submit {
-            let auth = match load_auth_config() {
-                Some(a) => a,
-                None => {
-                    eprintln!("No credentials configured. Run `ahscan auth --key <your-key>` first.");
-                    std::process::exit(1);
-                }
-            };
-            eprintln!("Submitting scan to {}...", auth.endpoint);
-            match submit_contract_payload(&json, &auth) {
-                Ok(()) => {}
-                Err(e) => {
-                    eprintln!("Submission failed: {e}");
-                    std::process::exit(1);
-                }
-            }
+        if wants_submit {
+            do_submit(&json, &out.submit, out.api_key.as_deref());
         }
-    } else if out.submit {
+    } else if wants_submit {
         // --submit without --contract: build contract payload automatically
         let payload = build_contract_payload(&report, scan_duration_ms);
         let json = serde_json::to_string_pretty(&payload)
@@ -417,22 +408,55 @@ pub fn run() {
             eprintln!("Contract written to {}", dest.display());
         }
 
-        let auth = match load_auth_config() {
-            Some(a) => a,
-            None => {
-                eprintln!("No credentials configured. Run `ahscan auth --key <your-key>` first.");
-                std::process::exit(1);
-            }
-        };
-        eprintln!("Submitting scan to {}...", auth.endpoint);
-        match submit_contract_payload(&json, &auth) {
-            Ok(()) => {}
-            Err(e) => {
-                eprintln!("Submission failed: {e}");
-                std::process::exit(1);
-            }
-        }
+        do_submit(&json, &out.submit, out.api_key.as_deref());
     } else {
         emit(&report, out.json, &out.out, out.summary, out.full);
+    }
+}
+
+/// Resolve auth (from flags + config file) and POST the payload.
+fn do_submit(
+    payload_json: &str,
+    submit_flag: &Option<Option<String>>,
+    api_key_flag: Option<&str>,
+) {
+    // Load saved config as baseline
+    let saved = load_auth_config();
+
+    // Resolve endpoint: --submit <url> > config file > default
+    let endpoint = match submit_flag {
+        Some(Some(url)) => url.clone(),
+        _ => saved
+            .as_ref()
+            .map(|c| c.endpoint.clone())
+            .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string()),
+    };
+
+    // Resolve API key: --api-key > config file
+    let api_key = match api_key_flag {
+        Some(k) => k.to_string(),
+        None => match saved.as_ref().map(|c| c.api_key.clone()) {
+            Some(k) => k,
+            None => {
+                eprintln!(
+                    "No API key provided. Pass --api-key or run `ah-scan auth --key <your-key>`."
+                );
+                std::process::exit(1);
+            }
+        },
+    };
+
+    let auth = AuthConfig {
+        endpoint,
+        api_key,
+    };
+
+    eprintln!("Submitting scan to {}...", auth.endpoint);
+    match submit_contract_payload(payload_json, &auth) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("Submission failed: {e}");
+            std::process::exit(1);
+        }
     }
 }

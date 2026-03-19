@@ -251,18 +251,18 @@ pub fn submit_contract_payload(
                         eprintln!("Scan accepted: {scan_id}");
                         return Ok(());
                     }
-                    200 => {
-                        eprintln!("Scan already submitted (duplicate).");
-                        return Ok(());
-                    }
                     _ => {
-                        // Shouldn't reach here for 2xx — treat as success
+                        // Any other 2xx — treat as success
                         return Ok(());
                     }
                 }
             }
             Err(ureq::Error::Status(status, response)) => {
                 match status {
+                    409 => {
+                        eprintln!("Scan already submitted (duplicate).");
+                        return Ok(());
+                    }
                     400 => {
                         let body = response.into_string().unwrap_or_default();
                         return Err(format!(
