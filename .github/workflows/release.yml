@@ -32,7 +32,7 @@ jobs:
                       os: blacksmith-4vcpu-ubuntu-2204
                       artifact: ah-scanner-linux-amd64
                     - target: x86_64-pc-windows-msvc
-                      os: blacksmith-4vcpu-windows-2022
+                      os: blacksmith-4vcpu-windows-2025
                       artifact: ah-scanner-windows-amd64.exe
         runs-on: ${{ matrix.os }}
         steps:
