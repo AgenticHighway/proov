@@ -12,3 +12,4 @@ target/
 *.swo
 .DS_Store
 ._*
+test-runs/
