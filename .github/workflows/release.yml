@@ -1,0 +1,128 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*"
+
+permissions:
+    id-token: write
+    contents: write
+
+env:
+    CARGO_TERM_COLOR: always
+    BINARY_NAME: ah-scan
+
+jobs:
+    build:
+        strategy:
+            matrix:
+                include:
+                    - target: aarch64-apple-darwin
+                      os: macos-latest
+                      artifact: ah-scanner-darwin-arm64
+                    - target: x86_64-apple-darwin
+                      os: macos-latest
+                      artifact: ah-scanner-darwin-amd64
+                    - target: aarch64-unknown-linux-gnu
+                      os: ubuntu-latest
+                      artifact: ah-scanner-linux-arm64
+                      cross: true
+                    - target: x86_64-unknown-linux-gnu
+                      os: ubuntu-latest
+                      artifact: ah-scanner-linux-amd64
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            - name: Install cross-compilation tools (Linux ARM64)
+              if: matrix.cross
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y gcc-aarch64-linux-gnu
+                  echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+            - name: Build release binary
+              run: cargo build --release --target ${{ matrix.target }} -p ah-scan
+
+            - name: Rename binary
+              run: cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} ${{ matrix.artifact }}
+
+            - name: Upload build artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ matrix.artifact }}
+                  path: ${{ matrix.artifact }}
+
+    release:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: artifacts
+
+            - name: Collect binaries
+              run: |
+                  mkdir -p release
+                  for dir in artifacts/ah-scanner-*; do
+                    name=$(basename "$dir")
+                    cp "$dir/$name" "release/$name"
+                  done
+                  ls -lh release/
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  generate_release_notes: true
+                  files: release/*
+
+    upload-s3:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: artifacts
+
+            - name: Collect binaries
+              run: |
+                  mkdir -p release
+                  for dir in artifacts/ah-scanner-*; do
+                    name=$(basename "$dir")
+                    cp "$dir/$name" "release/$name"
+                  done
+
+            - name: Configure AWS credentials (OIDC)
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  role-to-assume: ${{ secrets.SCANNER_RELEASE_ROLE_ARN }}
+                  aws-region: us-east-1
+
+            - name: Extract tag
+              id: tag
+              run: echo "TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+            - name: Upload binaries to S3
+              run: |
+                  TAG="${{ steps.tag.outputs.TAG }}"
+                  for file in release/ah-scanner-*; do
+                    name=$(basename "$file")
+                    echo "Uploading $name → s3://ah-scanner-releases/${TAG}/${name}"
+                    aws s3 cp "$file" "s3://ah-scanner-releases/${TAG}/${name}"
+                  done
+
+            - name: Write latest.json
+              run: |
+                  TAG="${{ steps.tag.outputs.TAG }}"
+                  echo "{\"version\":\"${TAG}\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" | \
+                    aws s3 cp - s3://ah-scanner-releases/latest.json --content-type application/json
