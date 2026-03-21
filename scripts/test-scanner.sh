@@ -146,6 +146,7 @@ fi
 
 section "Help & version"
 expect_ok    "ah-scan --help"         $RUN --help
+expect_ok    "ah-scan --version"      $RUN --version
 expect_ok    "ah-scan scan --help"    $RUN scan --help
 expect_ok    "ah-scan quick --help"   $RUN quick --help
 expect_ok    "ah-scan full --help"    $RUN full --help
@@ -155,6 +156,15 @@ expect_ok    "ah-scan repo --help"    $RUN repo --help
 expect_ok    "ah-scan plugins --help" $RUN plugins --help
 expect_ok    "ah-scan auth --help"    $RUN auth --help
 expect_ok    "ah-scan setup --help"   $RUN setup --help
+expect_ok    "ah-scan update --help"  $RUN update --help
+
+# Version flag output contains version number
+VERSION_OUT=$($RUN --version 2>&1) || true
+if echo "$VERSION_OUT" | grep -qE '^ah-scan [0-9]+\.[0-9]+\.[0-9]+$'; then
+    pass "--version prints semver"
+else
+    fail "--version output unexpected: $VERSION_OUT"
+fi
 
 # ── 2. Single file scan ─────────────────────────────────────────────
 
@@ -458,7 +468,32 @@ elif [ -f "$AUTH_CONFIG" ]; then
     dim "  Cleaned up test config"
 fi
 
-# ── 13. Local submission ──────────────────────────────────────────────
+# ── 13. Self-update system ────────────────────────────────────────────
+
+section "Self-update system"
+
+# update --help should work
+expect_ok "ah-scan update --help" $RUN update --help
+
+# update --check should fail gracefully (S3 manifest may not be reachable)
+UPDATE_CHECK_OUT=$($RUN update --check 2>&1) && UPDATE_CHECK_OK=true || UPDATE_CHECK_OK=false
+if [ "$UPDATE_CHECK_OK" = true ]; then
+    pass "update --check succeeded"
+elif echo "$UPDATE_CHECK_OUT" | grep -qE "latest version|Update available|Failed to fetch"; then
+    pass "update --check reports status or network error correctly"
+else
+    fail "update --check unexpected output: $UPDATE_CHECK_OUT"
+fi
+
+# update without --force should not crash (will fail on missing manifest, that's ok)
+UPDATE_OUT=$($RUN update 2>&1) || true
+if echo "$UPDATE_OUT" | grep -qE "latest version|Update available|Failed to fetch|update manifest"; then
+    pass "update reports status or error gracefully"
+else
+    fail "update unexpected output: $UPDATE_OUT"
+fi
+
+# ── 14. Local submission ──────────────────────────────────────────────
 
 section "Local submission (localhost:3000)"
 
@@ -509,7 +544,7 @@ else
     skip "local submit — no server at localhost:3000"
 fi
 
-# ── 14. Remote submission ─────────────────────────────────────────────
+# ── 15. Remote submission ─────────────────────────────────────────────
 
 section "Remote submission (verify.agentichighway.ai)"
 

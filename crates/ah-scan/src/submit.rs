@@ -235,6 +235,7 @@ pub fn submit_contract_payload(
         let result = ureq::post(&auth.endpoint)
             .set("Content-Type", "application/json")
             .set("Authorization", &format!("Bearer {}", auth.api_key))
+            .set("User-Agent", &crate::updater::user_agent_string())
             .send_string(payload_json);
 
         match result {

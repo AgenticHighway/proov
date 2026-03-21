@@ -143,8 +143,56 @@ jobs:
                     aws s3 cp "$file" "s3://ah-scanner-releases/${TAG}/${name}"
                   done
 
-            - name: Write latest.json
+            - name: Generate SHA-256 checksums
+              id: checksums
+              run: |
+                  for file in release/ah-scanner-*; do
+                    name=$(basename "$file")
+                    hash=$(sha256sum "$file" | awk '{print $1}')
+                    echo "SHA256 $name = $hash"
+                    # Export as step outputs (replace dots/dashes with underscores for env var names)
+                    key=$(echo "$name" | sed 's/[^a-zA-Z0-9]/_/g')
+                    echo "${key}=${hash}" >> "$GITHUB_OUTPUT"
+                  done
+
+            - name: Write latest.json with checksums
               run: |
                   TAG="${{ steps.tag.outputs.TAG }}"
-                  echo "{\"version\":\"${TAG}\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" | \
-                    aws s3 cp - s3://ah-scanner-releases/latest.json --content-type application/json
+                  S3_BASE="https://ah-scanner-releases.s3.amazonaws.com/${TAG}"
+                  DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+                  # Build the manifest JSON with per-platform checksums
+                  cat > /tmp/latest.json <<EOF
+                  {
+                    "version": "${TAG}",
+                    "date": "${DATE}",
+                    "artifacts": {
+                      "darwin-arm64": {
+                        "url": "${S3_BASE}/ah-scanner-darwin-arm64.tar.gz",
+                        "sha256": "${{ steps.checksums.outputs.ah_scanner_darwin_arm64_tar_gz }}"
+                      },
+                      "darwin-amd64": {
+                        "url": "${S3_BASE}/ah-scanner-darwin-amd64.tar.gz",
+                        "sha256": "${{ steps.checksums.outputs.ah_scanner_darwin_amd64_tar_gz }}"
+                      },
+                      "linux-arm64": {
+                        "url": "${S3_BASE}/ah-scanner-linux-arm64.tar.gz",
+                        "sha256": "${{ steps.checksums.outputs.ah_scanner_linux_arm64_tar_gz }}"
+                      },
+                      "linux-amd64": {
+                        "url": "${S3_BASE}/ah-scanner-linux-amd64.tar.gz",
+                        "sha256": "${{ steps.checksums.outputs.ah_scanner_linux_amd64_tar_gz }}"
+                      },
+                      "windows-amd64": {
+                        "url": "${S3_BASE}/ah-scanner-windows-amd64.exe",
+                        "sha256": "${{ steps.checksums.outputs.ah_scanner_windows_amd64_exe }}"
+                      }
+                    }
+                  }
+                  EOF
+
+                  echo "Generated latest.json:"
+                  cat /tmp/latest.json
+
+                  aws s3 cp /tmp/latest.json s3://ah-scanner-releases/latest.json \
+                    --content-type application/json

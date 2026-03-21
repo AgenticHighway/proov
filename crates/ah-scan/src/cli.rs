@@ -17,7 +17,8 @@ use crate::submit::{load_auth_config, load_submission_config, save_auth_config, 
 #[derive(Parser)]
 #[command(
     name = "ah-scan",
-    about = "AI Execution Inventory — detect, analyze, and report AI execution artifacts."
+    about = "AI Execution Inventory — detect, analyze, and report AI execution artifacts.",
+    version = env!("CARGO_PKG_VERSION"),
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -75,6 +76,15 @@ pub enum Commands {
     },
     /// Run (or re-run) the interactive setup wizard
     Setup,
+    /// Check for updates and self-update the scanner binary
+    Update {
+        /// Only check for updates — don't download or install
+        #[arg(long)]
+        check: bool,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -251,7 +261,7 @@ fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
             file: None,
             deep: true,
         },
-        Commands::Plugins { .. } | Commands::Auth { .. } | Commands::Setup => {
+        Commands::Plugins { .. } | Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } => {
             unreachable!("handled before scan dispatch")
         }
     }
@@ -265,7 +275,7 @@ fn output_args(cmd: &Commands) -> &OutputArgs {
         | Commands::File { output, .. }
         | Commands::Folder { output, .. }
         | Commands::Repo { output, .. } => output,
-        Commands::Plugins { .. } | Commands::Auth { .. } | Commands::Setup => {
+        Commands::Plugins { .. } | Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } => {
             unreachable!("handled before output dispatch")
         }
     }
@@ -353,6 +363,38 @@ pub fn run() {
     // Handle setup command
     if matches!(cmd, Commands::Setup) {
         crate::setup::run_setup(true);
+        return;
+    }
+
+    // Handle update command
+    if let Commands::Update { check, force } = &cmd {
+        if *check {
+            match crate::updater::check_for_update(10) {
+                Ok(result) => {
+                    if result.is_newer {
+                        eprintln!(
+                            "Update available: {} → {}",
+                            result.current_version, result.latest_version
+                        );
+                        eprintln!("Run `ah-scan update` to install.");
+                    } else {
+                        eprintln!(
+                            "You are running the latest version ({}).",
+                            result.current_version
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Update check failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            if let Err(e) = crate::updater::perform_update(*force) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
         return;
     }
 
@@ -455,6 +497,9 @@ pub fn run() {
     } else {
         emit(&report, scan_duration_ms, out.json, &out.out, out.summary, out.full);
     }
+
+    // Passive update check after scan completes
+    crate::updater::passive_update_check();
 }
 
 /// Resolve auth (from flags + config file) and POST the payload.
