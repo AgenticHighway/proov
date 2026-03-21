@@ -73,10 +73,10 @@ This should produce zero warnings. Fix any that appear before submitting a PR.
 
 The workspace has two crates:
 
-| Crate | Path | Purpose |
-|-------|------|---------|
-| `ah-scan` | `crates/ah-scan/` | The CLI binary — all the scanning logic |
-| `ah-scan-sdk` | `crates/ah-scan-sdk/` | Shared types for WASM plugins |
+| Crate         | Path                  | Purpose                                 |
+| ------------- | --------------------- | --------------------------------------- |
+| `ah-scan`     | `crates/ah-scan/`     | The CLI binary — all the scanning logic |
+| `ah-scan-sdk` | `crates/ah-scan-sdk/` | Shared types for WASM plugins           |
 
 For detailed architecture, see [docs/architecture.md](docs/architecture.md).
 
@@ -92,22 +92,24 @@ For detailed architecture, see [docs/architecture.md](docs/architecture.md).
 ### Making changes
 
 1. Create a branch from `main`:
-   ```bash
-   git checkout -b feat/my-feature
-   ```
+
+    ```bash
+    git checkout -b feat/my-feature
+    ```
 
 2. Make your changes, keeping commits small and focused.
 
 3. Run tests and clippy:
-   ```bash
-   cargo test
-   cargo clippy
-   ```
+
+    ```bash
+    cargo test
+    cargo clippy
+    ```
 
 4. Push and open a PR:
-   ```bash
-   git push origin feat/my-feature
-   ```
+    ```bash
+    git push origin feat/my-feature
+    ```
 
 ### Commit messages
 
@@ -153,6 +155,7 @@ Releases happen via git tags. The CI pipeline handles building and distribution.
 4. Push: `git push origin main --tags`
 
 The GitHub Actions workflow will:
+
 - Build binaries for macOS (ARM64 + x86), Linux (ARM64 + x86), Windows (x86)
 - Create a GitHub Release with all binaries
 - Upload to S3 for the self-update mechanism

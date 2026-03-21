@@ -71,38 +71,38 @@ ah-scan quick --out r.json # JSON to custom path
 
 ## What it detects
 
-| Detector | Files | What it looks for |
-|----------|-------|-------------------|
-| Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md` | AI instruction files with capability keywords |
-| Prompt configs | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md` | Prompt configuration for GitHub Copilot and similar |
-| MCP configs | `mcp.json`, `claude_desktop_config.json` | Model Context Protocol server declarations |
-| Container configs | `Dockerfile`, `compose.yaml`, `docker-compose.yml` | Containers with AI-related tooling |
-| Browser footprints | Chrome, Edge, Brave, Arc profiles | Extension directory presence only (no content reads) |
-| WASM plugins | Any `.wasm` in `~/.ahscan/plugins/` | Custom detectors you install |
+| Detector              | Files                                                         | What it looks for                                    |
+| --------------------- | ------------------------------------------------------------- | ---------------------------------------------------- |
+| Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md`                      | AI instruction files with capability keywords        |
+| Prompt configs        | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md` | Prompt configuration for GitHub Copilot and similar  |
+| MCP configs           | `mcp.json`, `claude_desktop_config.json`                      | Model Context Protocol server declarations           |
+| Container configs     | `Dockerfile`, `compose.yaml`, `docker-compose.yml`            | Containers with AI-related tooling                   |
+| Browser footprints    | Chrome, Edge, Brave, Arc profiles                             | Extension directory presence only (no content reads) |
+| WASM plugins          | Any `.wasm` in `~/.ahscan/plugins/`                           | Custom detectors you install                         |
 
 ## Risk scoring
 
 Every artifact gets a risk score from 0–100:
 
-| Score | Severity | Color | Meaning |
-|-------|----------|-------|---------|
-| 90+ | CRITICAL | Magenta | Credential exposure or extreme risk |
-| 70-89 | HIGH | Red | Dangerous capability combinations |
-| 40-69 | MEDIUM | Yellow | Notable capabilities worth reviewing |
-| 10-39 | LOW | Cyan | Minor signals, likely benign |
-| 0-9 | INFO | Dim | Informational only |
+| Score | Severity | Color   | Meaning                              |
+| ----- | -------- | ------- | ------------------------------------ |
+| 90+   | CRITICAL | Magenta | Credential exposure or extreme risk  |
+| 70-89 | HIGH     | Red     | Dangerous capability combinations    |
+| 40-69 | MEDIUM   | Yellow  | Notable capabilities worth reviewing |
+| 10-39 | LOW      | Cyan    | Minor signals, likely benign         |
+| 0-9   | INFO     | Dim     | Informational only                   |
 
 Scores are based on: artifact type, detected capability keywords (shell, network, filesystem, etc.), dangerous keywords (exfiltrate, steal, bypass, etc.), and whether capabilities are explicitly declared.
 
 ## Access tiers
 
-| Feature | Lite (default) | Licensed |
-|---------|:--------------:|:--------:|
-| Local scanning | ✅ | ✅ |
-| Risk scoring | ✅ | ✅ |
-| Visible artifacts | Top 3 | All |
-| JSON export | ❌ | ✅ |
-| Server submission | ❌ | ✅ |
+| Feature           | Lite (default) | Licensed |
+| ----------------- | :------------: | :------: |
+| Local scanning    |       ✅       |    ✅    |
+| Risk scoring      |       ✅       |    ✅    |
+| Visible artifacts |     Top 3      |   All    |
+| JSON export       |       ❌       |    ✅    |
+| Server submission |       ❌       |    ✅    |
 
 Configure in `.ahscan.toml`:
 
@@ -185,12 +185,12 @@ For architecture and code walkthrough: [docs/architecture.md](docs/architecture.
 
 ## Configuration reference
 
-| File | Purpose |
-|------|---------|
+| File                           | Purpose                                         |
+| ------------------------------ | ----------------------------------------------- |
 | `~/.config/ahscan/config.json` | API key + endpoint (created by `ah-scan setup`) |
-| `.ahscan.toml` | Access tier + license key (project-level) |
-| `~/.ahscan/scanner_uuid` | Persistent scanner identity (auto-generated) |
-| `~/.ahscan/plugins/*.wasm` | Installed detector plugins |
+| `.ahscan.toml`                 | Access tier + license key (project-level)       |
+| `~/.ahscan/scanner_uuid`       | Persistent scanner identity (auto-generated)    |
+| `~/.ahscan/plugins/*.wasm`     | Installed detector plugins                      |
 
 Full `.ahscan.toml` options:
 

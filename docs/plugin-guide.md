@@ -6,55 +6,60 @@ This guide walks you through building a custom detector plugin for ah-scanner. P
 
 - Rust toolchain installed (`rustup`)
 - The `wasm32-wasip1` target:
-  ```bash
-  rustup target add wasm32-wasip1
-  ```
+    ```bash
+    rustup target add wasm32-wasip1
+    ```
 
 ## Quick start
 
 1. **Copy the template:**
-   ```bash
-   cp -r examples/detector-template my-detector
-   cd my-detector
-   ```
+
+    ```bash
+    cp -r examples/detector-template my-detector
+    cd my-detector
+    ```
 
 2. **Edit `Cargo.toml`** — update the package name and description:
-   ```toml
-   [package]
-   name = "my-detector"
-   version = "0.1.0"
-   edition = "2021"
-   description = "Detects my-config.json files"
-   ```
+
+    ```toml
+    [package]
+    name = "my-detector"
+    version = "0.1.0"
+    edition = "2021"
+    description = "Detects my-config.json files"
+    ```
 
 3. **Write your detection logic** in `src/lib.rs` (see below)
 
 4. **Create a manifest file** — `my_detector.manifest.json`:
-   ```json
-   {
-     "name": "my_detector",
-     "description": "Detects my-config.json files",
-     "version": "0.1.0",
-     "sdk_version": "0.1.0",
-     "artifact_types": ["my_artifact_type"]
-   }
-   ```
+
+    ```json
+    {
+      "name": "my_detector",
+      "description": "Detects my-config.json files",
+      "version": "0.1.0",
+      "sdk_version": "0.1.0",
+      "artifact_types": ["my_artifact_type"]
+    }
+    ```
 
 5. **Build:**
-   ```bash
-   cargo build --target wasm32-wasip1 --release
-   ```
+
+    ```bash
+    cargo build --target wasm32-wasip1 --release
+    ```
 
 6. **Install:**
-   ```bash
-   ah-scan plugins install target/wasm32-wasip1/release/my_detector.wasm
-   ```
+
+    ```bash
+    ah-scan plugins install target/wasm32-wasip1/release/my_detector.wasm
+    ```
 
 7. **Verify:**
-   ```bash
-   ah-scan plugins list
-   ah-scan plugins info my_detector
-   ```
+    ```bash
+    ah-scan plugins list
+    ah-scan plugins info my_detector
+    ```
 
 ## How plugins work
 
@@ -131,36 +136,36 @@ pub fn detect(input: String) -> FnResult<String> {
 
 ### DetectRequest (input to your plugin)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `deep` | `bool` | Whether the scanner is in deep-scan mode |
-| `mode` | `String` | Scan mode ("host", "workdir", etc.) |
-| `candidates` | `Vec<ScanCandidate>` | Files to examine |
+| Field        | Type                 | Description                              |
+| ------------ | -------------------- | ---------------------------------------- |
+| `deep`       | `bool`               | Whether the scanner is in deep-scan mode |
+| `mode`       | `String`             | Scan mode ("host", "workdir", etc.)      |
+| `candidates` | `Vec<ScanCandidate>` | Files to examine                         |
 
 ### ScanCandidate
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `path` | `String` | Absolute file path |
-| `origin` | `String` | Where it was found ("host", "workdir", "filesystem") |
-| `file_name` | `String` | Just the filename part |
-| `content_b64` | `Option<String>` | Base64-encoded file content (up to 8 KB) |
-| `file_size` | `u64` | Original file size in bytes |
+| Field         | Type             | Description                                          |
+| ------------- | ---------------- | ---------------------------------------------------- |
+| `path`        | `String`         | Absolute file path                                   |
+| `origin`      | `String`         | Where it was found ("host", "workdir", "filesystem") |
+| `file_name`   | `String`         | Just the filename part                               |
+| `content_b64` | `Option<String>` | Base64-encoded file content (up to 8 KB)             |
+| `file_size`   | `u64`            | Original file size in bytes                          |
 
 ### Finding (output from your plugin)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `artifact_type` | `String` | Must match a type in your manifest |
-| `confidence` | `f64` | 0.0 to 1.0 |
-| `signals` | `Vec<String>` | Detection signals (see signal naming) |
-| `metadata` | `FindingMetadata` | Key-value metadata |
-| `candidate_path` | `String` | Path of the file that matched |
+| Field            | Type              | Description                           |
+| ---------------- | ----------------- | ------------------------------------- |
+| `artifact_type`  | `String`          | Must match a type in your manifest    |
+| `confidence`     | `f64`             | 0.0 to 1.0                            |
+| `signals`        | `Vec<String>`     | Detection signals (see signal naming) |
+| `metadata`       | `FindingMetadata` | Key-value metadata                    |
+| `candidate_path` | `String`          | Path of the file that matched         |
 
 ### DetectResponse
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field      | Type           | Description                   |
+| ---------- | -------------- | ----------------------------- |
 | `findings` | `Vec<Finding>` | All findings from this plugin |
 
 ## Signal naming conventions
