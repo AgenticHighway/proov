@@ -104,7 +104,7 @@ fn is_excluded_dir(entry: &walkdir::DirEntry, excluded: &HashSet<&str>) -> bool 
     entry
         .file_name()
         .to_str()
-        .map_or(false, |name| excluded.contains(name))
+        .is_some_and(|name| excluded.contains(name))
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ pub fn walk_bounded(
         });
         count += 1;
         if let Some(tick) = on_tick {
-            if count % 5000 == 0 {
+            if count.is_multiple_of(5000) {
                 tick(&format!("{count} files"));
             }
         }
@@ -239,7 +239,7 @@ pub fn walk_deep_workdir(
         });
         count += 1;
         if let Some(tick) = on_tick {
-            if count % 5000 == 0 {
+            if count.is_multiple_of(5000) {
                 tick(&format!("{count} files"));
             }
         }
@@ -313,7 +313,7 @@ pub fn discover_filesystem_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candi
             });
             count += 1;
             if let Some(tick) = on_tick {
-                if count % 10_000 == 0 {
+                if count.is_multiple_of(10_000) {
                     tick(&format!("{count} files"));
                 }
             }
@@ -355,7 +355,7 @@ pub fn discover_root_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> 
         });
         count += 1;
         if let Some(tick) = on_tick {
-            if count % 10_000 == 0 {
+            if count.is_multiple_of(10_000) {
                 tick(&format!("{count} files"));
             }
         }

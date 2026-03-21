@@ -148,7 +148,7 @@ pub fn build_ingest_payload(
         .artifacts
         .iter()
         .filter(|a| include_informational || a.registry_eligible)
-        .map(|a| artifact_to_ingest_record(a))
+        .map(artifact_to_ingest_record)
         .collect();
 
     let total_count = report.artifacts.len();
