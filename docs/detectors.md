@@ -25,6 +25,7 @@ pub trait Detector {
 **Detects:** `.cursorrules`, `agents.md`, `AGENTS.md`
 
 These are instruction files for AI coding assistants. The detector:
+
 - Matches filenames exactly
 - Reads content and scans for capability keywords (shell, browser, api, execute, etc.)
 - Checks for dangerous keywords (steal, exfiltrate, bypass, etc.)
@@ -35,6 +36,7 @@ These are instruction files for AI coding assistants. The detector:
 **Detects:** `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md`
 
 These are prompt configuration files for GitHub Copilot and similar tools. Detection:
+
 - Matches by file extension pattern
 - Keyword scanning similar to cursor_rules
 - Lower baseline confidence (0.4) since these files are more common
@@ -44,6 +46,7 @@ These are prompt configuration files for GitHub Copilot and similar tools. Detec
 **Detects:** `mcp.json`, `claude_desktop_config.json`
 
 Model Context Protocol server configurations. The detector:
+
 - Validates the file is JSON
 - Looks for execution tokens (command, args, env patterns)
 - Extracts declared MCP server names
@@ -54,6 +57,7 @@ Model Context Protocol server configurations. The detector:
 **Detects:** `Dockerfile`, `compose.yaml`, `docker-compose.yml`
 
 Container configurations that may affect AI execution environments:
+
 - Filename pattern matching
 - Scans for AI-relevance tokens within the file
 - Lower confidence unless clear AI integration found
@@ -70,16 +74,19 @@ This detector is unique — it **only checks for the presence** of browser profi
 ### Content Analysis (`content_analysis.rs`)
 
 This is a **helper module**, not a standalone detector. It provides:
+
 - `extract_declared_tools()` — finds tool/permission declarations in content
 - Used by other detectors to determine if capabilities are explicitly declared (which reduces risk scores)
 
 ## The Detector trait
 
 The `detect()` method receives:
+
 - `candidates: &[Candidate]` — files to examine
 - `deep: bool` — whether to do deeper content analysis (slower but more thorough)
 
 Each candidate has:
+
 - `path` — absolute file path
 - `origin` — where it came from ("host", "workdir", "filesystem")
 
@@ -91,47 +98,49 @@ All detectors respect an 8 KB content limit. Files larger than this are truncate
 
 Signals are string tags that describe what a detector found. They follow a naming convention:
 
-| Pattern | Example | Meaning |
-|---------|---------|---------|
-| `filename_match:<name>` | `filename_match:.cursorrules` | File matched by name |
-| `keyword:<word>` | `keyword:shell` | Capability keyword found in content |
-| `dangerous_keyword:<word>` | `dangerous_keyword:exfiltrate` | High-risk keyword found |
-| `dangerous_combo:<combo>` | `dangerous_combo:shell+network+fs` | Multiple risky capabilities together |
-| `credential_exposure_signal` | `credential_exposure_signal` | Possible secret/token detected |
-| `mcp_server_declared` | `mcp_server_declared` | MCP server configuration found |
+| Pattern                      | Example                            | Meaning                              |
+| ---------------------------- | ---------------------------------- | ------------------------------------ |
+| `filename_match:<name>`      | `filename_match:.cursorrules`      | File matched by name                 |
+| `keyword:<word>`             | `keyword:shell`                    | Capability keyword found in content  |
+| `dangerous_keyword:<word>`   | `dangerous_keyword:exfiltrate`     | High-risk keyword found              |
+| `dangerous_combo:<combo>`    | `dangerous_combo:shell+network+fs` | Multiple risky capabilities together |
+| `credential_exposure_signal` | `credential_exposure_signal`       | Possible secret/token detected       |
+| `mcp_server_declared`        | `mcp_server_declared`              | MCP server configuration found       |
 
 ## Adding a new built-in detector
 
 1. Create a new file in `crates/ah-scan/src/detectors/`, e.g., `my_detector.rs`
 
 2. Implement the `Detector` trait:
-   ```rust
-   use crate::detectors::base::{Candidate, Detector};
-   use crate::models::ArtifactReport;
 
-   pub struct MyDetector;
+    ```rust
+    use crate::detectors::base::{Candidate, Detector};
+    use crate::models::ArtifactReport;
 
-   impl Detector for MyDetector {
-       fn name(&self) -> &'static str {
-           "my_detector"
-       }
+    pub struct MyDetector;
 
-       fn detect(&self, candidates: &[Candidate], deep: bool) -> Vec<ArtifactReport> {
-           let mut results = Vec::new();
-           for candidate in candidates {
-               // Your detection logic here
-               // Check candidate.path, read content, pattern match
-           }
-           results
-       }
-   }
-   ```
+    impl Detector for MyDetector {
+        fn name(&self) -> &'static str {
+            "my_detector"
+        }
+
+        fn detect(&self, candidates: &[Candidate], deep: bool) -> Vec<ArtifactReport> {
+            let mut results = Vec::new();
+            for candidate in candidates {
+                // Your detection logic here
+                // Check candidate.path, read content, pattern match
+            }
+            results
+        }
+    }
+    ```
 
 3. Register in `detectors/mod.rs`:
-   ```rust
-   mod my_detector;
-   // Add to get_all_detectors() function
-   ```
+
+    ```rust
+    mod my_detector;
+    // Add to get_all_detectors() function
+    ```
 
 4. Add risk weights in `risk_engine.rs` for your new artifact type
 

@@ -131,38 +131,38 @@ Here is the complete path data takes through the scanner, from CLI invocation to
 
 These modules never touch the filesystem, network, or terminal. They are safe to unit test:
 
-| Module | Purpose |
-|--------|---------|
-| `risk_engine.rs` | Score artifacts 0-100 based on signals |
-| `verifier.rs` | Assign pass/conditional_pass/fail |
-| `payload.rs` | Build the ingest JSON payload |
+| Module            | Purpose                                   |
+| ----------------- | ----------------------------------------- |
+| `risk_engine.rs`  | Score artifacts 0-100 based on signals    |
+| `verifier.rs`     | Assign pass/conditional_pass/fail         |
+| `payload.rs`      | Build the ingest JSON payload             |
 | `capabilities.rs` | Map signals → high-level capability names |
-| `lite_mode.rs` | Filter results for free-tier users |
+| `lite_mode.rs`    | Filter results for free-tier users        |
 
 ### Side-effect modules (I/O)
 
 These modules interact with the outside world:
 
-| Module | Side effect |
-|--------|-------------|
-| `discovery.rs` | Reads filesystem (directory walking) |
-| `detectors/*` | Read file contents |
-| `submit.rs` | HTTP POST, read/write config files |
-| `identity.rs` | Read/write UUID files in ~/.ahscan/ |
-| `network_evidence.rs` | Runs macOS firewall commands |
-| `updater.rs` | HTTP GET to S3 for update manifests |
-| `setup.rs` | Interactive prompts + config file writes |
-| `wizard.rs` | Interactive terminal UI |
-| `progress.rs` | Writes to stderr |
+| Module                | Side effect                              |
+| --------------------- | ---------------------------------------- |
+| `discovery.rs`        | Reads filesystem (directory walking)     |
+| `detectors/*`         | Read file contents                       |
+| `submit.rs`           | HTTP POST, read/write config files       |
+| `identity.rs`         | Read/write UUID files in ~/.ahscan/      |
+| `network_evidence.rs` | Runs macOS firewall commands             |
+| `updater.rs`          | HTTP GET to S3 for update manifests      |
+| `setup.rs`            | Interactive prompts + config file writes |
+| `wizard.rs`           | Interactive terminal UI                  |
+| `progress.rs`         | Writes to stderr                         |
 
 ### Orchestration
 
-| Module | Role |
-|--------|------|
-| `cli.rs` | Entry point: argument parsing, dispatch, output mode selection |
-| `scan.rs` | Pipeline: discovery → detection → scoring → verification |
-| `contract.rs` | Transform `ScanReport` → AH-Verify v2.1.0 contract format |
-| `wasm_bridge.rs` | Load WASM plugins, convert types, call plugin `detect()` |
+| Module           | Role                                                           |
+| ---------------- | -------------------------------------------------------------- |
+| `cli.rs`         | Entry point: argument parsing, dispatch, output mode selection |
+| `scan.rs`        | Pipeline: discovery → detection → scoring → verification       |
+| `contract.rs`    | Transform `ScanReport` → AH-Verify v2.1.0 contract format      |
+| `wasm_bridge.rs` | Load WASM plugins, convert types, call plugin `detect()`       |
 
 ## Key data types
 
@@ -199,17 +199,17 @@ ContractPayload      Server-facing format (scanner-data-contract.json):
 The risk engine in `risk_engine.rs` works like this:
 
 1. **Base score** — depends on artifact type:
-   - `mcp_config`: 20 (MCP servers have inherent risk)
-   - `cursor_rules`: 10
-   - `agents_md`: 8
-   - Everything else: 5
+    - `mcp_config`: 20 (MCP servers have inherent risk)
+    - `cursor_rules`: 10
+    - `agents_md`: 8
+    - Everything else: 5
 
 2. **Signal weights** — each signal adds points:
-   - `keyword:shell`: 15
-   - `keyword:network`: 12
-   - `dangerous_keyword:exfiltrate`: 35
-   - `mcp_server_declared`: 20
-   - See `risk_engine.rs` for the full table
+    - `keyword:shell`: 15
+    - `keyword:network`: 12
+    - `dangerous_keyword:exfiltrate`: 35
+    - `mcp_server_declared`: 20
+    - See `risk_engine.rs` for the full table
 
 3. **Declared-tools discount** — if the artifact explicitly declares a tool in its permissions section, the signal's weight is halved (50% discount). This rewards transparency.
 
@@ -237,25 +237,25 @@ This is calculated in `models.rs` via `content_digest()` → `compute_hash()` �
 
 ## Access tiers
 
-| Feature | Lite (free) | Licensed |
-|---------|:-----------:|:--------:|
-| Local scanning | ✅ | ✅ |
-| Risk scoring | ✅ | ✅ |
-| Visible artifacts | Top 3 | All |
-| JSON export | ❌ | ✅ |
-| Server submission | ❌ | ✅ |
+| Feature           | Lite (free) | Licensed |
+| ----------------- | :---------: | :------: |
+| Local scanning    |     ✅      |    ✅    |
+| Risk scoring      |     ✅      |    ✅    |
+| Visible artifacts |    Top 3    |   All    |
+| JSON export       |     ❌      |    ✅    |
+| Server submission |     ❌      |    ✅    |
 
 Access is controlled via `.ahscan.toml` in the working directory.
 
 ## Configuration files
 
-| File | Purpose | Created by |
-|------|---------|------------|
-| `~/.config/ahscan/config.json` | API key + endpoint | `ah-scan setup` or `ah-scan auth` |
-| `.ahscan.toml` | Access mode + license key | User creates manually |
-| `~/.ahscan/scanner_uuid` | Persistent scanner identity | Auto-generated on first submit |
-| `~/.ahscan/scanner_account_uuid` | Persistent account identity | Auto-generated on first submit |
-| `~/.ahscan/plugins/*.wasm` | Installed detector plugins | `ah-scan plugins install` |
+| File                             | Purpose                     | Created by                        |
+| -------------------------------- | --------------------------- | --------------------------------- |
+| `~/.config/ahscan/config.json`   | API key + endpoint          | `ah-scan setup` or `ah-scan auth` |
+| `.ahscan.toml`                   | Access mode + license key   | User creates manually             |
+| `~/.ahscan/scanner_uuid`         | Persistent scanner identity | Auto-generated on first submit    |
+| `~/.ahscan/scanner_account_uuid` | Persistent account identity | Auto-generated on first submit    |
+| `~/.ahscan/plugins/*.wasm`       | Installed detector plugins  | `ah-scan plugins install`         |
 
 ## WASM plugin system
 
@@ -268,6 +268,7 @@ Plugins extend the scanner with custom detectors without modifying the core bina
 ```
 
 The host (ah-scan) communicates with plugins via JSON:
+
 1. Pre-reads file content from candidates
 2. Base64-encodes content (8 KB limit per file)
 3. Sends `DetectRequest` JSON to the plugin's `detect()` export
