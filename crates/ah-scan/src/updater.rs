@@ -315,7 +315,11 @@ pub fn passive_update_check() {
     // Check cache first — avoid network entirely if fresh
     if is_cache_fresh() {
         if let Some(cache) = read_check_cache() {
-            if cache.is_newer {
+            // Re-evaluate against the running version: the binary may have been
+            // upgraded since the cache was written, so trusting the cached
+            // `is_newer` flag alone would produce a false positive.
+            let still_newer = is_version_newer(env!("CARGO_PKG_VERSION"), &cache.latest_version);
+            if still_newer {
                 eprintln!(
                     "\n  A newer version of ah-scan is available ({}).",
                     cache.latest_version
@@ -726,5 +730,17 @@ mod tests {
     fn test_print_version_does_not_panic() {
         // Just ensure it doesn't panic; output goes to stdout
         print_version();
+    }
+
+    #[test]
+    fn test_is_version_newer_same_version_is_false() {
+        // Regression: after upgrading the binary the cached is_newer flag
+        // would still be true. The fix re-evaluates against the current
+        // binary version, so equal versions must return false.
+        let current = env!("CARGO_PKG_VERSION");
+        assert!(
+            !is_version_newer(current, current),
+            "same version should not be considered newer (got true for {current})"
+        );
     }
 }
