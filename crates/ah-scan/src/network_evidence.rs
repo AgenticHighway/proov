@@ -10,6 +10,41 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Compiled regex patterns — compiled once at first use, reused everywhere
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// HTTP/HTTPS URL pattern for MCP config scanning.
+static HTTP_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"https?://[^\s"'\\,\]}>]+"#)
+        .expect("HTTP_URL_RE is a valid regex pattern")
+});
+
+/// HTTP/HTTPS URL pattern for log file scanning (excludes control characters).
+static HTTP_URL_LOG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"https?://[^\s"'\\,\]}>)\x00-\x1f]+"#)
+        .expect("HTTP_URL_LOG_RE is a valid regex pattern")
+});
+
+/// WebSocket URL pattern for MCP config scanning.
+static WS_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"wss?://[^\s"'\\,\]}>]+"#)
+        .expect("WS_URL_RE is a valid regex pattern")
+});
+
+/// WebSocket URL pattern for log file scanning.
+static WS_URL_LOG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"wss?://[^\s"'\\,\]}>)\x00-\x1f]+"#)
+        .expect("WS_URL_LOG_RE is a valid regex pattern")
+});
+
+/// `${VAR_NAME}` interpolation pattern in MCP configs.
+static ENV_VAR_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+        .expect("ENV_VAR_RE is a valid regex pattern")
+});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Data types
@@ -217,8 +252,7 @@ pub fn gather_server_evidence(
         }
     }
     let text = runtime_val.to_string();
-    let url_re = regex::Regex::new(r#"https?://[^\s"'\\,\]}>]+"#).unwrap();
-    for m in url_re.find_iter(&text) {
+    for m in HTTP_URL_RE.find_iter(&text) {
         let url = m.as_str();
         // Skip if already captured as the main endpoint
         if server_val.get("url").and_then(|v| v.as_str()) == Some(url) {
@@ -233,8 +267,7 @@ pub fn gather_server_evidence(
     }
 
     // 4. WebSocket URLs
-    let ws_re = regex::Regex::new(r#"wss?://[^\s"'\\,\]}>]+"#).unwrap();
-    for m in ws_re.find_iter(&text) {
+    for m in WS_URL_RE.find_iter(&text) {
         evidence.push(NetworkEvidence {
             source: "config".into(),
             category: "websocket".into(),
@@ -372,10 +405,9 @@ pub fn resolve_env_refs(server_val: &serde_json::Value) -> Vec<EnvVarRef> {
     let mut seen = std::collections::HashSet::new();
 
     let text = server_val.to_string();
-    let re = regex::Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").unwrap();
 
     // ${VAR_NAME} patterns anywhere in the server config
-    for cap in re.captures_iter(&text) {
+    for cap in ENV_VAR_RE.captures_iter(&text) {
         let var_name = &cap[1];
         if seen.insert(var_name.to_string()) {
             refs.push(EnvVarRef {
@@ -398,7 +430,7 @@ pub fn resolve_env_refs(server_val: &serde_json::Value) -> Vec<EnvVarRef> {
             }
             // Check if the value itself references another env var
             if let Some(val_str) = val.as_str() {
-                for cap in re.captures_iter(val_str) {
+                for cap in ENV_VAR_RE.captures_iter(val_str) {
                     let var_name = &cap[1];
                     if seen.insert(var_name.to_string()) {
                         refs.push(EnvVarRef {
@@ -446,8 +478,6 @@ pub fn scan_mcp_logs() -> Vec<NetworkEvidence> {
         .checked_sub(std::time::Duration::from_secs(7 * 24 * 3600))
         .unwrap_or(std::time::UNIX_EPOCH);
 
-    let url_re = regex::Regex::new(r#"https?://[^\s"'\\,\]}>)\x00-\x1f]+"#).unwrap();
-    let ws_re = regex::Regex::new(r#"wss?://[^\s"'\\,\]}>)\x00-\x1f]+"#).unwrap();
     let mut seen_urls = std::collections::HashSet::new();
     let mut file_count = 0;
 
@@ -492,7 +522,7 @@ pub fn scan_mcp_logs() -> Vec<NetworkEvidence> {
             let log_name = path.display().to_string();
 
             // HTTP URLs
-            for m in url_re.find_iter(&tail) {
+            for m in HTTP_URL_LOG_RE.find_iter(&tail) {
                 let url = m.as_str();
                 if is_noisy_log_url(url) {
                     continue;
@@ -508,7 +538,7 @@ pub fn scan_mcp_logs() -> Vec<NetworkEvidence> {
             }
 
             // WebSocket URLs
-            for m in ws_re.find_iter(&tail) {
+            for m in WS_URL_LOG_RE.find_iter(&tail) {
                 let url = m.as_str();
                 if seen_urls.insert(url.to_string()) {
                     evidence.push(NetworkEvidence {
@@ -607,4 +637,115 @@ pub fn classify_from_evidence(transport: &str, evidence: &[NetworkEvidence]) -> 
     }
 
     "Local Only".to_string()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Regex compilation (fix #3) ──────────────────────────────────────────
+    //
+    // These tests verify that all five LazyLock regex patterns compile
+    // successfully and match expected inputs. If any pattern were invalid,
+    // the LazyLock initializer would panic on first access.
+
+    #[test]
+    fn http_url_re_matches_https_url() {
+        let m = HTTP_URL_RE.find("command https://api.example.com/path end");
+        assert!(m.is_some());
+        assert_eq!(m.unwrap().as_str(), "https://api.example.com/path");
+    }
+
+    #[test]
+    fn http_url_re_does_not_match_ws() {
+        assert!(HTTP_URL_RE.find("ws://localhost:3000").is_none());
+    }
+
+    #[test]
+    fn http_url_log_re_excludes_control_chars() {
+        // Pattern must compile and match a normal URL
+        let m = HTTP_URL_LOG_RE.find("https://internal.company.com/mcp");
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn ws_url_re_matches_websocket() {
+        let m = WS_URL_RE.find("connecting to wss://realtime.example.com/stream");
+        assert!(m.is_some());
+        assert_eq!(m.unwrap().as_str(), "wss://realtime.example.com/stream");
+    }
+
+    #[test]
+    fn ws_url_log_re_matches_plain_ws() {
+        let m = WS_URL_LOG_RE.find("ws://localhost:9229");
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn env_var_re_captures_var_name() {
+        let caps = ENV_VAR_RE.captures("value: ${GITHUB_TOKEN}");
+        assert!(caps.is_some());
+        assert_eq!(&caps.unwrap()[1], "GITHUB_TOKEN");
+    }
+
+    #[test]
+    fn env_var_re_rejects_lowercase() {
+        // Pattern requires uppercase + underscore names only
+        assert!(ENV_VAR_RE.find("${lowercase_var}").is_none());
+    }
+
+    // ── gather_server_evidence integration ─────────────────────────────────
+
+    #[test]
+    fn server_evidence_detects_http_transport() {
+        let val = serde_json::json!({"type": "http", "url": "https://api.example.com/mcp"});
+        let transport = infer_transport(&val);
+        assert_eq!(transport, "streamable-http");
+        let evidence = gather_server_evidence("test-server", &val, &transport);
+        let has_transport = evidence.iter().any(|e| e.category == "transport");
+        let has_url = evidence.iter().any(|e| e.category == "outbound-url");
+        assert!(has_transport, "should have transport evidence");
+        assert!(has_url, "should have outbound-url evidence for https endpoint");
+    }
+
+    #[test]
+    fn server_evidence_detects_credential_env_var() {
+        let val = serde_json::json!({"type": "stdio", "command": "npx", "env": {"API_KEY": "secret"}});
+        let evidence = gather_server_evidence("test", &val, "stdio");
+        let has_cred = evidence.iter().any(|e| e.category == "credential-in-env");
+        assert!(has_cred, "should detect credential in env block");
+    }
+
+    #[test]
+    fn resolve_env_refs_finds_interpolated_vars() {
+        let val = serde_json::json!({"args": ["--token", "${MY_SECRET_TOKEN}"]});
+        let refs = resolve_env_refs(&val);
+        assert!(refs.iter().any(|r| r.name == "MY_SECRET_TOKEN"));
+    }
+
+    #[test]
+    fn classify_from_evidence_local_only_for_stdio_no_urls() {
+        let evidence = vec![NetworkEvidence {
+            source: "config".into(),
+            category: "transport".into(),
+            detail: "Transport: stdio — local process".into(),
+            url: None,
+        }];
+        assert_eq!(classify_from_evidence("stdio", &evidence), "Local Only");
+    }
+
+    #[test]
+    fn classify_from_evidence_internet_exposed_for_outbound_url() {
+        let evidence = vec![NetworkEvidence {
+            source: "config".into(),
+            category: "outbound-url".into(),
+            detail: "Server endpoint: https://api.example.com".into(),
+            url: Some("https://api.example.com".into()),
+        }];
+        assert_eq!(classify_from_evidence("sse", &evidence), "Internet Exposed");
+    }
 }
