@@ -2,7 +2,7 @@
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"title": "AH-Verify Scanner Data Contract",
 	"description": "Defines the exact payload shape the Endpoint Scanner must send to the AH-Verify ingestion endpoint. Every field listed here is required unless explicitly marked otherwise. If a field is not requested in this contract, it will not be accepted.",
-	"version": "2.0.0",
+	"version": "2.1.0",
 	"type": "object",
 	"required": [
 		"scanMeta",
@@ -23,7 +23,8 @@
 				"scannedAt",
 				"scannerVersion",
 				"scanDurationMs",
-				"scanRoots"
+				"scanRoots",
+				"hostNetwork"
 			],
 			"additionalProperties": false,
 			"properties": {
@@ -55,6 +56,51 @@
 					"description": "Absolute directory paths the scanner walked. Tells the dashboard what scope the results cover.",
 					"items": {"type": "string"},
 					"minItems": 1
+				},
+				"hostNetwork": {
+					"type": "object",
+					"description": "Host-level network configuration observed at scan time. Used for contextual analysis of MCP server exposure.",
+					"required": [
+						"firewallEnabled",
+						"firewallMode",
+						"stealthMode",
+						"firewallRules"
+					],
+					"additionalProperties": false,
+					"properties": {
+						"firewallEnabled": {
+							"type": "boolean",
+							"description": "Whether the host OS firewall is enabled (e.g. macOS Application Firewall)."
+						},
+						"firewallMode": {
+							"type": "string",
+							"enum": ["off", "on", "block-all", "unknown"],
+							"description": "Firewall operating mode. 'off' = disabled, 'on' = normal filtering, 'block-all' = block all incoming, 'unknown' = could not determine."
+						},
+						"stealthMode": {
+							"type": "boolean",
+							"description": "Whether stealth mode is active (host does not respond to probe requests like ICMP ping)."
+						},
+						"firewallRules": {
+							"type": "array",
+							"description": "Application-level firewall rules discovered on the host.",
+							"items": {
+								"type": "object",
+								"required": ["appPath", "allowed"],
+								"additionalProperties": false,
+								"properties": {
+									"appPath": {
+										"type": "string",
+										"description": "Absolute path to the application binary (e.g. '/usr/bin/python3')."
+									},
+									"allowed": {
+										"type": "boolean",
+										"description": "Whether the firewall allows incoming connections for this application."
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		},
@@ -323,12 +369,15 @@
 				"required": [
 					"id",
 					"name",
+					"transport",
 					"network",
 					"auth",
 					"verified",
 					"command",
 					"tools",
-					"dependentAgents"
+					"dependentAgents",
+					"networkEvidence",
+					"envVars"
 				],
 				"additionalProperties": false,
 				"properties": {
@@ -339,6 +388,11 @@
 					"name": {
 						"type": "string",
 						"description": "Display name for the server (e.g. 'github-mcp-server', 'playwright-mcp'). Use the short package name, not the full reverse-DNS identifier."
+					},
+					"transport": {
+						"type": "string",
+						"enum": ["stdio", "sse", "streamable-http", "unknown"],
+						"description": "MCP transport protocol. 'stdio' = local process pipe, 'sse' = HTTP Server-Sent Events, 'streamable-http' = HTTP streaming, 'unknown' = could not determine from config."
 					},
 					"network": {
 						"type": "string",
@@ -386,6 +440,73 @@
 						"type": "array",
 						"description": "IDs of agents that reference or invoke tools on this server. These MUST be cross-referenced from the agents[].tools array — if an agent lists a tool of type 'mcp' whose name matches this server, include that agent's id here.",
 						"items": {"type": "string"}
+					},
+					"networkEvidence": {
+						"type": "array",
+						"description": "Factual network evidence gathered for this MCP server. Each item represents one observation from config analysis, known package profiles, log scanning, or firewall state. The scanner does not make risk judgments — it reports raw evidence for the server to analyze.",
+						"items": {
+							"type": "object",
+							"required": ["source", "category", "detail"],
+							"additionalProperties": false,
+							"properties": {
+								"source": {
+									"type": "string",
+									"enum": [
+										"config",
+										"firewall",
+										"logs",
+										"package-info"
+									],
+									"description": "Where the evidence was gathered from. 'config' = MCP config file, 'firewall' = host firewall rules, 'logs' = application log files, 'package-info' = known package behavior database."
+								},
+								"category": {
+									"type": "string",
+									"enum": [
+										"transport",
+										"outbound-url",
+										"local-endpoint",
+										"websocket",
+										"package-registry",
+										"known-behavior",
+										"firewall-match",
+										"log-network-activity",
+										"credential-in-env"
+									],
+									"description": "What kind of evidence this is. 'transport' = protocol type, 'outbound-url' = remote HTTP endpoint, 'local-endpoint' = localhost/127.0.0.1, 'websocket' = WebSocket connection, 'package-registry' = npm/pypi registry URL, 'known-behavior' = documented behavior for known packages, 'firewall-match' = matching firewall rule, 'log-network-activity' = network call found in logs, 'credential-in-env' = credential passed via environment variable."
+								},
+								"detail": {
+									"type": "string",
+									"description": "Human-readable description of the finding."
+								},
+								"url": {
+									"type": "string",
+									"description": "The URL or network address observed, if applicable. Only present for URL-based evidence."
+								}
+							}
+						}
+					},
+					"envVars": {
+						"type": "array",
+						"description": "Environment variables referenced in this server's MCP config. The scanner checks whether each variable is set on the host (does NOT capture values). Useful for identifying credential dependencies and configuration requirements.",
+						"items": {
+							"type": "object",
+							"required": ["name", "isSet", "sourceKey"],
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"type": "string",
+									"description": "The environment variable name (e.g. 'GITHUB_TOKEN', 'OPENAI_API_KEY')."
+								},
+								"isSet": {
+									"type": "boolean",
+									"description": "Whether this environment variable is currently set on the host. true = present (value not captured), false = not set."
+								},
+								"sourceKey": {
+									"type": "string",
+									"description": "Where in the MCP config this variable was referenced. 'env' = in the server's env block, 'args' = in command arguments via ${VAR} interpolation, 'inputs' = in the MCP config inputs section."
+								}
+							}
+						}
 					}
 				}
 			}
