@@ -1,3 +1,7 @@
+// Many internal modules expose pub(crate) functions as a reusable API
+// that isn't fully consumed by every code-path in the binary.
+#![allow(dead_code)]
+
 mod capabilities;
 mod cli;
 mod contract;

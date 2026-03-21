@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::detectors::get_all_detectors;
 use crate::discovery::{
     discover_file_surface, discover_filesystem_surfaces, discover_home_surfaces,
-    discover_host_surfaces, discover_root_surfaces, discover_workdir_surfaces, Candidate,
+    discover_host_surfaces, discover_root_surfaces, discover_workdir_surfaces,
 };
 use crate::models::{ArtifactReport, ScanReport};
 use crate::risk_engine::score_artifact;

@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::identity::{is_valid_uuid, resolve_scanner_account_uuid, resolve_scanner_uuid};
+use crate::identity::{resolve_scanner_account_uuid, resolve_scanner_uuid};
 use crate::network::ensure_endpoint_allowed;
 use crate::payload::build_ingest_payload;
 
@@ -227,7 +227,7 @@ pub fn submit_contract_payload(
 ) -> Result<(), String> {
     let mut last_err = String::new();
 
-    for attempt in 0..MAX_ATTEMPTS {
+    for (attempt, &backoff) in BACKOFF_SECONDS.iter().enumerate().take(MAX_ATTEMPTS) {
         if attempt > 0 {
             eprintln!("  Attempt {}/{MAX_ATTEMPTS}...", attempt + 1);
         }
@@ -289,9 +289,9 @@ pub fn submit_contract_payload(
                             response
                                 .header("Retry-After")
                                 .and_then(|v| v.parse::<u64>().ok())
-                                .unwrap_or(BACKOFF_SECONDS[attempt])
+                                .unwrap_or(backoff)
                         } else {
-                            BACKOFF_SECONDS[attempt]
+                            backoff
                         };
                         last_err = format!("Server returned {s}");
                         eprintln!("  {last_err}, retrying in {wait}s...");
