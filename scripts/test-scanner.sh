@@ -1,0 +1,434 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────
+# test-scanner.sh — Exercise every non-interactive ah-scan subcommand.
+#
+# Runs via `cargo run` so no separate binary build step is needed.
+# Designed for macOS dev machines. No API key required — all tests
+# run locally and validate exit codes + output.
+#
+# Usage:
+#   ./scripts/test-scanner.sh
+#
+# Environment variables (optional — enables submission tests):
+#   AH_TEST_API_KEY         API key for testing submissions
+#   AH_TEST_LOCAL_ENDPOINT  Local server URL  (default: http://localhost:3000/api/scans/ingest)
+#   AH_TEST_REMOTE_ENDPOINT Remote server URL (default: https://verify.agentichighway.ai/api/scans/ingest)
+# ──────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+RUN="cargo run -p ah-scan --"
+OUT_DIR="test-runs"
+TIMESTAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+PASS=0
+FAIL=0
+SKIP=0
+
+# Submission test config (from env or defaults)
+AH_TEST_API_KEY="${AH_TEST_API_KEY:-}"
+AH_TEST_LOCAL_ENDPOINT="${AH_TEST_LOCAL_ENDPOINT:-http://localhost:3000/api/scans/ingest}"
+AH_TEST_REMOTE_ENDPOINT="${AH_TEST_REMOTE_ENDPOINT:-https://verify.agentichighway.ai/api/scans/ingest}"
+
+mkdir -p "$OUT_DIR"
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+green()  { printf "\033[32m%s\033[0m\n" "$*"; }
+red()    { printf "\033[31m%s\033[0m\n" "$*"; }
+dim()    { printf "\033[2m%s\033[0m\n" "$*"; }
+bold()   { printf "\033[1m%s\033[0m\n" "$*"; }
+
+section() {
+    echo ""
+    bold "━━━ $1 ━━━"
+}
+
+pass() {
+    green "  ✓ $1"
+    PASS=$((PASS + 1))
+}
+
+fail() {
+    red "  ✗ $1"
+    FAIL=$((FAIL + 1))
+}
+
+skip() {
+    dim "  ⊘ $1 (skipped)"
+    SKIP=$((SKIP + 1))
+}
+
+# Run a command, expect exit code 0
+expect_ok() {
+    local label="$1"; shift
+    if "$@" > /dev/null 2>&1; then
+        pass "$label"
+    else
+        fail "$label (exit code $?)"
+    fi
+}
+
+# Run a command, expect non-zero exit code
+expect_fail() {
+    local label="$1"; shift
+    if "$@" > /dev/null 2>&1; then
+        fail "$label (expected failure but got 0)"
+    else
+        pass "$label"
+    fi
+}
+
+# Run a command, capture stdout, check it contains a string
+expect_contains() {
+    local label="$1"; shift
+    local needle="$1"; shift
+    local output
+    output=$("$@" 2>/dev/null) || true
+    if echo "$output" | grep -q "$needle"; then
+        pass "$label"
+    else
+        fail "$label — expected '$needle' in output"
+    fi
+}
+
+# Run a command and verify the output file exists and is valid JSON
+expect_json_file() {
+    local label="$1"
+    local file="$2"
+    if [ ! -f "$file" ]; then
+        fail "$label — file not found: $file"
+        return
+    fi
+    if python3 -m json.tool "$file" > /dev/null 2>&1; then
+        local size
+        size=$(wc -c < "$file" | tr -d ' ')
+        pass "$label (${size} bytes)"
+    else
+        fail "$label — invalid JSON: $file"
+    fi
+}
+
+# ── Banner ───────────────────────────────────────────────────────────
+
+echo ""
+bold "┌──────────────────────────────────────────┐"
+bold "│  ah-scan test suite — $TIMESTAMP  │"
+bold "└──────────────────────────────────────────┘"
+
+# ── 0. Build ─────────────────────────────────────────────────────────
+
+section "Build"
+echo "  Building ah-scan..."
+if cargo build -p ah-scan 2>&1 | tail -1; then
+    pass "cargo build -p ah-scan"
+else
+    fail "cargo build -p ah-scan"
+    echo ""
+    red "Build failed — cannot continue."
+    exit 1
+fi
+
+# ── 1. Help / version ───────────────────────────────────────────────
+
+section "Help & version"
+expect_ok    "ah-scan --help"         $RUN --help
+expect_ok    "ah-scan scan --help"    $RUN scan --help
+expect_ok    "ah-scan quick --help"   $RUN quick --help
+expect_ok    "ah-scan full --help"    $RUN full --help
+expect_ok    "ah-scan file --help"    $RUN file --help
+expect_ok    "ah-scan folder --help"  $RUN folder --help
+expect_ok    "ah-scan repo --help"    $RUN repo --help
+expect_ok    "ah-scan plugins --help" $RUN plugins --help
+expect_ok    "ah-scan auth --help"    $RUN auth --help
+expect_ok    "ah-scan setup --help"   $RUN setup --help
+
+# ── 2. Single file scan ─────────────────────────────────────────────
+
+section "Single file scan"
+
+# Scan the repo's agents.md — a known agentic artifact
+AGENTS_FILE="$REPO_ROOT/agents.md"
+FILE_JSON="$OUT_DIR/${TIMESTAMP}-file.json"
+
+expect_ok       "file scan (agents.md, overview)"  $RUN file "$AGENTS_FILE"
+expect_ok       "file scan (agents.md, --full)"     $RUN file "$AGENTS_FILE" --full
+expect_ok       "file scan (agents.md, --summary)"  $RUN file "$AGENTS_FILE" --summary
+
+# JSON output to stdout
+expect_contains "file scan (--json has scanMeta)" "scanMeta" $RUN file "$AGENTS_FILE" --json
+
+# JSON output to file
+$RUN file "$AGENTS_FILE" --out "$FILE_JSON" > /dev/null 2>&1 || true
+expect_json_file "file scan (--out writes valid JSON)" "$FILE_JSON"
+
+# Contract flag
+expect_contains "file scan (--contract has scanMeta)" "scanMeta" $RUN file "$AGENTS_FILE" --contract
+
+# ── 3. Folder scan ──────────────────────────────────────────────────
+
+section "Folder scan"
+FOLDER_JSON="$OUT_DIR/${TIMESTAMP}-folder.json"
+
+expect_ok       "folder scan (this repo)"           $RUN folder "$REPO_ROOT"
+expect_ok       "folder scan (--summary)"            $RUN folder "$REPO_ROOT" --summary
+$RUN folder "$REPO_ROOT" --out "$FOLDER_JSON" > /dev/null 2>&1 || true
+expect_json_file "folder scan (--out writes valid JSON)" "$FOLDER_JSON"
+
+# ── 4. Repo scan ────────────────────────────────────────────────────
+
+section "Repo scan (deep)"
+REPO_JSON="$OUT_DIR/${TIMESTAMP}-repo.json"
+
+expect_ok       "repo scan (this repo)"             $RUN repo "$REPO_ROOT"
+$RUN repo "$REPO_ROOT" --json > "$REPO_JSON" 2>/dev/null || true
+expect_json_file "repo scan (--json writes valid JSON)" "$REPO_JSON"
+
+# ── 5. Quick scan ───────────────────────────────────────────────────
+
+section "Quick scan (agentic config areas)"
+QUICK_JSON="$OUT_DIR/${TIMESTAMP}-quick.json"
+
+expect_ok       "quick scan (overview)"              $RUN quick
+expect_ok       "quick scan (--summary)"             $RUN quick --summary
+$RUN quick --out "$QUICK_JSON" > /dev/null 2>&1 || true
+expect_json_file "quick scan (--out writes valid JSON)" "$QUICK_JSON"
+
+# ── 6. Default scan ─────────────────────────────────────────────────
+
+section "Default scan (home directory)"
+DEFAULT_JSON="$OUT_DIR/${TIMESTAMP}-default.json"
+
+# This scans ~ recursively so may take a moment
+echo "  (this scans your home directory — may take a few seconds)"
+expect_ok       "default scan (overview)"            $RUN scan --summary
+$RUN scan --json > "$DEFAULT_JSON" 2>/dev/null || true
+expect_json_file "default scan (--json writes valid JSON)" "$DEFAULT_JSON"
+
+# ── 7. Severity filter ──────────────────────────────────────────────
+
+section "Severity filtering"
+expect_ok "quick --min-severity=critical"  $RUN quick --min-severity critical --summary
+expect_ok "quick --min-severity=high"      $RUN quick --min-severity high --summary
+expect_ok "quick --min-severity=medium"    $RUN quick --min-severity medium --summary
+expect_ok "quick --min-severity=low"       $RUN quick --min-severity low --summary
+
+# ── 8. Plugin management ────────────────────────────────────────────
+
+section "Plugin management"
+expect_ok    "plugins list"                $RUN plugins list
+
+# ── 9. Contract payload validation ──────────────────────────────────
+
+section "Contract payload validation"
+
+# Validate that contract JSON has the expected top-level keys
+CONTRACT_JSON="$OUT_DIR/${TIMESTAMP}-contract-validate.json"
+$RUN repo "$REPO_ROOT" --contract > "$CONTRACT_JSON" 2>/dev/null || true
+
+for key in scanMeta prompts skills mcpServers agents agenticApps; do
+    if python3 -c "
+import json, sys
+data = json.load(open('$CONTRACT_JSON'))
+assert '$key' in data, '$key not found'
+" 2>/dev/null; then
+        pass "contract has '$key'"
+    else
+        fail "contract missing '$key'"
+    fi
+done
+
+# scanMeta should have scanId, scannerVersion
+for field in scanId scannerVersion scannedAt scanDurationMs; do
+    if python3 -c "
+import json
+data = json.load(open('$CONTRACT_JSON'))
+assert '$field' in data['scanMeta'], '$field not in scanMeta'
+" 2>/dev/null; then
+        pass "scanMeta.$field present"
+    else
+        fail "scanMeta.$field missing"
+    fi
+done
+
+# ── 10. Error cases ─────────────────────────────────────────────────
+
+section "Error cases"
+expect_fail  "file scan (nonexistent file)"  $RUN file /tmp/ahscan-no-such-file-12345.txt
+expect_fail  "submit without API key"        $RUN quick --submit
+
+# ── 11. Full scan (smoke test — quick bail) ──────────────────────────
+
+section "Full scan (smoke test)"
+echo "  (scans from / — capped at 500k files, will take longer)"
+echo "  Running with --summary to keep output brief..."
+expect_ok "full scan (--summary)" $RUN full --summary
+
+# ── 12. Auth config ──────────────────────────────────────────────────
+
+section "Auth configuration"
+
+# Back up existing config if present
+AUTH_CONFIG_DIR="${HOME}/.config/ahscan"
+AUTH_CONFIG="${AUTH_CONFIG_DIR}/config.json"
+AUTH_BACKUP=""
+if [ -f "$AUTH_CONFIG" ]; then
+    AUTH_BACKUP="${AUTH_CONFIG}.test-backup-${TIMESTAMP}"
+    cp "$AUTH_CONFIG" "$AUTH_BACKUP"
+    dim "  Backed up existing config to $AUTH_BACKUP"
+fi
+
+# Test auth --key saves config
+$RUN auth --key "ah_test_dummy_key_12345" --endpoint "http://localhost:3000/api/scans/ingest" > /dev/null 2>&1
+if [ -f "$AUTH_CONFIG" ]; then
+    if grep -q "ah_test_dummy_key_12345" "$AUTH_CONFIG" 2>/dev/null; then
+        pass "auth --key writes config.json"
+    else
+        fail "auth --key config.json missing key"
+    fi
+    if grep -q "localhost" "$AUTH_CONFIG" 2>/dev/null; then
+        pass "auth --endpoint writes to config.json"
+    else
+        fail "auth --endpoint not in config.json"
+    fi
+else
+    fail "auth --key did not create config.json"
+fi
+
+# Restore original config
+if [ -n "$AUTH_BACKUP" ]; then
+    mv "$AUTH_BACKUP" "$AUTH_CONFIG"
+    dim "  Restored original config"
+elif [ -f "$AUTH_CONFIG" ]; then
+    rm "$AUTH_CONFIG"
+    dim "  Cleaned up test config"
+fi
+
+# ── 13. Local submission ──────────────────────────────────────────────
+
+section "Local submission (localhost:3000)"
+
+# Check if local server is running
+LOCAL_AVAILABLE=false
+if curl -sf -o /dev/null --connect-timeout 2 "http://localhost:3000" 2>/dev/null; then
+    LOCAL_AVAILABLE=true
+    dim "  Local server detected at localhost:3000"
+else
+    dim "  No local server at localhost:3000"
+fi
+
+if [ "$LOCAL_AVAILABLE" = true ] && [ -n "$AH_TEST_API_KEY" ]; then
+    LOCAL_SUBMIT_JSON="$OUT_DIR/${TIMESTAMP}-local-submit.json"
+
+    # Scan + submit to local
+    if $RUN file "$AGENTS_FILE" \
+        --contract \
+        --out "$LOCAL_SUBMIT_JSON" \
+        --submit "$AH_TEST_LOCAL_ENDPOINT" \
+        --api-key "$AH_TEST_API_KEY" 2>&1 | tail -5; then
+        pass "local submit (file scan → localhost)"
+    else
+        fail "local submit (file scan → localhost)"
+    fi
+    expect_json_file "local submit contract saved" "$LOCAL_SUBMIT_JSON"
+
+    # Quick scan + submit to local
+    if $RUN quick \
+        --submit "$AH_TEST_LOCAL_ENDPOINT" \
+        --api-key "$AH_TEST_API_KEY" > /dev/null 2>&1; then
+        pass "local submit (quick scan → localhost)"
+    else
+        fail "local submit (quick scan → localhost)"
+    fi
+
+    # Test auth rejection with bad key
+    if $RUN file "$AGENTS_FILE" \
+        --submit "$AH_TEST_LOCAL_ENDPOINT" \
+        --api-key "ah_invalid_key_000" > /dev/null 2>&1; then
+        fail "local submit (bad key should fail but didn't)"
+    else
+        pass "local submit (bad key rejected)"
+    fi
+elif [ -z "$AH_TEST_API_KEY" ]; then
+    skip "local submit — set AH_TEST_API_KEY to enable"
+else
+    skip "local submit — no server at localhost:3000"
+fi
+
+# ── 14. Remote submission ─────────────────────────────────────────────
+
+section "Remote submission (verify.agentichighway.ai)"
+
+if [ -n "$AH_TEST_API_KEY" ]; then
+    REMOTE_SUBMIT_JSON="$OUT_DIR/${TIMESTAMP}-remote-submit.json"
+
+    # File scan + submit to production
+    if $RUN file "$AGENTS_FILE" \
+        --contract \
+        --out "$REMOTE_SUBMIT_JSON" \
+        --submit "$AH_TEST_REMOTE_ENDPOINT" \
+        --api-key "$AH_TEST_API_KEY" 2>&1 | tail -5; then
+        pass "remote submit (file scan → production)"
+    else
+        fail "remote submit (file scan → production)"
+    fi
+    expect_json_file "remote submit contract saved" "$REMOTE_SUBMIT_JSON"
+
+    # Quick scan + submit to production
+    if $RUN quick \
+        --submit "$AH_TEST_REMOTE_ENDPOINT" \
+        --api-key "$AH_TEST_API_KEY" > /dev/null 2>&1; then
+        pass "remote submit (quick scan → production)"
+    else
+        fail "remote submit (quick scan → production)"
+    fi
+
+    # Repo scan + submit to production
+    REMOTE_REPO_JSON="$OUT_DIR/${TIMESTAMP}-remote-repo.json"
+    if $RUN repo "$REPO_ROOT" \
+        --contract \
+        --out "$REMOTE_REPO_JSON" \
+        --submit "$AH_TEST_REMOTE_ENDPOINT" \
+        --api-key "$AH_TEST_API_KEY" 2>&1 | tail -5; then
+        pass "remote submit (repo scan → production)"
+    else
+        fail "remote submit (repo scan → production)"
+    fi
+    expect_json_file "remote submit repo contract saved" "$REMOTE_REPO_JSON"
+
+    # Test bad key against production
+    if $RUN file "$AGENTS_FILE" \
+        --submit "$AH_TEST_REMOTE_ENDPOINT" \
+        --api-key "ah_invalid_key_000" > /dev/null 2>&1; then
+        fail "remote submit (bad key should fail but didn't)"
+    else
+        pass "remote submit (bad key rejected)"
+    fi
+else
+    skip "remote submit — set AH_TEST_API_KEY to enable"
+fi
+
+# ── Summary ──────────────────────────────────────────────────────────
+
+echo ""
+bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+TOTAL=$((PASS + FAIL + SKIP))
+echo "  Total: $TOTAL  │  $(green "✓ $PASS passed")  │  $(red "✗ $FAIL failed")  │  $(dim "⊘ $SKIP skipped")"
+bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Clean up test artifacts (keep the test-runs dir for inspection)
+echo "  Test outputs in: $OUT_DIR/"
+ls -lh "$OUT_DIR"/${TIMESTAMP}-* 2>/dev/null | while read -r line; do
+    dim "    $line"
+done
+echo ""
+
+if [ "$FAIL" -gt 0 ]; then
+    red "Some tests failed!"
+    exit 1
+else
+    green "All tests passed."
+    exit 0
+fi
