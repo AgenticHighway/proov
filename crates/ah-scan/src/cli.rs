@@ -377,6 +377,23 @@ pub fn run() {
         return;
     }
 
+    // Validate file/folder paths exist before scanning
+    match &cmd {
+        Commands::File { path, .. } => {
+            if !path.exists() {
+                eprintln!("Error: file not found: {}", path.display());
+                std::process::exit(1);
+            }
+        }
+        Commands::Folder { path, .. } | Commands::Repo { path, .. } => {
+            if !path.exists() {
+                eprintln!("Error: path not found: {}", path.display());
+                std::process::exit(1);
+            }
+        }
+        _ => {}
+    }
+
     let access = load_access_config();
     let _submission = load_submission_config(None);
 
