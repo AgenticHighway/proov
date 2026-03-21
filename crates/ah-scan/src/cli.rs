@@ -389,11 +389,9 @@ pub fn run() {
                     std::process::exit(1);
                 }
             }
-        } else {
-            if let Err(e) = crate::updater::perform_update(*force) {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
-            }
+        } else if let Err(e) = crate::updater::perform_update(*force) {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
         }
         return;
     }

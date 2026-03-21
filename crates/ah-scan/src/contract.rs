@@ -493,7 +493,7 @@ fn build_skills(artifacts: &[ArtifactReport], agents: &[Agent]) -> Vec<Skill> {
                         if let Some(cmd) = server_val.get("command").and_then(|v| v.as_str()) {
                             let skill_name = cmd
                                 .split('/')
-                                .last()
+                                .next_back()
                                 .unwrap_or(cmd)
                                 .to_string();
                             if seen.insert(skill_name.clone()) {
