@@ -14,6 +14,7 @@ mod plugins;
 mod progress;
 mod risk_engine;
 mod scan;
+mod setup;
 mod submit;
 mod verifier;
 mod wasm_bridge;

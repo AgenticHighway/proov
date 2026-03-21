@@ -8,8 +8,8 @@ use std::path::Path;
 
 use crate::detectors::get_all_detectors;
 use crate::discovery::{
-    discover_file_surface, discover_filesystem_surfaces, discover_host_surfaces,
-    discover_workdir_surfaces, Candidate,
+    discover_file_surface, discover_filesystem_surfaces, discover_home_surfaces,
+    discover_host_surfaces, discover_root_surfaces, discover_workdir_surfaces, Candidate,
 };
 use crate::models::{ArtifactReport, ScanReport};
 use crate::risk_engine::score_artifact;
@@ -23,8 +23,10 @@ use crate::wasm_bridge;
 /// Execute a full scan and return a populated [`ScanReport`].
 ///
 /// `mode` selects the discovery strategy:
-/// - `"host"` — bounded host config roots
-/// - `"filesystem"` — full home + system app paths
+/// - `"host"` — bounded host config roots (quick scan / agentic areas)
+/// - `"home"` — recursive home directory scan (default)
+/// - `"filesystem"` — full home + system app paths (legacy)
+/// - `"root"` — entire filesystem from / (full scan)
 /// - `"workdir"` — explicit project directory
 /// - `"file"` — single file
 pub fn run_scan(
@@ -59,6 +61,14 @@ pub fn run_scan(
         }
         "filesystem" => (
             discover_filesystem_surfaces(Some(tick)),
+            "/ (full filesystem)".to_string(),
+        ),
+        "home" => (
+            discover_home_surfaces(Some(tick)),
+            "~ (home directory)".to_string(),
+        ),
+        "root" => (
+            discover_root_surfaces(Some(tick)),
             "/ (full filesystem)".to_string(),
         ),
         _ => (discover_host_surfaces(Some(tick)), "~".to_string()),
