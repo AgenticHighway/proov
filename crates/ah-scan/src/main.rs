@@ -17,6 +17,7 @@ mod risk_engine;
 mod scan;
 mod setup;
 mod submit;
+mod updater;
 mod verifier;
 mod wasm_bridge;
 mod wizard;
