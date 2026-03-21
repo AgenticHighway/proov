@@ -1,230 +1,212 @@
-# ah-scanner — Client / Scanner
+# ah-scanner
 
-> **Two-repo system:** This is the **client side**. The companion server is [`AgenticHighway/ah-verified-poc`](https://github.com/AgenticHighway/ah-verified-poc), a Next.js + PostgreSQL app that ingests these scan reports via `POST /api/ingest` and renders the verification dashboard.
+**Detect, analyze, and report AI execution artifacts on a host machine.**
 
-**AI Execution Inventory** — detect, analyze, and report AI execution artifacts on a host. Rust rewrite of the Python ah-scanner-poc for production deployment.
+ah-scanner is a Rust CLI tool that scans your system for AI-related configuration files — things like `.cursorrules`, MCP server configs, prompt files, and container definitions — analyzes them for risk, and optionally submits findings to a verification server.
 
-## Access modes
+## How it works
 
-The client supports two access tiers:
+```
+Your machine                                 Server (optional)
+┌──────────────────────┐                     ┌──────────────────────┐
+│                      │                     │                      │
+│  ah-scan quick       │   HTTP POST         │  ah-verified-poc     │
+│                      │ ──────────────────► │                      │
+│  1. Walk filesystem  │  /api/scans/ingest  │  Next.js + Postgres  │
+│  2. Detect artifacts │                     │  Stores + displays   │
+│  3. Score risk       │                     │  scan results        │
+│  4. Report findings  │                     │                      │
+└──────────────────────┘                     └──────────────────────┘
+```
 
-- **Lite mode** (default): scans everything locally and offline, then shows only the top 3 highest-risk artifacts. Remaining artifacts are locked.
-- **Licensed mode**: unlocks full artifact output and submission features. Requires a license key and live connectivity to your ah-verified-poc server.
+The scanner is the **client side** of a two-repo system. The companion server is [`AgenticHighway/ah-verified-poc`](https://github.com/AgenticHighway/ah-verified-poc). The scanner works fully offline — server submission is optional and opt-in.
 
-This keeps the local runtime lightweight while allowing fuller downstream analysis on the server.
+## Install
 
-Lite mode local analysis profile (allowlisted risk signals):
+### From a release binary
 
-- `credential_exposure_signal`
-- `dangerous_combo:shell+network+fs`
-- dangerous keywords: `exfiltrate`, `reverse`, `steal`, `wipe`, `bypass`
-- high-risk capability keywords: `shell`, `browser`, `api`, `execute`, `network`, `filesystem`
+Download the latest binary for your platform from [GitHub Releases](https://github.com/AgenticHighway/ah-scanner/releases).
 
-When findings are locked in lite mode, CLI output includes a locked summary by:
+```bash
+# macOS (Apple Silicon)
+tar xzf ah-scanner-darwin-arm64.tar.gz
+./ah-scanner quick
 
-- `analysis_origin` (`local` vs `server_candidate`)
-- verification status
-- artifact type
+# Linux (x86_64)
+tar xzf ah-scanner-linux-amd64.tar.gz
+./ah-scanner quick
+```
+
+### From source
+
+```bash
+git clone https://github.com/AgenticHighway/ah-scanner.git
+cd ah-scanner
+cargo build --release
+./target/release/ah-scan quick
+```
 
 ## Quick start
 
 ```bash
-cargo build --release
-./target/release/ah-scan              # interactive wizard
-./target/release/ah-scan quick        # fast scan
-./target/release/ah-scan full         # deep system scan
-./target/release/ah-scan file <path>  # single file
-./target/release/ah-scan folder <path> # directory
-./target/release/ah-scan repo <path>  # git repo scan
+ah-scan                    # Interactive wizard — walks you through options
+ah-scan quick              # Fast scan of AI config areas (~/.cursor, VS Code, Claude, etc.)
+ah-scan scan               # Default scan (home directory, recursive)
+ah-scan full               # Deep system-wide scan (slow, thorough)
+ah-scan file <path>        # Scan a single file
+ah-scan folder <path>      # Scan a directory
+ah-scan repo <path>        # Deep-scan a git repository
 ```
 
-## CLI usage
+## Output formats
 
-```
-ah-scan                           # interactive wizard (default)
-
-ah-scan quick                     # critical user config areas (overview output)
-ah-scan quick --full              # full per-artifact detail
-ah-scan quick --summary           # compact stats only
-ah-scan quick --json              # JSON to stdout
-ah-scan quick --out               # JSON to ./ahscan-report.json
-ah-scan quick --out report.json   # JSON to custom path
-
-ah-scan full                      # deep system-wide scan
-ah-scan full --full               # full per-artifact detail
-ah-scan full --json               # JSON output
-
-ah-scan file <path>               # scan a single file
-ah-scan file agents.md --full     # full detail output
-
-ah-scan folder <path>             # scan a directory
-ah-scan folder . --full           # full detail output
-ah-scan folder . --json           # JSON output
-ah-scan folder . --summary        # compact summary
-
-ah-scan repo <path>               # deep-scan a local git repo
-ah-scan repo . --json             # JSON output
-ah-scan repo . --summary          # compact summary
+```bash
+ah-scan quick              # Overview with risk bars (default)
+ah-scan quick --full       # Detailed per-artifact breakdown
+ah-scan quick --summary    # Compact statistics only
+ah-scan quick --json       # JSON to stdout
+ah-scan quick --out        # JSON to ./ahscan-report.json
+ah-scan quick --out r.json # JSON to custom path
 ```
 
-## Submission to ah-verified-poc
+## What it detects
 
-Submission performs a `POST` to the ah-verified-poc ingest API (`/api/ingest`).
+| Detector | Files | What it looks for |
+|----------|-------|-------------------|
+| Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md` | AI instruction files with capability keywords |
+| Prompt configs | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md` | Prompt configuration for GitHub Copilot and similar |
+| MCP configs | `mcp.json`, `claude_desktop_config.json` | Model Context Protocol server declarations |
+| Container configs | `Dockerfile`, `compose.yaml`, `docker-compose.yml` | Containers with AI-related tooling |
+| Browser footprints | Chrome, Edge, Brave, Arc profiles | Extension directory presence only (no content reads) |
+| WASM plugins | Any `.wasm` in `~/.ahscan/plugins/` | Custom detectors you install |
 
-Default endpoint:
+## Risk scoring
 
-```text
-http://localhost:3000/api/ingest
-```
+Every artifact gets a risk score from 0–100:
 
-By default, only registry-eligible artifacts are submitted.
+| Score | Severity | Color | Meaning |
+|-------|----------|-------|---------|
+| 90+ | CRITICAL | Magenta | Credential exposure or extreme risk |
+| 70-89 | HIGH | Red | Dangerous capability combinations |
+| 40-69 | MEDIUM | Yellow | Notable capabilities worth reviewing |
+| 10-39 | LOW | Cyan | Minor signals, likely benign |
+| 0-9 | INFO | Dim | Informational only |
 
-### Optional config (`.ahscan.toml`)
+Scores are based on: artifact type, detected capability keywords (shell, network, filesystem, etc.), dangerous keywords (exfiltrate, steal, bypass, etc.), and whether capabilities are explicitly declared.
+
+## Access tiers
+
+| Feature | Lite (default) | Licensed |
+|---------|:--------------:|:--------:|
+| Local scanning | ✅ | ✅ |
+| Risk scoring | ✅ | ✅ |
+| Visible artifacts | Top 3 | All |
+| JSON export | ❌ | ✅ |
+| Server submission | ❌ | ✅ |
+
+Configure in `.ahscan.toml`:
 
 ```toml
 [access]
-mode = "lite" # lite | licensed
-license_key = "" # required when mode = "licensed"
-endpoint = "http://localhost:3000/api/ingest"
-license_timeout_seconds = 3
-
-[submit]
-endpoint = "http://localhost:3000/api/ingest"
-token = ""
-scanner_uuid = "" # optional override; auto-generated/persisted by default
-scanner_account_uuid = "" # optional override; auto-generated/persisted by default
-timeout_seconds = 10
-include_informational = false
-allow_public_endpoint = false
-source = "api"
-audit_log_enabled = true
-audit_log_path = ".ahscan-submissions.json"
+mode = "licensed"
+license_key = "your-key-here"
 ```
 
-Submission requires licensed mode and server connectivity.
+## Submitting to a server
 
-### Client submission audit log
+With a licensed configuration and API key:
 
-Each submit attempt appends to `.ahscan-submissions.json` (by default), including:
+```bash
+# First-time setup (saves credentials)
+ah-scan setup
 
-- timestamp
-- endpoint
-- run_id
-- submitted_artifacts
-- ok / error
-- status_code
-- response summary counts (when available)
+# Or set credentials directly
+ah-scan auth --key your-api-key
 
-Token values are never written to the audit log.
-
-`scanner_account_uuid` is included in every submit payload as
-`client_details_scanner_account_uuid`.
-By default, scanner auto-generates and persists this UUID at
-`~/.ahscan/scanner_account_uuid` to avoid per-run config drift.
-
-`scanner_uuid` is included in every submit payload as
-`client_details_scanner_uuid`.
-By default, scanner auto-generates and persists this UUID at
-`~/.ahscan/scanner_uuid`.
-
-Audit log format behavior:
-
-- `.json` path: pretty-printed JSON array (easier to inspect/edit)
-- `.jsonl` path: one compact JSON object per line (append-optimized)
+# Submit during a scan
+ah-scan repo . --submit http://localhost:3000/api/scans/ingest --api-key your-key
+```
 
 ### Safety defaults
 
-- Endpoint must use `http://` or `https://`.
-- Public hostnames are blocked by default.
-- Local/private targets (for example `localhost`, `127.0.0.1`, `192.168.x.x`) are allowed.
-- Use `--allow-public-endpoint` only when intentionally submitting outside your local/private network.
+- Only local/private endpoints are allowed by default (`localhost`, `127.0.0.1`, `192.168.x.x`)
+- Pass `--allow-public-endpoint` to submit to public servers
+- Retry logic handles transient failures (429, 502, 503, 504)
+- Audit log is written to `.ahscan-submissions.json` (tokens are never logged)
 
-## What it detects (v1)
+## Self-update
 
-| Detector              | Artifact types                                                | Strategy                         |
-| --------------------- | ------------------------------------------------------------- | -------------------------------- |
-| Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md`                      | Path match + keyword signals     |
-| Prompt configs        | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md` | Path match + keyword signals     |
-| Container configs     | `Dockerfile`, `compose.yaml`, `docker-compose.yml`            | Path match                       |
-| Browser footprints    | Chrome, Edge, Brave, Arc profiles                             | Presence-only (no content reads) |
-| MCP configs           | MCP server configuration files                                | Path match + keyword signals     |
-
-## Output schema (locked v1)
-
-```json
-{
-  "run_id": "...",
-  "scanned_path": "...",
-  "timestamp": "...",
-  "artifacts": [
-    {
-      "artifact_hash": "sha256...",
-      "artifact_type": "cursor_rules",
-      "confidence": 0.9,
-      "signals": ["filename_match:.cursorrules", "keyword:shell"],
-      "metadata": {"paths": ["/path/to/.cursorrules"], "origin": "workdir"},
-      "risk_score": 35,
-      "verification_status": "conditional_pass"
-    }
-  ]
-}
+```bash
+ah-scan update           # Check for and install updates
 ```
 
-## Privacy boundaries (v1)
+The scanner checks S3 for the latest release, verifies SHA-256 checksums, and replaces itself.
 
-- **Path-first scanning** — content is only read for allowlisted files (`.cursorrules`, `agents.md`, prompt files).
-- **No broad host file ingestion** — discovery walks bounded roots with depth/count limits.
-- **Secret redaction** — token-like strings trigger a `possible_secret_detected` signal; values are never stored.
-- **Browser** — presence-only detection; no extension content or preferences parsing.
+## Privacy
 
-## Host scan surfaces
-
-| Root                               | Platform      |
-| ---------------------------------- | ------------- |
-| `~/.config/**`                     | Linux / macOS |
-| `~/.local/share/**`                | Linux / macOS |
-| `~/Library/Application Support/**` | macOS         |
+- **Path-first scanning** — content is only read from specific allowlisted file types
+- **Bounded walking** — max depth of 5, file count limits (50K shallow / 500K deep)
+- **No broad ingestion** — `.git/`, `node_modules/`, `.venv/`, `target/` and similar are always excluded
+- **Secret detection without storage** — token patterns trigger a signal tag, but values are never stored or transmitted
+- **Browser presence only** — extension directories are noted, but no extension content or preferences are read
+- **WASM sandbox** — plugins never access the filesystem; the host provides pre-read content only
 
 ## Project structure
 
 ```
-src/
-  main.rs             # Entry point
-  cli.rs              # CLI argument parsing (clap)
-  scan.rs             # Scan orchestration
-  discovery.rs        # Filesystem candidate discovery
-  models.rs           # Data models (ArtifactReport, ScanReport)
-  detectors/          # Artifact detectors
-    mod.rs
-    cursor_rules.rs
-    prompt_configs.rs
-    containers.rs
-    browser_footprints.rs
-    mcp_configs.rs
-    content_analysis.rs
-  risk_engine.rs      # Risk scoring
-  verifier.rs         # Verification status
-  capabilities.rs     # Capability derivation
-  formatters.rs       # CLI output formatting
-  lite_mode.rs        # Lite-tier rate limiting
-  payload.rs          # Ingest API payload building
-  submit.rs           # HTTP submission + audit
-  network.rs          # Endpoint safety validation
-  identity.rs         # Scanner UUID management
-  wizard.rs           # Interactive wizard
-  progress.rs         # Progress reporting
+ah-scanner/
+├── crates/
+│   ├── ah-scan/          # CLI binary (scanning, detection, submission)
+│   └── ah-scan-sdk/      # Shared types for WASM plugin authors
+├── examples/
+│   ├── detector-template/     # Starter template for new plugins
+│   └── detector-cursor-rules/ # Working example plugin
+├── scripts/
+│   ├── test-scanner.sh   # Automated test suite
+│   └── test-submit.sh    # Manual submission test
+├── docs/
+│   ├── architecture.md   # System design and data flow
+│   ├── detectors.md      # How detection works
+│   └── plugin-guide.md   # Writing WASM plugins
+└── scanner-data-contract.json  # JSON Schema for the ingest API
 ```
 
-## Running tests
+## Developing
 
 ```bash
-cargo test
+cargo build              # Debug build
+cargo test               # Run all tests (78 tests across 2 crates)
+cargo clippy             # Lint check (should be 0 warnings)
+./scripts/test-scanner.sh  # Exercise all CLI subcommands
 ```
 
-## Building release
+For detailed development instructions: [CONTRIBUTING.md](CONTRIBUTING.md)
+For architecture and code walkthrough: [docs/architecture.md](docs/architecture.md)
 
-```bash
-cargo build --release
+## Configuration reference
+
+| File | Purpose |
+|------|---------|
+| `~/.config/ahscan/config.json` | API key + endpoint (created by `ah-scan setup`) |
+| `.ahscan.toml` | Access tier + license key (project-level) |
+| `~/.ahscan/scanner_uuid` | Persistent scanner identity (auto-generated) |
+| `~/.ahscan/plugins/*.wasm` | Installed detector plugins |
+
+Full `.ahscan.toml` options:
+
+```toml
+[access]
+mode = "lite"                   # lite | licensed
+license_key = ""                # required for licensed mode
+
+[submit]
+endpoint = "http://localhost:3000/api/scans/ingest"
+token = ""
+scanner_uuid = ""               # auto-generated if empty
+scanner_account_uuid = ""       # auto-generated if empty
+timeout_seconds = 10
+include_informational = false
+allow_public_endpoint = false
+audit_log_enabled = true
+audit_log_path = ".ahscan-submissions.json"
 ```
-
-Single binary at `target/release/ah-scan`.
