@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 use crate::capabilities::derive_capabilities;
 use crate::models::{ArtifactReport, ScanReport};
+use crate::network_evidence::{self, EnvVarRef, HostNetworkInfo, NetworkEvidence};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Top-level payload
@@ -38,6 +39,7 @@ pub struct ScanMeta {
     pub scanner_version: String,
     pub scan_duration_ms: u64,
     pub scan_roots: Vec<String>,
+    pub host_network: HostNetworkInfo,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -130,12 +132,15 @@ pub struct SkillConsumer {
 pub struct McpServer {
     pub id: String,
     pub name: String,
+    pub transport: String,
     pub network: String,
     pub auth: String,
     pub verified: bool,
     pub command: String,
     pub tools: Vec<McpTool>,
     pub dependent_agents: Vec<String>,
+    pub network_evidence: Vec<NetworkEvidence>,
+    pub env_vars: Vec<EnvVarRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +245,8 @@ pub fn build_contract_payload(report: &ScanReport, scan_duration_ms: u64) -> Con
         .and_then(|h| h.into_string().ok())
         .unwrap_or_else(|| "unknown".to_string());
 
+    let host_network = network_evidence::gather_host_network();
+
     let scan_meta = ScanMeta {
         scan_id: uuid::Uuid::new_v4().to_string(),
         endpoint_hostname: hostname,
@@ -247,6 +254,7 @@ pub fn build_contract_payload(report: &ScanReport, scan_duration_ms: u64) -> Con
         scanner_version: env!("CARGO_PKG_VERSION").to_string(),
         scan_duration_ms,
         scan_roots: vec![report.scanned_path.clone()],
+        host_network,
     };
 
     // Partition artifacts by type
@@ -693,33 +701,17 @@ fn mcp_entry_to_server(
     val: &serde_json::Value,
     artifact: &ArtifactReport,
 ) -> McpServer {
-    // Per-server network inference: check this server entry for URLs
-    let server_text_raw = val.to_string();
-    let server_urls: Vec<String> = {
-        let re = regex::Regex::new(r#"https?://[^\s"'\\,\]}>]+"#).unwrap();
-        re.find_iter(&server_text_raw)
-            .map(|m| m.as_str().to_string())
-            .collect()
-    };
-    let has_remote_url = server_urls.iter().any(|u| {
-        !u.contains("localhost") && !u.contains("127.0.0.1") && !u.contains("0.0.0.0")
-    });
-    // Fall back to file-level endpoints if server entry itself has none
-    let file_has_endpoints = artifact
-        .metadata
-        .get("api_endpoints")
-        .and_then(|v| v.as_array())
-        .map(|a| !a.is_empty())
-        .unwrap_or(false);
-    let network = if has_remote_url {
-        "Internet Exposed"
-    } else if !server_urls.is_empty() || file_has_endpoints {
-        "LAN"
-    } else {
-        "Local Only"
-    };
+    // Transport type from config
+    let transport = network_evidence::infer_transport(val);
 
-    // Per-server auth inference: check if THIS server entry has env-var or credential patterns
+    // Gather evidence from config, known packages, and env vars
+    let network_ev = network_evidence::gather_server_evidence(name, val, &transport);
+    let env_vars = network_evidence::resolve_env_refs(val);
+
+    // Derive network classification from evidence
+    let network = network_evidence::classify_from_evidence(&transport, &network_ev);
+
+    // Per-server auth inference from env block and credential patterns
     let server_text = val.to_string().to_lowercase();
     let has_env_pattern = server_text.contains("${")
         || server_text.contains("process.env")
@@ -760,12 +752,15 @@ fn mcp_entry_to_server(
     McpServer {
         id,
         name: name.to_string(),
-        network: network.to_string(),
+        transport,
+        network,
         auth: auth.to_string(),
         verified,
         command: full_command,
         tools,
-        dependent_agents: Vec::new(), // cross-linked after agent building
+        dependent_agents: Vec::new(),
+        network_evidence: network_ev,
+        env_vars,
     }
 }
 

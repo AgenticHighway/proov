@@ -336,6 +336,70 @@ else
     fail "MCP auth is 'API Key' for every server"
 fi
 
+# 10e: scanMeta.hostNetwork exists and has firewall fields
+if python3 -c "
+import json, sys
+data = json.load(open('$QUICK_JSON'))
+hn = data['scanMeta']['hostNetwork']
+assert isinstance(hn['firewallEnabled'], bool), 'firewallEnabled not bool'
+assert isinstance(hn['firewallMode'], str), 'firewallMode not string'
+assert isinstance(hn['stealthMode'], bool), 'stealthMode not bool'
+assert isinstance(hn['firewallRules'], list), 'firewallRules not list'
+" 2>&1; then
+    pass "scanMeta.hostNetwork has firewall fields"
+else
+    fail "scanMeta.hostNetwork missing or malformed"
+fi
+
+# 10f: MCP servers have transport field
+if python3 -c "
+import json, sys
+data = json.load(open('$QUICK_JSON'))
+for s in data['mcpServers']:
+    t = s.get('transport', '')
+    if t not in ('stdio', 'sse', 'streamable-http', 'unknown'):
+        print(f'  Server \"{s[\"name\"]}\" has bad transport: {t!r}', file=sys.stderr)
+        sys.exit(1)
+" 2>&1; then
+    pass "MCP servers have valid transport field"
+else
+    fail "MCP server transport field invalid"
+fi
+
+# 10g: MCP servers have networkEvidence array
+if python3 -c "
+import json, sys
+data = json.load(open('$QUICK_JSON'))
+for s in data['mcpServers']:
+    ev = s.get('networkEvidence', None)
+    if not isinstance(ev, list):
+        print(f'  Server \"{s[\"name\"]}\" has no networkEvidence array', file=sys.stderr)
+        sys.exit(1)
+    # Every server should have at least a transport evidence entry
+    if len(ev) == 0:
+        print(f'  Server \"{s[\"name\"]}\" has empty networkEvidence', file=sys.stderr)
+        sys.exit(1)
+" 2>&1; then
+    pass "MCP servers have networkEvidence arrays"
+else
+    fail "MCP server networkEvidence missing or empty"
+fi
+
+# 10h: MCP servers have envVars array
+if python3 -c "
+import json, sys
+data = json.load(open('$QUICK_JSON'))
+for s in data['mcpServers']:
+    ev = s.get('envVars', None)
+    if not isinstance(ev, list):
+        print(f'  Server \"{s[\"name\"]}\" has no envVars array', file=sys.stderr)
+        sys.exit(1)
+" 2>&1; then
+    pass "MCP servers have envVars arrays"
+else
+    fail "MCP server envVars missing"
+fi
+
 # ── 11. Error cases ─────────────────────────────────────────────────
 
 section "Error cases"

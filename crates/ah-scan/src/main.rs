@@ -9,6 +9,7 @@ mod identity;
 mod lite_mode;
 mod models;
 mod network;
+mod network_evidence;
 mod payload;
 mod plugins;
 mod progress;
