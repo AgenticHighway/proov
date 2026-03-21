@@ -282,7 +282,12 @@ expect_ok "full scan (--summary)" $RUN full --summary
 section "Auth configuration"
 
 # Back up existing config if present
-AUTH_CONFIG_DIR="${HOME}/.config/ahscan"
+# On macOS, dirs::config_dir() returns ~/Library/Application Support
+if [[ "$(uname)" == "Darwin" ]]; then
+    AUTH_CONFIG_DIR="${HOME}/Library/Application Support/ahscan"
+else
+    AUTH_CONFIG_DIR="${HOME}/.config/ahscan"
+fi
 AUTH_CONFIG="${AUTH_CONFIG_DIR}/config.json"
 AUTH_BACKUP=""
 if [ -f "$AUTH_CONFIG" ]; then
@@ -357,7 +362,7 @@ if [ "$LOCAL_AVAILABLE" = true ] && [ -n "$AH_TEST_API_KEY" ]; then
     # Test auth rejection with bad key
     if $RUN file "$AGENTS_FILE" \
         --submit "$AH_TEST_LOCAL_ENDPOINT" \
-        --api-key "ah_invalid_key_000" > /dev/null 2>&1; then
+        --api-key "${AH_TEST_API_NO_KEY:-ah_invalid_key_000}" > /dev/null 2>&1; then
         fail "local submit (bad key should fail but didn't)"
     else
         pass "local submit (bad key rejected)"
@@ -376,34 +381,48 @@ if [ -n "$AH_TEST_API_KEY" ]; then
     REMOTE_SUBMIT_JSON="$OUT_DIR/${TIMESTAMP}-remote-submit.json"
 
     # File scan + submit to production
-    if $RUN file "$AGENTS_FILE" \
+    REMOTE_OUTPUT=""
+    REMOTE_OUTPUT=$($RUN file "$AGENTS_FILE" \
         --contract \
         --out "$REMOTE_SUBMIT_JSON" \
         --submit "$AH_TEST_REMOTE_ENDPOINT" \
-        --api-key "$AH_TEST_API_KEY" 2>&1 | tail -5; then
+        --api-key "$AH_TEST_API_KEY" 2>&1) && REMOTE_FILE_OK=true || REMOTE_FILE_OK=false
+    echo "$REMOTE_OUTPUT" | tail -5
+    if [ "$REMOTE_FILE_OK" = true ]; then
         pass "remote submit (file scan → production)"
+    elif echo "$REMOTE_OUTPUT" | grep -q "401\|Authentication failed"; then
+        skip "remote submit (file scan) — API key not provisioned on production (401)"
     else
         fail "remote submit (file scan → production)"
     fi
     expect_json_file "remote submit contract saved" "$REMOTE_SUBMIT_JSON"
 
     # Quick scan + submit to production
-    if $RUN quick \
+    REMOTE_OUTPUT=""
+    REMOTE_OUTPUT=$($RUN quick \
         --submit "$AH_TEST_REMOTE_ENDPOINT" \
-        --api-key "$AH_TEST_API_KEY" > /dev/null 2>&1; then
+        --api-key "$AH_TEST_API_KEY" 2>&1) && REMOTE_QUICK_OK=true || REMOTE_QUICK_OK=false
+    if [ "$REMOTE_QUICK_OK" = true ]; then
         pass "remote submit (quick scan → production)"
+    elif echo "$REMOTE_OUTPUT" | grep -q "401\|Authentication failed"; then
+        skip "remote submit (quick scan) — API key not provisioned on production (401)"
     else
         fail "remote submit (quick scan → production)"
     fi
 
     # Repo scan + submit to production
     REMOTE_REPO_JSON="$OUT_DIR/${TIMESTAMP}-remote-repo.json"
-    if $RUN repo "$REPO_ROOT" \
+    REMOTE_OUTPUT=""
+    REMOTE_OUTPUT=$($RUN repo "$REPO_ROOT" \
         --contract \
         --out "$REMOTE_REPO_JSON" \
         --submit "$AH_TEST_REMOTE_ENDPOINT" \
-        --api-key "$AH_TEST_API_KEY" 2>&1 | tail -5; then
+        --api-key "$AH_TEST_API_KEY" 2>&1) && REMOTE_REPO_OK=true || REMOTE_REPO_OK=false
+    echo "$REMOTE_OUTPUT" | tail -5
+    if [ "$REMOTE_REPO_OK" = true ]; then
         pass "remote submit (repo scan → production)"
+    elif echo "$REMOTE_OUTPUT" | grep -q "401\|Authentication failed"; then
+        skip "remote submit (repo scan) — API key not provisioned on production (401)"
     else
         fail "remote submit (repo scan → production)"
     fi
@@ -412,7 +431,7 @@ if [ -n "$AH_TEST_API_KEY" ]; then
     # Test bad key against production
     if $RUN file "$AGENTS_FILE" \
         --submit "$AH_TEST_REMOTE_ENDPOINT" \
-        --api-key "ah_invalid_key_000" > /dev/null 2>&1; then
+        --api-key "${AH_TEST_API_NO_KEY:-ah_invalid_key_000}" > /dev/null 2>&1; then
         fail "remote submit (bad key should fail but didn't)"
     else
         pass "remote submit (bad key rejected)"
