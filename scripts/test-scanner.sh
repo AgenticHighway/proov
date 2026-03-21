@@ -19,6 +19,18 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Load .env if present (values from environment always take precedence)
+if [[ -f "$REPO_ROOT/.env" ]]; then
+    while IFS='=' read -r key value; do
+        # Skip blank lines and comments
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        # Only set if not already set in the environment
+        if [[ -z "${!key+x}" ]]; then
+            export "$key"="$value"
+        fi
+    done < "$REPO_ROOT/.env"
+fi
+
 RUN="cargo run -p ah-scan --"
 OUT_DIR="test-runs"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
@@ -26,7 +38,7 @@ PASS=0
 FAIL=0
 SKIP=0
 
-# Submission test config (from env or defaults)
+# Submission test config (from env or .env defaults)
 AH_TEST_API_KEY="${AH_TEST_API_KEY:-}"
 AH_TEST_LOCAL_ENDPOINT="${AH_TEST_LOCAL_ENDPOINT:-http://localhost:3000/api/scans/ingest}"
 AH_TEST_REMOTE_ENDPOINT="${AH_TEST_REMOTE_ENDPOINT:-https://verify.agentichighway.ai/api/scans/ingest}"
