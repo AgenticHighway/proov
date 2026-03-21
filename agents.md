@@ -11,14 +11,16 @@ This is the **client/scanner side** of a two-repo client/server system:
 
 The scanner is the data producer. The server is the data consumer, store, and reviewer. They communicate over HTTP.
 
-This repository is a minimal `uv`-managed Python project.
+This repository is a Rust workspace with two crates (`ah-scan` CLI and `ah-scan-sdk` for plugins).
 
 ## Expectations for coding agents
 
-- Use `uv run` for running Python commands and scripts.
+- **This is a Rust project** — use `cargo build`, `cargo test`, `cargo clippy`.
+- Release binary: `target/release/ah-scan` (via `cargo build --release -p ah-scan`).
 - Keep changes small and focused.
 - Prefer adding tests for non-trivial behavior changes.
 - Preserve existing project structure unless restructuring is required.
+- Run `cargo clippy` before committing — it should produce zero warnings.
 - Update this file when introducing agent-specific workflows.
 
 Below is a tight, AI-optimized AGENTS.md designed specifically for agentic coding environments (Cursor, Claude Code, OpenAI agents, etc.).
@@ -96,13 +98,20 @@ Avoid hidden dependencies.
 
 Bad:
 
-def process_task():
-user = get_current_user()
-data = requests.get(API).json()
+```rust
+fn process_task() {
+    let user = get_current_user();       // hidden dependency
+    let data = ureq::get(API).call();    // hidden side effect
+}
+```
 
 Good:
 
-def process_task(user, external_data):
+```rust
+fn process_task(user: &User, data: &ExternalData) -> Result<(), Error> {
+    // dependencies are explicit parameters
+}
+```
 
 Pass dependencies explicitly.
 
@@ -128,18 +137,23 @@ Typed Data Contracts
 All shared data structures should use typed models.
 
 Prefer:
-• Pydantic models
-• dataclasses
-• typed dictionaries
+• Rust structs with `#[derive(Serialize, Deserialize)]`
+• Enums for variant types
+• Strongly typed function signatures
 
 Example:
 
-class AgentTask(BaseModel):
-id: str
-prompt: str
-tools_allowed: list[str]
+```rust
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ArtifactReport {
+    pub artifact_type: String,
+    pub confidence: f64,
+    pub signals: Vec<String>,
+    pub risk_score: u32,
+}
+```
 
-Avoid passing raw dictionaries between modules.
+Avoid passing raw `serde_json::Value` between modules.
 
 Typed contracts reduce AI-generated bugs.
 
@@ -156,15 +170,15 @@ Rules:
 
 Bad:
 
-except Exception:
-pass
+```rust
+let _ = do_thing(); // swallowed error
+```
 
 Good:
 
-except Exception as e:
-raise WorkflowExecutionError(
-f"Step {step_id} failed"
-) from e
+```rust
+do_thing().map_err(|e| format!("Step {step_id} failed: {e}"))?;
+```
 
 Logs should contain enough information to reproduce failures.
 
@@ -181,9 +195,11 @@ Every agent execution should log:
 
 Example:
 
-logger.info("agent_step_start", step_id=step_id)
+```rust
+eprintln!("scan_phase: discovery mode={mode} path={path}");
+```
 
-Logs should be structured.
+Logs go to stderr (stdout is reserved for machine-readable output).
 
 ⸻
 
@@ -191,14 +207,16 @@ Tool Integration Pattern
 
 External systems must be wrapped in tool adapters.
 
-Example:
+In this codebase:
 
-tools/
-openai_client.py
-slack_client.py
-github_client.py
+```
+submit.rs      — HTTP submission
+network.rs     — endpoint validation
+updater.rs     — S3 update checks
+identity.rs    — UUID file persistence
+```
 
-Agents must not call external APIs directly.
+Modules must not call external APIs directly — use the dedicated side-effect modules.
 
 Adapters improve:
 • testability
@@ -221,11 +239,17 @@ Avoid heavy testing of:
 • thin wrappers
 • temporary experiments
 
-Minimum test types:
+Tests live alongside the code (Rust `#[cfg(test)]` convention):
 
-tests/
-unit/
-workflows/
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // ...
+}
+```
+
+Run with `cargo test`.
 
 ⸻
 
