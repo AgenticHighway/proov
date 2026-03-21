@@ -288,12 +288,19 @@ pub fn build_contract_payload(report: &ScanReport, scan_duration_ms: u64) -> Con
         map
     };
 
-    // We need to rebuild mcp_servers with the cross-links
+    // We need to rebuild mcp_servers with the cross-links (deduplicated)
     let mcp_servers_linked: Vec<McpServer> = {
         let mut servers = build_mcp_servers(&mcp_artifacts);
         for server in &mut servers {
             if let Some(ids) = agent_ids_by_mcp.get(&server.name) {
-                server.dependent_agents = ids.clone();
+                let mut unique_ids: Vec<String> = Vec::new();
+                let mut seen = std::collections::HashSet::new();
+                for id in ids {
+                    if seen.insert(id.clone()) {
+                        unique_ids.push(id.clone());
+                    }
+                }
+                server.dependent_agents = unique_ids;
             }
         }
         servers
@@ -648,6 +655,7 @@ fn find_skill_consumers(tool_name: &str, agents: &[Agent]) -> Vec<SkillConsumer>
 
 fn build_mcp_servers(artifacts: &[&ArtifactReport]) -> Vec<McpServer> {
     let mut servers = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
 
     for artifact in artifacts {
         let content = match read_artifact_head(artifact) {
@@ -670,7 +678,10 @@ fn build_mcp_servers(artifacts: &[&ArtifactReport]) -> Vec<McpServer> {
         };
 
         for (name, server_val) in server_map {
-            servers.push(mcp_entry_to_server(name, server_val, artifact));
+            // Deduplicate MCP servers by name — keep the first occurrence
+            if seen_names.insert(name.clone()) {
+                servers.push(mcp_entry_to_server(name, server_val, artifact));
+            }
         }
     }
 
@@ -682,21 +693,45 @@ fn mcp_entry_to_server(
     val: &serde_json::Value,
     artifact: &ArtifactReport,
 ) -> McpServer {
-    let has_endpoints = artifact
+    // Per-server network inference: check this server entry for URLs
+    let server_text_raw = val.to_string();
+    let server_urls: Vec<String> = {
+        let re = regex::Regex::new(r#"https?://[^\s"'\\,\]}>]+"#).unwrap();
+        re.find_iter(&server_text_raw)
+            .map(|m| m.as_str().to_string())
+            .collect()
+    };
+    let has_remote_url = server_urls.iter().any(|u| {
+        !u.contains("localhost") && !u.contains("127.0.0.1") && !u.contains("0.0.0.0")
+    });
+    // Fall back to file-level endpoints if server entry itself has none
+    let file_has_endpoints = artifact
         .metadata
         .get("api_endpoints")
         .and_then(|v| v.as_array())
         .map(|a| !a.is_empty())
         .unwrap_or(false);
-
-    let network = if has_endpoints {
+    let network = if has_remote_url {
         "Internet Exposed"
+    } else if !server_urls.is_empty() || file_has_endpoints {
+        "LAN"
     } else {
         "Local Only"
     };
 
-    let has_cred_signal = artifact.signals.iter().any(|s| s == "credential_references");
-    let auth = if has_cred_signal { "API Key" } else { "None" };
+    // Per-server auth inference: check if THIS server entry has env-var or credential patterns
+    let server_text = val.to_string().to_lowercase();
+    let has_env_pattern = server_text.contains("${")
+        || server_text.contains("process.env")
+        || server_text.contains("os.environ");
+    let has_cred_key = ["api_key", "apikey", "secret", "token", "password", "credential", "auth"]
+        .iter()
+        .any(|kw| server_text.contains(kw));
+    let auth = if has_cred_key || has_env_pattern {
+        "API Key"
+    } else {
+        "None"
+    };
 
     let verified = artifact.verification_status == "pass";
 
@@ -852,8 +887,29 @@ fn artifact_to_agent(
         })
         .collect();
 
-    // Link MCP server tools
+    // Link MCP server tools — only from co-located config files
+    let agent_dir = std::path::Path::new(&source_path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let mut seen_mcp_names = std::collections::HashSet::new();
+
     for mcp in mcp_artifacts {
+        let mcp_path = first_path(mcp);
+        let mcp_dir = std::path::Path::new(mcp_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        // Only link MCP configs that share a common ancestor or tool scope
+        let related = agent_dir.starts_with(&mcp_dir)
+            || mcp_dir.starts_with(&agent_dir)
+            || is_same_tool_scope(&agent_dir, &mcp_dir);
+
+        if !related {
+            continue;
+        }
+
         if let Some(content) = read_artifact_head(mcp) {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                 let servers = val
@@ -862,10 +918,12 @@ fn artifact_to_agent(
                     .and_then(|v| v.as_object());
                 if let Some(servers) = servers {
                     for (server_name, _) in servers {
-                        tools.push(AgentTool {
-                            name: server_name.clone(),
-                            tool_type: "mcp".to_string(),
-                        });
+                        if seen_mcp_names.insert(server_name.clone()) {
+                            tools.push(AgentTool {
+                                name: server_name.clone(),
+                                tool_type: "mcp".to_string(),
+                            });
+                        }
                     }
                 }
             }
@@ -1299,6 +1357,24 @@ fn detect_source_repo(file_path: &str) -> String {
         dir = d.parent();
     }
     "unknown".to_string()
+}
+
+/// Check if two directories share the same tool scope.
+///
+/// Two paths are in the same scope when they belong to the same
+/// application config tree — e.g. VS Code, Cursor, or Claude settings.
+fn is_same_tool_scope(dir_a: &str, dir_b: &str) -> bool {
+    // Both under the same well-known tool config root?
+    let scope_markers = [
+        ".vscode", ".vscode-insiders", ".cursor",
+        ".claude", "Code/User", "Cursor/User",
+    ];
+    for marker in &scope_markers {
+        if dir_a.contains(marker) && dir_b.contains(marker) {
+            return true;
+        }
+    }
+    false
 }
 
 fn declared_tools(a: &ArtifactReport) -> Vec<String> {

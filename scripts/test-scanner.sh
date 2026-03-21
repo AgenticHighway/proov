@@ -264,7 +264,79 @@ assert '$field' in data['scanMeta'], '$field not in scanMeta'
     fi
 done
 
-# ── 10. Error cases ─────────────────────────────────────────────────
+# ── 10. Data quality checks (quick scan) ────────────────────────────
+
+section "Data quality (quick scan contract)"
+
+# Use the quick scan output which has real MCP + agent data
+QUICK_JSON="$OUT_DIR/${TIMESTAMP}-quick.json"
+
+# 10a: No duplicate MCP servers by name
+if python3 -c "
+import json, sys
+data = json.load(open('$QUICK_JSON'))
+names = [s['name'] for s in data['mcpServers']]
+dupes = [n for n in set(names) if names.count(n) > 1]
+if dupes:
+    print(f'  Duplicates: {dupes}', file=sys.stderr)
+    sys.exit(1)
+" 2>&1; then
+    pass "no duplicate MCP server names"
+else
+    fail "duplicate MCP server names found"
+fi
+
+# 10b: No duplicate tools per agent
+if python3 -c "
+import json, sys
+data = json.load(open('$QUICK_JSON'))
+for a in data['agents']:
+    tools = [t['name']+':'+t['type'] for t in a['tools']]
+    if len(tools) != len(set(tools)):
+        dupes = [t for t in set(tools) if tools.count(t) > 1]
+        print(f'  Agent \"{a[\"name\"]}\" has duplicate tools: {dupes}', file=sys.stderr)
+        sys.exit(1)
+" 2>&1; then
+    pass "no duplicate agent tools"
+else
+    fail "duplicate agent tools found"
+fi
+
+# 10c: No duplicate dependentAgents per MCP server
+if python3 -c "
+import json, sys
+data = json.load(open('$QUICK_JSON'))
+for s in data['mcpServers']:
+    deps = s['dependentAgents']
+    if len(deps) != len(set(deps)):
+        dupes = [d for d in set(deps) if deps.count(d) > 1]
+        print(f'  Server \"{s[\"name\"]}\" has dup deps: {dupes}', file=sys.stderr)
+        sys.exit(1)
+" 2>&1; then
+    pass "no duplicate dependentAgents"
+else
+    fail "duplicate dependentAgents found"
+fi
+
+# 10d: MCP auth is not always the same value
+if python3 -c "
+import json, sys
+data = json.load(open('$QUICK_JSON'))
+servers = data['mcpServers']
+if len(servers) > 1:
+    auths = set(s['auth'] for s in servers)
+    # With proper per-server inference, not every server should have the same auth
+    # At minimum, servers without env vars should be 'None'
+    if len(auths) == 1 and 'API Key' in auths:
+        print(f'  All {len(servers)} servers show auth=API Key', file=sys.stderr)
+        sys.exit(1)
+" 2>&1; then
+    pass "MCP auth varies per server"
+else
+    fail "MCP auth is 'API Key' for every server"
+fi
+
+# ── 11. Error cases ─────────────────────────────────────────────────
 
 section "Error cases"
 expect_fail  "file scan (nonexistent file)"  $RUN file /tmp/ahscan-no-such-file-12345.txt

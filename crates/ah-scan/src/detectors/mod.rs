@@ -15,7 +15,7 @@ pub fn get_all_detectors(mode: &str) -> Vec<Box<dyn Detector>> {
         Box::new(prompt_configs::PromptConfigDetector),
         Box::new(mcp_configs::MCPConfigDetector),
     ];
-    if mode == "host" || mode == "filesystem" {
+    if matches!(mode, "host" | "filesystem" | "home" | "root") {
         d.push(Box::new(browser_footprints::BrowserFootprintDetector));
     }
     d

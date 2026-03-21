@@ -13,3 +13,4 @@ target/
 .DS_Store
 ._*
 test-runs/
+ahscan-contract.json
