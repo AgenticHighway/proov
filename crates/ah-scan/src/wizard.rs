@@ -12,10 +12,13 @@ use crossterm::{
     terminal,
 };
 
+use crate::contract::build_contract_payload;
 use crate::formatters::{print_human, print_overview, print_summary, severity};
 use crate::models::ScanReport;
 use crate::progress::ScanProgress;
 use crate::scan::run_scan;
+use crate::setup;
+use crate::submit::{load_auth_config, submit_contract_payload};
 
 // ── ANSI constants ──────────────────────────────────────────────────────
 
@@ -193,28 +196,22 @@ fn print_banner() {
 
 fn step_choose_mode() -> (String, Option<PathBuf>) {
     let modes = &[
-        "Quick scan  (host config areas)",
-        "Full scan   (entire filesystem)",
-        "Folder scan (specific directory)",
-        "Repo scan   (deep git repo scan)",
-        "File scan   (single file)",
+        "Default scan  (home directory)",
+        "Quick scan    (agentic config areas)",
+        "Full scan     (entire filesystem)",
+        "Folder scan   (specific directory)",
+        "File scan     (single file)",
     ];
     let idx = pick("Scan mode", modes, 0);
 
     match idx {
-        0 => ("host".to_string(), None),
-        1 => ("filesystem".to_string(), None),
-        2 => {
+        0 => ("home".to_string(), None),
+        1 => ("host".to_string(), None),
+        2 => ("root".to_string(), None),
+        3 => {
             let dir = ask("Directory path", ".");
             (
                 "workdir".to_string(),
-                Some(PathBuf::from(dir)),
-            )
-        }
-        3 => {
-            let dir = ask("Repo path", ".");
-            (
-                "workdir_deep".to_string(),
                 Some(PathBuf::from(dir)),
             )
         }
@@ -222,7 +219,7 @@ fn step_choose_mode() -> (String, Option<PathBuf>) {
             let path = ask("File path", "");
             ("file".to_string(), Some(PathBuf::from(path)))
         }
-        _ => ("host".to_string(), None),
+        _ => ("home".to_string(), None),
     }
 }
 
@@ -231,14 +228,11 @@ fn step_run_scan(mode: &str, workdir: Option<&PathBuf>) -> ScanReport {
     let mut progress = ScanProgress::new(false);
     progress.phase("Scanning");
 
-    let deep = mode == "workdir_deep";
-    let scan_mode = if mode == "workdir_deep" { "workdir" } else { mode };
-
     let report = run_scan(
-        scan_mode,
+        mode,
         workdir.map(|p| p.as_path()),
-        workdir.filter(|_| scan_mode == "file").map(|p| p.as_path()),
-        deep,
+        workdir.filter(|_| mode == "file").map(|p| p.as_path()),
+        false,
         Some(&|detail: &str| {
             // Progress tick writes directly — ScanProgress is not accessible
             // from the closure without interior mutability, so we write inline.
@@ -289,25 +283,32 @@ fn print_severity_bars(report: &ScanReport) {
 
 // ── Output step ─────────────────────────────────────────────────────────
 
-fn step_choose_output(report: &ScanReport) {
-    let formats = &["Overview (default)", "Full detail", "Summary", "JSON"];
+fn step_choose_output(report: &ScanReport, scan_duration_ms: u64) {
+    let formats = &["Overview (default)", "Full detail", "Summary", "JSON (contract format)"];
     let idx = pick("Output format", formats, 0);
 
     match idx {
         0 => print_overview(report),
         1 => print_human(report),
         2 => print_summary(report),
-        3 => println!("{}", report.to_json(true)),
+        3 => {
+            let payload = build_contract_payload(report, scan_duration_ms);
+            let json = serde_json::to_string_pretty(&payload)
+                .expect("contract payload serialization");
+            println!("{json}");
+        }
         _ => print_overview(report),
     }
 }
 
-fn offer_save(report: &ScanReport) {
+fn offer_save(report: &ScanReport, scan_duration_ms: u64) {
     if !confirm("Save JSON report to file?", false) {
         return;
     }
     let dest = ask("Output path", "ahscan-report.json");
-    let json = report.to_json(true);
+    let payload = build_contract_payload(report, scan_duration_ms);
+    let json = serde_json::to_string_pretty(&payload)
+        .expect("contract payload serialization");
     match std::fs::write(&dest, &json) {
         Ok(()) => eprintln!("  {DIM}Saved to {dest}{RESET}"),
         Err(e) => eprintln!("  Error: {e}"),
@@ -316,7 +317,7 @@ fn offer_save(report: &ScanReport) {
 
 // ── Menu loop ───────────────────────────────────────────────────────────
 
-fn menu_loop(report: &ScanReport) {
+fn menu_loop(report: &ScanReport, scan_duration_ms: u64) {
     loop {
         let actions = &[
             "View output (change format)",
@@ -327,13 +328,16 @@ fn menu_loop(report: &ScanReport) {
         let idx = pick("What next?", actions, 0);
 
         match idx {
-            0 => step_choose_output(report),
-            1 => offer_save(report),
+            0 => step_choose_output(report, scan_duration_ms),
+            1 => offer_save(report, scan_duration_ms),
             2 => {
                 let (mode, workdir) = step_choose_mode();
+                let scan_start = std::time::Instant::now();
                 let new_report = step_run_scan(&mode, workdir.as_ref());
-                step_choose_output(&new_report);
-                menu_loop(&new_report);
+                let new_duration = scan_start.elapsed().as_millis() as u64;
+                step_choose_output(&new_report, new_duration);
+                post_scan_actions(&new_report, new_duration);
+                menu_loop(&new_report, new_duration);
                 return;
             }
             3 => {
@@ -345,14 +349,62 @@ fn menu_loop(report: &ScanReport) {
     }
 }
 
+// ── Post-scan: auto-save (local-only) or offer submit (connected) ───────
+
+fn post_scan_actions(report: &ScanReport, scan_duration_ms: u64) {
+    let auth = load_auth_config();
+    let has_key = auth
+        .as_ref()
+        .map(|a| !a.api_key.is_empty())
+        .unwrap_or(false);
+
+    if has_key {
+        let auth = auth.unwrap();
+        let label = if auth.endpoint.contains("localhost") {
+            "localhost"
+        } else {
+            "verify.agentichighway.ai"
+        };
+        if confirm(&format!("Submit results to {label}?"), true) {
+            let payload = build_contract_payload(report, scan_duration_ms);
+            let json = serde_json::to_string_pretty(&payload)
+                .expect("contract payload serialization");
+            eprintln!("  {DIM}Submitting…{RESET}");
+            match submit_contract_payload(&json, &auth) {
+                Ok(()) => {}
+                Err(e) => eprintln!("  Submission failed: {e}"),
+            }
+        }
+    } else {
+        // Local-only: auto-save to timestamped file
+        let ts = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%SZ");
+        let dest = format!("ahscan-{ts}.json");
+        let payload = build_contract_payload(report, scan_duration_ms);
+        let json = serde_json::to_string_pretty(&payload)
+            .expect("contract payload serialization");
+        match std::fs::write(&dest, &json) {
+            Ok(()) => {
+                eprintln!("  {DIM}Results saved to {dest}{RESET}");
+            }
+            Err(e) => eprintln!("  Error saving results: {e}"),
+        }
+    }
+}
+
 // ── Public entry point ──────────────────────────────────────────────────
 
 pub fn run_wizard() {
     print_banner();
 
-    let (mode, workdir) = step_choose_mode();
-    let report = step_run_scan(&mode, workdir.as_ref());
+    setup::ensure_configured();
+    eprintln!();
 
-    step_choose_output(&report);
-    menu_loop(&report);
+    let (mode, workdir) = step_choose_mode();
+    let scan_start = std::time::Instant::now();
+    let report = step_run_scan(&mode, workdir.as_ref());
+    let scan_duration_ms = scan_start.elapsed().as_millis() as u64;
+
+    step_choose_output(&report, scan_duration_ms);
+    post_scan_actions(&report, scan_duration_ms);
+    menu_loop(&report, scan_duration_ms);
 }

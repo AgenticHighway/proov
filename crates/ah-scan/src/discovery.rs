@@ -55,9 +55,19 @@ const FILESYSTEM_EXTRA_EXCLUDED: &[&str] = &[
     "Volumes",
     "Network",
     "automount",
+    "System",
+    "Library",
 ];
 
-const AI_CLI_CONFIG_DIRS: &[&str] = &[".claude", ".cursor", ".aider", ".ollama", ".continue"];
+const AI_CLI_CONFIG_DIRS: &[&str] = &[
+    ".claude",
+    ".cursor",
+    ".aider",
+    ".ollama",
+    ".continue",
+    ".vscode",
+    ".vscode-insiders",
+];
 
 const FILESYSTEM_EXTRA_ROOTS: &[&str] = &["/Applications", "/opt/homebrew", "/usr/local"];
 
@@ -110,9 +120,25 @@ pub fn host_roots() -> Vec<PathBuf> {
         return Vec::new();
     };
     let mut roots = vec![home.join(".config"), home.join(".local").join("share")];
-    if std::env::consts::OS == "macos" {
-        roots.push(home.join("Library").join("Application Support"));
+
+    // Agentic tool config directories
+    for dir in AI_CLI_CONFIG_DIRS {
+        roots.push(home.join(dir));
     }
+
+    // VS Code / Cursor settings per platform
+    if std::env::consts::OS == "macos" {
+        let app_support = home.join("Library").join("Application Support");
+        roots.push(app_support.clone());
+        roots.push(app_support.join("Code").join("User"));
+        roots.push(app_support.join("Code - Insiders").join("User"));
+        roots.push(app_support.join("Cursor").join("User"));
+    } else {
+        roots.push(home.join(".config").join("Code").join("User"));
+        roots.push(home.join(".config").join("Code - Insiders").join("User"));
+        roots.push(home.join(".config").join("Cursor").join("User"));
+    }
+
     roots.into_iter().filter(|r| r.exists()).collect()
 }
 
@@ -291,6 +317,50 @@ pub fn discover_filesystem_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candi
                     tick(&format!("{count} files"));
                 }
             }
+        }
+    }
+    candidates
+}
+
+pub fn discover_home_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+    walk_deep_workdir(&home, "home", on_tick)
+}
+
+pub fn discover_root_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> {
+    let excluded = filesystem_excluded_set();
+    let mut candidates = Vec::new();
+    let mut count: usize = 0;
+
+    let root = if cfg!(windows) {
+        PathBuf::from("C:\\")
+    } else {
+        PathBuf::from("/")
+    };
+
+    let walker = WalkDir::new(&root).follow_links(false);
+    let filtered = walker
+        .into_iter()
+        .filter_entry(|e| !is_excluded_dir(e, &excluded));
+
+    for entry in filtered.filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        candidates.push(Candidate {
+            path: entry.into_path(),
+            origin: "root".to_string(),
+        });
+        count += 1;
+        if let Some(tick) = on_tick {
+            if count % 10_000 == 0 {
+                tick(&format!("{count} files"));
+            }
+        }
+        if count >= MAX_FILES_DEEP {
+            break;
         }
     }
     candidates

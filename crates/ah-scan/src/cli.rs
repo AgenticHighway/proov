@@ -26,12 +26,17 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Scan critical user config areas
+    /// Default scan — home directory, recursive
+    Scan {
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Quick scan — agentic config areas (Cursor, VS Code, Claude, etc.)
     Quick {
         #[command(flatten)]
         output: OutputArgs,
     },
-    /// Full system scan
+    /// Full scan — entire filesystem from root
     Full {
         #[command(flatten)]
         output: OutputArgs,
@@ -68,6 +73,8 @@ pub enum Commands {
         #[arg(long)]
         endpoint: Option<String>,
     },
+    /// Run (or re-run) the interactive setup wizard
+    Setup,
 }
 
 #[derive(Subcommand)]
@@ -208,6 +215,12 @@ struct ScanParams<'a> {
 
 fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
     match cmd {
+        Commands::Scan { .. } => ScanParams {
+            mode: "home",
+            workdir: None,
+            file: None,
+            deep: false,
+        },
         Commands::Quick { .. } => ScanParams {
             mode: "host",
             workdir: None,
@@ -215,7 +228,7 @@ fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
             deep: false,
         },
         Commands::Full { .. } => ScanParams {
-            mode: "filesystem",
+            mode: "root",
             workdir: None,
             file: None,
             deep: false,
@@ -238,7 +251,7 @@ fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
             file: None,
             deep: true,
         },
-        Commands::Plugins { .. } | Commands::Auth { .. } => {
+        Commands::Plugins { .. } | Commands::Auth { .. } | Commands::Setup => {
             unreachable!("handled before scan dispatch")
         }
     }
@@ -246,12 +259,13 @@ fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
 
 fn output_args(cmd: &Commands) -> &OutputArgs {
     match cmd {
-        Commands::Quick { output, .. }
+        Commands::Scan { output, .. }
+        | Commands::Quick { output, .. }
         | Commands::Full { output, .. }
         | Commands::File { output, .. }
         | Commands::Folder { output, .. }
         | Commands::Repo { output, .. } => output,
-        Commands::Plugins { .. } | Commands::Auth { .. } => {
+        Commands::Plugins { .. } | Commands::Auth { .. } | Commands::Setup => {
             unreachable!("handled before output dispatch")
         }
     }
@@ -263,13 +277,17 @@ fn output_args(cmd: &Commands) -> &OutputArgs {
 
 fn emit(
     report: &ScanReport,
+    scan_duration_ms: u64,
     json_output: bool,
     out: &Option<Option<PathBuf>>,
     summary: bool,
     full: bool,
 ) {
     if json_output {
-        println!("{}", report.to_json(true));
+        let payload = build_contract_payload(report, scan_duration_ms);
+        let json = serde_json::to_string_pretty(&payload)
+            .expect("contract payload serialization");
+        println!("{json}");
     } else if summary {
         print_summary(report);
     } else if full {
@@ -283,7 +301,9 @@ fn emit(
             Some(p) => p.clone(),
             None => PathBuf::from("ahscan-report.json"),
         };
-        let json = report.to_json(true);
+        let payload = build_contract_payload(report, scan_duration_ms);
+        let json = serde_json::to_string_pretty(&payload)
+            .expect("contract payload serialization");
         if let Err(e) = fs::write(&dest, &json) {
             eprintln!("Error writing report to {}: {}", dest.display(), e);
         } else {
@@ -327,6 +347,12 @@ pub fn run() {
     // Handle plugin management separately
     if let Commands::Plugins { action } = cmd {
         plugins::handle_plugin_action(&action);
+        return;
+    }
+
+    // Handle setup command
+    if matches!(cmd, Commands::Setup) {
+        crate::setup::run_setup(true);
         return;
     }
 
@@ -410,7 +436,7 @@ pub fn run() {
 
         do_submit(&json, &out.submit, out.api_key.as_deref());
     } else {
-        emit(&report, out.json, &out.out, out.summary, out.full);
+        emit(&report, scan_duration_ms, out.json, &out.out, out.summary, out.full);
     }
 }
 
