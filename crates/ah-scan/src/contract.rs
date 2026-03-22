@@ -341,22 +341,42 @@ fn artifact_to_prompt(a: &ArtifactReport) -> Prompt {
         _ => "User Prompt",
     };
 
-    // Token estimate: ~4 chars per token
-    let tokens = std::fs::metadata(&source_path)
-        .ok()
-        .map(|m| m.len() / 4)
-        .unwrap_or(0);
+    // Prefer file primitives from detection (avoids re-reading the file)
+    let tokens = a
+        .metadata
+        .get("file_size_bytes")
+        .and_then(|v| v.as_u64())
+        .map(|size| size / 4)
+        .unwrap_or_else(|| {
+            std::fs::metadata(&source_path)
+                .ok()
+                .map(|m| m.len() / 4)
+                .unwrap_or(0)
+        });
 
-    let content_hash = compute_file_hash(&source_path);
+    let content_hash = a
+        .metadata
+        .get("content_hash")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| compute_file_hash(&source_path));
 
-    let last_changed_date = std::fs::metadata(&source_path)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .map(|t| {
-            let dt: chrono::DateTime<chrono::Utc> = t.into();
-            dt.format("%Y-%m-%d").to_string()
-        })
-        .unwrap_or_else(|| "1970-01-01".to_string());
+    let last_changed_date = a
+        .metadata
+        .get("last_modified")
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| {
+            std::fs::metadata(&source_path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| {
+                    let dt: chrono::DateTime<chrono::Utc> = t.into();
+                    dt.format("%Y-%m-%d").to_string()
+                })
+                .unwrap_or_else(|| "1970-01-01".to_string())
+        });
 
     let capabilities = derive_capabilities(a)
         .into_iter()

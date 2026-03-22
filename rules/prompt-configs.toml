@@ -1,0 +1,31 @@
+# Detect AI prompt configuration files.
+#
+# Covers well-known prompt config filenames and suffixes used by
+# GitHub Copilot, Cursor, VS Code, and other AI coding tools.
+
+[detector]
+name = "prompt_configs"
+description = "Detect AI prompt configuration files"
+artifact_type = "prompt_config"
+
+[match]
+filenames = [
+    "copilot-instructions.md",
+    "*.prompt.md",
+    "*.instructions.md",
+    "*.prompt.yaml",
+    "*.prompt.yml",
+]
+confidence = 0.65
+
+[keywords]
+keywords = ["tools", "permissions", "shell", "browser", "api", "dependencies"]
+signals_prefix = "keyword"
+boost_confidence = 0.85
+boost_threshold = 1
+
+[deep_keywords]
+keywords = ["execute", "network", "filesystem", "docker", "secrets", "system"]
+signals_prefix = "deep_keyword"
+boost_confidence = 0.9
+boost_threshold = 1

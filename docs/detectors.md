@@ -9,6 +9,19 @@ Detectors are the core of what ah-scanner does — they examine filesystem candi
 3. Each detector returns zero or more `ArtifactReport`s with signals, confidence scores, and metadata
 4. Reports are then scored by `risk_engine.rs` and verified by `verifier.rs`
 
+## File primitives
+
+Every file-backed artifact includes **file primitives** — core filesystem metadata gathered once at detection time so downstream consumers (contract builder, formatters, submit) never need to re-read the file:
+
+| Key               | Type   | Description                         |
+| ----------------- | ------ | ----------------------------------- |
+| `file_size_bytes` | number | File size in bytes                  |
+| `last_modified`   | string | ISO-8601 RFC 3339 modification time |
+| `content_hash`    | string | SHA-256 hex digest of full file     |
+| `paths`           | array  | Absolute file path(s)               |
+
+These are produced by `gather_file_primitives()` in `models.rs` and merged into every artifact's metadata map.
+
 ## Built-in detectors
 
 All built-in detectors live in `crates/ah-scan/src/detectors/` and implement the `Detector` trait:
@@ -20,47 +33,68 @@ pub trait Detector {
 }
 ```
 
-### Cursor Rules (`cursor_rules.rs`)
+### Custom Rules (rule engine)
 
-**Detects:** `.cursorrules`, `agents.md`, `AGENTS.md`
+**Detects:** `.cursorrules`, `agents.md`, `AGENTS.md`, `copilot-instructions.md`, `*.prompt.md`, `*.instructions.md`, and any user-installed TOML rules.
 
-These are instruction files for AI coding assistants. The detector:
+Rule-based detection handles all prompt/instruction file types. Each rule defines filename patterns, keyword lists, and confidence thresholds in a declarative TOML file.
 
-- Matches filenames exactly
-- Reads content and scans for capability keywords (shell, browser, api, execute, etc.)
-- Checks for dangerous keywords (steal, exfiltrate, bypass, etc.)
-- Assigns confidence: 0.7 baseline, boosted by keyword matches up to 0.9+
+**Metadata contract:**
 
-### Prompt Configs (`prompt_configs.rs`)
-
-**Detects:** `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md`
-
-These are prompt configuration files for GitHub Copilot and similar tools. Detection:
-
-- Matches by file extension pattern
-- Keyword scanning similar to cursor_rules
-- Lower baseline confidence (0.4) since these files are more common
+| Key               | Type   | Always present? | Description        |
+| ----------------- | ------ | --------------- | ------------------ |
+| `file_size_bytes` | number | Yes             | File primitive     |
+| `last_modified`   | string | Yes             | File primitive     |
+| `content_hash`    | string | Yes             | File primitive     |
+| `paths`           | array  | Yes             | Absolute file path |
+| `rule_name`       | string | Yes             | Which rule matched |
 
 ### MCP Configs (`mcp_configs.rs`)
 
-**Detects:** `mcp.json`, `claude_desktop_config.json`
+**Detects:** `mcp.json`, `mcp_config.json`, `claude_desktop_config.json`, `mcp-config.json`, `mcp_settings.json`
 
-Model Context Protocol server configurations. The detector:
+Model Context Protocol server configurations. The detector validates JSON structure and extracts server inventory, execution tokens, and credential references.
 
-- Validates the file is JSON
-- Looks for execution tokens (command, args, env patterns)
-- Extracts declared MCP server names
-- Higher baseline risk (MCP configs define what tools AI has access to)
+**Metadata contract:**
+
+| Key                | Type     | Always present?  | Description                            |
+| ------------------ | -------- | ---------------- | -------------------------------------- |
+| `file_size_bytes`  | number   | Yes              | File primitive                         |
+| `last_modified`    | string   | Yes              | File primitive                         |
+| `content_hash`     | string   | Yes              | File primitive                         |
+| `paths`            | array    | Yes              | Absolute file path                     |
+| `server_count`     | number   | Yes              | Number of declared MCP servers         |
+| `server_names`     | string[] | If servers exist | Individual server name keys            |
+| `execution_tokens` | string[] | If found         | Execution tokens (npx, uvx, python...) |
+| `shell_tokens`     | string[] | If found         | Shell access tokens (bash, sh -c...)   |
+| `api_endpoints`    | string[] | If found         | URLs extracted from config             |
 
 ### Container Configs (`containers.rs`)
 
-**Detects:** `Dockerfile`, `compose.yaml`, `docker-compose.yml`
+**Detects:** `Dockerfile`, `compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`
 
-Container configurations that may affect AI execution environments:
+Container configurations that may house AI execution environments. The detector checks proximity to other AI artifacts, scans for AI-relevance tokens, and extracts structural primitives.
 
-- Filename pattern matching
-- Scans for AI-relevance tokens within the file
-- Lower confidence unless clear AI integration found
+**Metadata contract (Dockerfile):**
+
+| Key               | Type     | Always present?   | Description                         |
+| ----------------- | -------- | ----------------- | ----------------------------------- |
+| `file_size_bytes` | number   | Yes               | File primitive                      |
+| `last_modified`   | string   | Yes               | File primitive                      |
+| `content_hash`    | string   | Yes               | File primitive                      |
+| `paths`           | array    | Yes               | Absolute file path                  |
+| `base_image`      | string   | If FROM present   | First FROM image:tag                |
+| `exposed_ports`   | string[] | If EXPOSE present | Port numbers from EXPOSE statements |
+
+**Metadata contract (compose):**
+
+| Key               | Type     | Always present? | Description             |
+| ----------------- | -------- | --------------- | ----------------------- |
+| `file_size_bytes` | number   | Yes             | File primitive          |
+| `last_modified`   | string   | Yes             | File primitive          |
+| `content_hash`    | string   | Yes             | File primitive          |
+| `paths`           | array    | Yes             | Absolute file path      |
+| `services`        | string[] | If found        | Top-level service names |
 
 ### Browser Footprints (`browser_footprints.rs`)
 
@@ -71,12 +105,16 @@ This detector is unique — it **only checks for the presence** of browser profi
 - Only runs in host/root/filesystem/home scan modes (not in project scans)
 - Confidence: fixed 0.6 (presence-only)
 
-### Content Analysis (`content_analysis.rs`)
+**Metadata contract:**
 
-This is a **helper module**, not a standalone detector. It provides:
+| Key               | Type     | Always present? | Description                        |
+| ----------------- | -------- | --------------- | ---------------------------------- |
+| `paths`           | array    | Yes             | Extensions directory path          |
+| `extension_count` | number   | Yes             | Number of extension subdirectories |
+| `extension_ids`   | string[] | Yes             | Extension directory names          |
+| `profile_root`    | string   | Yes             | Browser profile root path          |
 
-- `extract_declared_tools()` — finds tool/permission declarations in content
-- Used by other detectors to determine if capabilities are explicitly declared (which reduces risk scores)
+Note: Browser artifacts do not include file primitives since they represent directory presence, not individual files.
 
 ## The Detector trait
 
@@ -92,7 +130,7 @@ Each candidate has:
 
 ### Content reading limit
 
-All detectors respect an 8 KB content limit. Files larger than this are truncated. This keeps scanning fast and prevents memory issues with large files.
+All detectors respect an 8 KB content limit for keyword scanning. Files larger than this are truncated for keyword analysis, but file primitives (`content_hash`, `file_size_bytes`) are computed from the complete file.
 
 ## Signals
 
@@ -105,7 +143,11 @@ Signals are string tags that describe what a detector found. They follow a namin
 | `dangerous_keyword:<word>`   | `dangerous_keyword:exfiltrate`     | High-risk keyword found              |
 | `dangerous_combo:<combo>`    | `dangerous_combo:shell+network+fs` | Multiple risky capabilities together |
 | `credential_exposure_signal` | `credential_exposure_signal`       | Possible secret/token detected       |
-| `mcp_server_declared`        | `mcp_server_declared`              | MCP server configuration found       |
+| `execution_tokens_present`   | `execution_tokens_present`         | Execution binary refs in MCP config  |
+| `shell_access_detected`      | `shell_access_detected`            | Shell access in MCP config           |
+| `credential_references`      | `credential_references`            | Credential keywords in MCP config    |
+| `ai_artifact_proximity`      | `ai_artifact_proximity`            | Container near AI artifact files     |
+| `ai_token:<token>`           | `ai_token:langchain`               | AI-relevance token in container file |
 
 ## Adding a new built-in detector
 

@@ -5,10 +5,12 @@
 
 use crate::discovery::Candidate;
 use crate::models::{
-    check_for_dangerous_patterns, check_for_secrets, is_content_read_allowed, ArtifactReport,
+    check_for_dangerous_patterns, check_for_secrets, gather_file_primitives,
+    is_content_read_allowed, ArtifactReport,
 };
 use crate::rule_engine::{
-    default_rules_dir, load_rules_from_dir, matches_rule, scan_rule_keywords, DetectionRule,
+    default_rules_dir, load_builtin_rules, load_rules_from_dir, matches_rule, scan_rule_keywords,
+    DetectionRule,
 };
 
 use super::base::Detector;
@@ -23,25 +25,25 @@ pub struct CustomRulesDetector {
 
 impl CustomRulesDetector {
     pub fn load() -> Self {
-        let rules = match default_rules_dir() {
-            Some(dir) if dir.is_dir() => {
-                let loaded = load_rules_from_dir(&dir);
-                if !loaded.is_empty() {
+        // Always start with the built-in rules (compiled from rules/ in the repo)
+        let mut rules = load_builtin_rules();
+
+        // Supplement with user-installed rules from ~/.ahscan/rules/
+        if let Some(dir) = default_rules_dir() {
+            if dir.is_dir() {
+                let user_rules = load_rules_from_dir(&dir);
+                if !user_rules.is_empty() {
                     eprintln!(
                         "Loaded {} custom rule(s) from {}",
-                        loaded.len(),
+                        user_rules.len(),
                         dir.display()
                     );
                 }
-                loaded
+                rules.extend(user_rules);
             }
-            _ => Vec::new(),
-        };
-        Self { rules }
-    }
+        }
 
-    pub fn is_empty(&self) -> bool {
-        self.rules.is_empty()
+        Self { rules }
     }
 }
 
@@ -77,6 +79,10 @@ fn apply_rule(
     let mut confidence = rule.match_config.confidence;
     let mut signals = Vec::new();
     let mut metadata = serde_json::Map::new();
+
+    // File primitives — gather once, avoid re-reads downstream
+    let file_prims = gather_file_primitives(&candidate.path);
+    metadata.extend(file_prims);
 
     signals.push(format!("filename_match:{file_name}"));
     metadata.insert(
