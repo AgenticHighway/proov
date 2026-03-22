@@ -146,6 +146,6 @@ Signals are string tags that describe what a detector found. They follow a namin
 
 5. Run `cargo test` to verify nothing breaks
 
-## Adding a WASM plugin detector
+## Adding a custom detection rule
 
-If you want detection logic that can be distributed independently, see [docs/plugin-guide.md](plugin-guide.md).
+If you want detection logic that can be distributed independently (no code changes needed), see [docs/custom-rules.md](custom-rules.md).

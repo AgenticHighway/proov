@@ -9,9 +9,6 @@ name = "ah-scan"
 path = "src/main.rs"
 
 [dependencies]
-ah-scan-sdk = { path = "../ah-scan-sdk" }
-extism = "1"
-
 clap = { version = "4", features = ["derive"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

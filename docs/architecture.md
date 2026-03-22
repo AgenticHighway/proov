@@ -31,7 +31,7 @@ ah-scanner/
 │   │       ├── scan.rs       # Scan orchestration pipeline
 │   │       ├── discovery.rs  # Filesystem walking
 │   │       ├── detectors/    # Built-in artifact detectors
-│   │       ├── engine/       # WASM plugin runtime
+│   │       ├── rule_engine.rs # Declarative TOML rule loader + matcher
 │   │       ├── models.rs     # Core data types
 │   │       ├── risk_engine.rs # Risk scoring (0-100)
 │   │       ├── verifier.rs   # Pass/fail determination
@@ -45,19 +45,11 @@ ah-scanner/
 │   │       ├── wizard.rs     # Interactive mode UI
 │   │       ├── setup.rs      # First-run configuration
 │   │       ├── updater.rs    # Self-update from S3
-│   │       ├── plugins.rs    # Plugin management CLI
 │   │       ├── lite_mode.rs  # Free-tier output limiting
 │   │       ├── capabilities.rs # Signal-to-capability mapping
-│   │       ├── progress.rs   # Progress indicator
-│   │       └── wasm_bridge.rs # Native ↔ WASM communication
-│   └── ah-scan-sdk/          # Types shared with WASM plugins
-│       └── src/
-│           ├── lib.rs        # SDK entry point + version
-│           ├── types.rs      # DetectRequest, Finding, etc.
-│           └── guest.rs      # Plugin-side helpers (decode/encode)
+│   │       └── progress.rs   # Progress indicator
 ├── examples/
-│   ├── detector-template/    # Starter template for new plugins
-│   └── detector-cursor-rules/ # Working example plugin
+│   └── rules/                # Example custom detection rules (.toml)
 ├── scripts/
 │   ├── test-scanner.sh       # Automated test suite (all subcommands)
 │   └── test-submit.sh        # Manual submission test
@@ -90,11 +82,11 @@ Here is the complete path data takes through the scanner, from CLI invocation to
    ┌────┴────┐
    ▼         ▼
 ┌────────┐ ┌──────────────┐
-│discovery│ │ wasm_bridge  │   discovery.rs walks the filesystem
-│  .rs   │ │    .rs       │   wasm_bridge loads WASM plugins
+│discovery│ │ rule_engine   │   discovery.rs walks the filesystem
+│  .rs   │ │    .rs       │   rule_engine loads custom TOML rules
 └───┬────┘ └──────┬───────┘
     │              │
-    │   Candidates │   Plugin findings
+    │   Candidates │   Custom rule findings
     └──────┬───────┘
            │
            ▼
@@ -157,12 +149,12 @@ These modules interact with the outside world:
 
 ### Orchestration
 
-| Module           | Role                                                           |
-| ---------------- | -------------------------------------------------------------- |
-| `cli.rs`         | Entry point: argument parsing, dispatch, output mode selection |
-| `scan.rs`        | Pipeline: discovery → detection → scoring → verification       |
-| `contract.rs`    | Transform `ScanReport` → AH-Verify v2.1.0 contract format      |
-| `wasm_bridge.rs` | Load WASM plugins, convert types, call plugin `detect()`       |
+| Module           | Role                                                              |
+| ---------------- | ----------------------------------------------------------------- |
+| `cli.rs`         | Entry point: argument parsing, dispatch, output mode selection    |
+| `scan.rs`        | Pipeline: discovery → detection → scoring → verification          |
+| `contract.rs`    | Transform `ScanReport` → AH-Verify v2.1.0 contract format         |
+| `rule_engine.rs` | Load TOML rules from `~/.ahscan/rules/`, match against candidates |
 
 ## Key data types
 
@@ -249,33 +241,34 @@ Access is controlled via `.ahscan.toml` in the working directory.
 
 ## Configuration files
 
-| File                             | Purpose                     | Created by                        |
-| -------------------------------- | --------------------------- | --------------------------------- |
-| `~/.config/ahscan/config.json`   | API key + endpoint          | `ah-scan setup` or `ah-scan auth` |
-| `.ahscan.toml`                   | Access mode + license key   | User creates manually             |
-| `~/.ahscan/scanner_uuid`         | Persistent scanner identity | Auto-generated on first submit    |
-| `~/.ahscan/scanner_account_uuid` | Persistent account identity | Auto-generated on first submit    |
-| `~/.ahscan/plugins/*.wasm`       | Installed detector plugins  | `ah-scan plugins install`         |
+| File                             | Purpose                     | Created by                         |
+| -------------------------------- | --------------------------- | ---------------------------------- |
+| `~/.config/ahscan/config.json`   | API key + endpoint          | `ah-scan setup` or `ah-scan auth`  |
+| `.ahscan.toml`                   | Access mode + license key   | User creates manually              |
+| `~/.ahscan/scanner_uuid`         | Persistent scanner identity | Auto-generated on first submit     |
+| `~/.ahscan/scanner_account_uuid` | Persistent account identity | Auto-generated on first submit     |
+| `~/.ahscan/rules/*.toml`         | Custom detection rules      | User creates (see custom-rules.md) |
 
-## WASM plugin system
+## Custom rule system
 
-Plugins extend the scanner with custom detectors without modifying the core binary.
+The scanner can be extended with declarative TOML rule files placed in `~/.ahscan/rules/`.
 
 ```
-~/.ahscan/plugins/
-├── my_detector.wasm              # The compiled plugin
-└── my_detector.manifest.json     # Plugin metadata (name, version, SDK version)
+~/.ahscan/rules/
+├── terraform-ai.toml             # Match .tf files with AI keywords
+└── internal-tool.toml            # Match proprietary config files
 ```
 
-The host (ah-scan) communicates with plugins via JSON:
+Each rule defines:
 
-1. Pre-reads file content from candidates
-2. Base64-encodes content (8 KB limit per file)
-3. Sends `DetectRequest` JSON to the plugin's `detect()` export
-4. Receives `DetectResponse` JSON with findings
-5. Converts findings to `ArtifactReport`s
+1. Filename patterns (exact names, globs, or suffixes) to match
+2. A base confidence score
+3. Optional keyword lists that boost confidence when found in content
+4. Optional deep-keyword lists for deep-scan modes
 
-Plugins never access the filesystem directly — the host provides everything they need.
+Rules produce standard `ArtifactReport`s, which flow through the same risk scoring and verification pipeline as built-in detector findings.
+
+See [docs/custom-rules.md](custom-rules.md) for the full specification.
 
 ## Network safety
 

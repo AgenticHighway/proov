@@ -78,7 +78,7 @@ ah-scan quick --out r.json # JSON to custom path
 | MCP configs           | `mcp.json`, `claude_desktop_config.json`                      | Model Context Protocol server declarations           |
 | Container configs     | `Dockerfile`, `compose.yaml`, `docker-compose.yml`            | Containers with AI-related tooling                   |
 | Browser footprints    | Chrome, Edge, Brave, Arc profiles                             | Extension directory presence only (no content reads) |
-| WASM plugins          | Any `.wasm` in `~/.ahscan/plugins/`                           | Custom detectors you install                         |
+| Custom rules          | Any `.toml` in `~/.ahscan/rules/`                             | Declarative rules you define                         |
 
 ## Risk scoring
 
@@ -149,25 +149,23 @@ The scanner checks S3 for the latest release, verifies SHA-256 checksums, and re
 - **No broad ingestion** — `.git/`, `node_modules/`, `.venv/`, `target/` and similar are always excluded
 - **Secret detection without storage** — token patterns trigger a signal tag, but values are never stored or transmitted
 - **Browser presence only** — extension directories are noted, but no extension content or preferences are read
-- **WASM sandbox** — plugins never access the filesystem; the host provides pre-read content only
+- **Declarative rules** — custom rules are TOML config files; they use the same content-read allowlist as built-in detectors
 
 ## Project structure
 
 ```
 ah-scanner/
 ├── crates/
-│   ├── ah-scan/          # CLI binary (scanning, detection, submission)
-│   └── ah-scan-sdk/      # Shared types for WASM plugin authors
+│   └── ah-scan/          # CLI binary (scanning, detection, submission)
 ├── examples/
-│   ├── detector-template/     # Starter template for new plugins
-│   └── detector-cursor-rules/ # Working example plugin
+│   └── rules/            # Example custom detection rules (.toml)
 ├── scripts/
 │   ├── test-scanner.sh   # Automated test suite
 │   └── test-submit.sh    # Manual submission test
 ├── docs/
 │   ├── architecture.md   # System design and data flow
 │   ├── detectors.md      # How detection works
-│   └── plugin-guide.md   # Writing WASM plugins
+│   └── custom-rules.md   # Writing custom detection rules
 └── scanner-data-contract.json  # JSON Schema for the ingest API
 ```
 
@@ -175,7 +173,7 @@ ah-scanner/
 
 ```bash
 cargo build              # Debug build
-cargo test               # Run all tests (78 tests across 2 crates)
+cargo test               # Run all tests
 cargo clippy             # Lint check (should be 0 warnings)
 ./scripts/test-scanner.sh  # Exercise all CLI subcommands
 ```
@@ -190,7 +188,7 @@ For architecture and code walkthrough: [docs/architecture.md](docs/architecture.
 | `~/.config/ahscan/config.json` | API key + endpoint (created by `ah-scan setup`) |
 | `.ahscan.toml`                 | Access tier + license key (project-level)       |
 | `~/.ahscan/scanner_uuid`       | Persistent scanner identity (auto-generated)    |
-| `~/.ahscan/plugins/*.wasm`     | Installed detector plugins                      |
+| `~/.ahscan/rules/*.toml`       | Custom detection rules                          |
 
 Full `.ahscan.toml` options:
 
