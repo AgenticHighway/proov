@@ -1,0 +1,25 @@
+# Detect .cursorrules AI instruction files.
+#
+# .cursorrules files define AI agent behaviour in Cursor editor projects —
+# they specify tools, permissions, and system instructions.
+
+[detector]
+name = "cursor_rules"
+description = "Detect .cursorrules AI instruction files"
+artifact_type = "cursor_rules"
+
+[match]
+filenames = [".cursorrules"]
+confidence = 0.7
+
+[keywords]
+keywords = ["tools", "permissions", "system", "instructions", "shell", "browser", "api"]
+signals_prefix = "keyword"
+boost_confidence = 0.9
+boost_threshold = 1
+
+[deep_keywords]
+keywords = ["dependencies", "execute", "network", "filesystem", "docker", "secrets"]
+signals_prefix = "deep_keyword"
+boost_confidence = 0.9
+boost_threshold = 1

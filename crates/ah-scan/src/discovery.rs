@@ -10,12 +10,10 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 // ---------------------------------------------------------------------------
-// Guardrails – prevent runaway scans
+// Guardrails – directory depth limit for bounded walks
 // ---------------------------------------------------------------------------
 
 pub const MAX_DEPTH: usize = 5;
-pub const MAX_FILES: usize = 50_000;
-pub const MAX_FILES_DEEP: usize = 500_000;
 
 // ---------------------------------------------------------------------------
 // Excluded directory sets
@@ -210,9 +208,6 @@ pub fn walk_bounded(
                 tick(&format!("{count} files"));
             }
         }
-        if count >= MAX_FILES {
-            break;
-        }
     }
     candidates
 }
@@ -242,9 +237,6 @@ pub fn walk_deep_workdir(
             if count.is_multiple_of(5000) {
                 tick(&format!("{count} files"));
             }
-        }
-        if count >= MAX_FILES_DEEP {
-            break;
         }
     }
     candidates
@@ -330,7 +322,6 @@ pub fn discover_home_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> 
 }
 
 pub fn discover_root_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> {
-    let excluded = filesystem_excluded_set();
     let mut candidates = Vec::new();
     let mut count: usize = 0;
 
@@ -340,12 +331,10 @@ pub fn discover_root_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> 
         PathBuf::from("/")
     };
 
+    // Full scan: no directory exclusions — enumerate everything.
     let walker = WalkDir::new(&root).follow_links(false);
-    let filtered = walker
-        .into_iter()
-        .filter_entry(|e| !is_excluded_dir(e, &excluded));
 
-    for entry in filtered.filter_map(|e| e.ok()) {
+    for entry in walker.into_iter().filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -358,9 +347,6 @@ pub fn discover_root_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> 
             if count.is_multiple_of(10_000) {
                 tick(&format!("{count} files"));
             }
-        }
-        if count >= MAX_FILES_DEEP {
-            break;
         }
     }
     candidates

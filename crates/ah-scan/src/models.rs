@@ -290,6 +290,48 @@ pub fn is_content_read_allowed(path: &Path) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// File primitives — gather once at detection time, avoid re-reads
+// ---------------------------------------------------------------------------
+
+/// Core filesystem metadata for any file-backed artifact.
+///
+/// Detectors should call this once and merge the result into
+/// `ArtifactReport.metadata` so downstream consumers (contract
+/// builder, risk engine, formatters) never need to touch the
+/// filesystem again for the same file.
+pub fn gather_file_primitives(path: &Path) -> serde_json::Map<String, serde_json::Value> {
+    let mut map = serde_json::Map::new();
+
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return map,
+    };
+
+    map.insert(
+        "file_size_bytes".into(),
+        serde_json::Value::Number(serde_json::Number::from(meta.len())),
+    );
+
+    if let Ok(modified) = meta.modified() {
+        let dt: chrono::DateTime<chrono::Utc> = modified.into();
+        map.insert(
+            "last_modified".into(),
+            serde_json::Value::String(dt.to_rfc3339()),
+        );
+    }
+
+    // Full-file SHA-256 (not truncated to 8KB head)
+    if let Ok(bytes) = std::fs::read(path) {
+        map.insert(
+            "content_hash".into(),
+            serde_json::Value::String(hex_sha256(&bytes)),
+        );
+    }
+
+    map
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -297,4 +339,56 @@ fn hex_sha256(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
     format!("{:x}", hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn gather_file_primitives_returns_size_and_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        let mut f = std::fs::File::create(&file).unwrap();
+        f.write_all(b"hello world").unwrap();
+        drop(f);
+
+        let prims = gather_file_primitives(&file);
+        assert_eq!(prims["file_size_bytes"].as_u64().unwrap(), 11);
+        assert!(prims["content_hash"].as_str().unwrap().len() == 64);
+        assert!(prims.contains_key("last_modified"));
+    }
+
+    #[test]
+    fn gather_file_primitives_missing_file() {
+        let prims = gather_file_primitives(Path::new("/nonexistent/file.txt"));
+        assert!(prims.is_empty());
+    }
+
+    #[test]
+    fn content_hash_is_full_file_sha256() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("data.bin");
+        let content = b"deterministic content";
+        std::fs::write(&file, content).unwrap();
+
+        let prims = gather_file_primitives(&file);
+        let expected = hex_sha256(content);
+        assert_eq!(prims["content_hash"].as_str().unwrap(), expected);
+    }
+
+    #[test]
+    fn check_for_secrets_detects_known_patterns() {
+        assert!(!check_for_secrets("sk-abc123").is_empty());
+        assert!(!check_for_secrets("ghp_xxxx").is_empty());
+        assert!(check_for_secrets("nothing here").is_empty());
+    }
+
+    #[test]
+    fn check_for_dangerous_patterns_detects_combos() {
+        let content = "use shell to fetch http and write_file";
+        let signals = check_for_dangerous_patterns(content);
+        assert!(signals.iter().any(|s| s == "dangerous_combo:shell+network+fs"));
+    }
 }

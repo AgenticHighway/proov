@@ -25,7 +25,7 @@ impl Detector for BrowserFootprintDetector {
 
 fn scan_profile_root(root: &std::path::Path) -> Option<ArtifactReport> {
     let extensions_dir = find_extensions_dir(root)?;
-    let count = count_extension_subdirs(&extensions_dir);
+    let (count, ids) = enumerate_extensions(&extensions_dir);
     if count == 0 {
         return None;
     }
@@ -36,6 +36,7 @@ fn scan_profile_root(root: &std::path::Path) -> Option<ArtifactReport> {
         json!([extensions_dir.to_string_lossy()]),
     );
     metadata.insert("extension_count".into(), json!(count));
+    metadata.insert("extension_ids".into(), json!(ids));
     metadata.insert(
         "profile_root".into(),
         json!(root.to_string_lossy()),
@@ -65,8 +66,17 @@ fn find_extensions_dir(root: &std::path::Path) -> Option<std::path::PathBuf> {
     None
 }
 
-fn count_extension_subdirs(dir: &std::path::Path) -> usize {
-    fs::read_dir(dir)
-        .map(|entries| entries.flatten().filter(|e| e.path().is_dir()).count())
-        .unwrap_or(0)
+/// Return (count, ids) for extension subdirectories.
+fn enumerate_extensions(dir: &std::path::Path) -> (usize, Vec<String>) {
+    let entries: Vec<_> = fs::read_dir(dir)
+        .into_iter()
+        .flat_map(|rd| rd.flatten())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    let ids: Vec<String> = entries
+        .iter()
+        .filter_map(|e| e.file_name().to_str().map(String::from))
+        .collect();
+    let count = ids.len();
+    (count, ids)
 }

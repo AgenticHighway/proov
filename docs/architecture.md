@@ -156,6 +156,26 @@ These modules interact with the outside world:
 | `contract.rs`    | Transform `ScanReport` → AH-Verify v2.1.0 contract format         |
 | `rule_engine.rs` | Load TOML rules from `~/.ahscan/rules/`, match against candidates |
 
+## File primitives
+
+Every file-backed artifact includes **file primitives** — filesystem metadata gathered once at detection time. This design eliminates redundant file reads (previously the contract builder would re-read the same files 3-4 times for hashing, size, and modification date).
+
+Detectors call `gather_file_primitives(path)` which returns:
+
+| Key               | Type   | Description                             |
+| ----------------- | ------ | --------------------------------------- |
+| `file_size_bytes` | number | Exact file size in bytes                |
+| `last_modified`   | string | RFC 3339 timestamp of last modification |
+| `content_hash`    | string | SHA-256 hex digest of the **full** file |
+
+Downstream consumers (contract builder, formatters) read these from `ArtifactReport.metadata` instead of touching the filesystem. This makes the scanner:
+
+- **Efficient** — each file is read exactly once, at detection time
+- **Reliable** — no TOCTOU race between detection and contract building
+- **Portable** — post-detection logic is pure data transformation
+
+Each artifact type also has **type-specific primitives** — structured metadata relevant to that artifact. See [detectors.md](detectors.md) for the complete metadata contract per type.
+
 ## Key data types
 
 All defined in `models.rs`:

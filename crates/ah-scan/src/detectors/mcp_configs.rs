@@ -1,5 +1,5 @@
 use crate::discovery::Candidate;
-use crate::models::{check_for_secrets, ArtifactReport};
+use crate::models::{check_for_secrets, gather_file_primitives, ArtifactReport};
 
 use super::base::Detector;
 use serde_json::{json, Value};
@@ -55,6 +55,10 @@ fn classify_candidate(candidate: &Candidate) -> Option<ArtifactReport> {
     let content = read_head(&candidate.path)?;
     let mut signals = Vec::new();
     let mut metadata = serde_json::Map::new();
+
+    // File primitives — gather once, avoid re-reads downstream
+    let file_prims = gather_file_primitives(&candidate.path);
+    metadata.extend(file_prims);
 
     metadata.insert(
         "paths".into(),
@@ -121,6 +125,12 @@ fn apply_parsed_signals(
 
     let server_count = count_servers(parsed);
     metadata.insert("server_count".into(), json!(server_count));
+
+    // Extract individual server names for downstream cross-referencing
+    let server_names = extract_server_names(parsed);
+    if !server_names.is_empty() {
+        metadata.insert("server_names".into(), json!(server_names));
+    }
 }
 
 fn scan_tokens(text: &str, tokens: &[&str]) -> Vec<String> {
@@ -146,8 +156,76 @@ fn count_servers(val: &Value) -> usize {
     servers_obj.map_or(0, |m| m.len())
 }
 
+fn extract_server_names(val: &Value) -> Vec<String> {
+    val.get("mcpServers")
+        .or_else(|| val.get("servers"))
+        .and_then(|v| v.as_object())
+        .map(|m| m.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
 fn read_head(path: &std::path::Path) -> Option<String> {
     let bytes = fs::read(path).ok()?;
     let len = bytes.len().min(MAX_READ_BYTES);
     String::from_utf8(bytes[..len].to_vec()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_mcp_json_valid() {
+        let json = r#"{"mcpServers": {"fs": {"command": "npx"}}}
+"#;
+        assert!(parse_mcp_json(json).is_some());
+    }
+
+    #[test]
+    fn parse_mcp_json_no_servers_key() {
+        assert!(parse_mcp_json(r#"{"other": 1}"#).is_none());
+    }
+
+    #[test]
+    fn parse_mcp_json_invalid_json() {
+        assert!(parse_mcp_json("not json").is_none());
+    }
+
+    #[test]
+    fn extract_server_names_from_mcp_servers() {
+        let val: Value = serde_json::from_str(
+            r#"{"mcpServers": {"filesystem": {}, "github": {}}}
+"#,
+        ).unwrap();
+        let mut names = extract_server_names(&val);
+        names.sort();
+        assert_eq!(names, vec!["filesystem", "github"]);
+    }
+
+    #[test]
+    fn extract_server_names_empty() {
+        let val: Value = serde_json::from_str(r#"{"other": 1}"#).unwrap();
+        assert!(extract_server_names(&val).is_empty());
+    }
+
+    #[test]
+    fn count_servers_counts_mcp_servers() {
+        let val: Value = serde_json::from_str(
+            r#"{"mcpServers": {"a": {}, "b": {}, "c": {}}}"#,
+        ).unwrap();
+        assert_eq!(count_servers(&val), 3);
+    }
+
+    #[test]
+    fn extract_endpoints_finds_urls() {
+        let text = r#""url": "https://api.example.com/v1""#;
+        let eps = extract_endpoints(text);
+        assert_eq!(eps, vec!["https://api.example.com/v1"]);
+    }
+
+    #[test]
+    fn scan_tokens_finds_matches() {
+        let found = scan_tokens("uses npx and python", &["npx", "node", "python"]);
+        assert_eq!(found, vec!["npx", "python"]);
+    }
 }

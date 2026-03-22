@@ -1,0 +1,30 @@
+# Detect files likely to be AI prompt configs based on naming convention.
+#
+# Lower-confidence rule that matches any file with "prompt" in its name.
+# Requires at least one keyword match to reach a meaningful confidence level.
+
+[detector]
+name = "prompt_configs_weak"
+description = "Detect files likely to be AI prompt configs by naming convention"
+artifact_type = "prompt_config"
+
+[match]
+filenames = [
+    "*prompt*.md",
+    "*prompt*.yaml",
+    "*prompt*.yml",
+    "*prompt*.txt",
+]
+confidence = 0.4
+
+[keywords]
+keywords = ["tools", "permissions", "shell", "browser", "api", "dependencies"]
+signals_prefix = "keyword"
+boost_confidence = 0.85
+boost_threshold = 1
+
+[deep_keywords]
+keywords = ["execute", "network", "filesystem", "docker", "secrets", "system"]
+signals_prefix = "deep_keyword"
+boost_confidence = 0.9
+boost_threshold = 1
