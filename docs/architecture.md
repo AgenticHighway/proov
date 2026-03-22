@@ -32,6 +32,7 @@ ah-scanner/
 │   │       ├── discovery.rs  # Filesystem walking
 │   │       ├── detectors/    # Built-in artifact detectors
 │   │       ├── rule_engine.rs # Declarative TOML rule loader + matcher
+│   │       ├── rules.rs      # CLI subcommand: list/add/remove/validate rules
 │   │       ├── models.rs     # Core data types
 │   │       ├── risk_engine.rs # Risk scoring (0-100)
 │   │       ├── verifier.rs   # Pass/fail determination
@@ -155,6 +156,7 @@ These modules interact with the outside world:
 | `scan.rs`        | Pipeline: discovery → detection → scoring → verification          |
 | `contract.rs`    | Transform `ScanReport` → AH-Verify v2.1.0 contract format         |
 | `rule_engine.rs` | Load TOML rules from `~/.ahscan/rules/`, match against candidates |
+| `rules.rs`       | CLI subcommand for rule management (list, add, remove, validate)  |
 
 ## File primitives
 

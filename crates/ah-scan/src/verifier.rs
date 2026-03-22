@@ -81,3 +81,106 @@ pub fn verify(artifact: &mut ArtifactReport) -> String {
     artifact.verification_status = status.to_string();
     artifact.verification_status.clone()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn artifact_with(atype: &str, score: i32, signals: &[&str]) -> ArtifactReport {
+        let mut a = ArtifactReport::new(atype, 0.8);
+        a.risk_score = score;
+        a.signals = signals.iter().map(|s| s.to_string()).collect();
+        a
+    }
+
+    #[test]
+    fn credential_exposure_always_fails() {
+        let mut a = artifact_with("mcp_config", 5, &["credential_exposure_signal"]);
+        let status = verify(&mut a);
+        assert_eq!(status, "fail");
+    }
+
+    #[test]
+    fn high_score_fails() {
+        let mut a = artifact_with("cursor_rules", 55, &[]);
+        let status = verify(&mut a);
+        assert_eq!(status, "fail");
+    }
+
+    #[test]
+    fn medium_score_conditional_pass() {
+        let mut a = artifact_with("cursor_rules", 25, &[]);
+        let status = verify(&mut a);
+        assert_eq!(status, "conditional_pass");
+    }
+
+    #[test]
+    fn low_score_passes() {
+        let mut a = artifact_with("cursor_rules", 10, &[]);
+        let status = verify(&mut a);
+        assert_eq!(status, "pass");
+    }
+
+    #[test]
+    fn dangerous_keyword_without_governance_fails() {
+        let mut a = artifact_with("cursor_rules", 10, &["dangerous_keyword:steal"]);
+        let status = verify(&mut a);
+        assert_eq!(status, "fail");
+    }
+
+    #[test]
+    fn dangerous_keyword_with_governance_conditional_pass() {
+        let mut a = artifact_with("cursor_rules", 10, &["dangerous_keyword:steal"]);
+        a.metadata.insert(
+            "declared_tools".to_string(),
+            json!(["shell"]),
+        );
+        let status = verify(&mut a);
+        assert_eq!(status, "conditional_pass");
+    }
+
+    #[test]
+    fn dangerous_combo_escalates_to_conditional_pass() {
+        let mut a = artifact_with("cursor_rules", 10, &["dangerous_combo:shell+network+fs"]);
+        let status = verify(&mut a);
+        assert_eq!(status, "conditional_pass");
+    }
+
+    #[test]
+    fn credential_overrides_low_score() {
+        let mut a = artifact_with("cursor_rules", 0, &["credential_exposure_signal"]);
+        let status = verify(&mut a);
+        assert_eq!(status, "fail");
+    }
+
+    #[test]
+    fn has_governance_constraints_checks_declared_tools() {
+        let mut a = ArtifactReport::new("test", 0.5);
+        assert!(!has_governance_constraints(&a));
+        a.metadata.insert("declared_tools".into(), json!(["bash"]));
+        assert!(has_governance_constraints(&a));
+    }
+
+    #[test]
+    fn has_governance_constraints_checks_permissions() {
+        let mut a = ArtifactReport::new("test", 0.5);
+        a.metadata.insert("permissions".into(), json!(["read"]));
+        assert!(has_governance_constraints(&a));
+    }
+
+    #[test]
+    fn has_governance_empty_arrays_not_constraints() {
+        let mut a = ArtifactReport::new("test", 0.5);
+        a.metadata.insert("declared_tools".into(), json!([]));
+        assert!(!has_governance_constraints(&a));
+    }
+
+    #[test]
+    fn rank_max_returns_higher_severity() {
+        assert_eq!(rank_max("pass", "fail"), "fail");
+        assert_eq!(rank_max("fail", "pass"), "fail");
+        assert_eq!(rank_max("pass", "conditional_pass"), "conditional_pass");
+        assert_eq!(rank_max("pass", "pass"), "pass");
+    }
+}

@@ -56,6 +56,9 @@ ah-scan full               # Deep system-wide scan (slow, thorough)
 ah-scan file <path>        # Scan a single file
 ah-scan folder <path>      # Scan a directory
 ah-scan repo <path>        # Deep-scan a git repository
+ah-scan rules list         # List installed custom detection rules
+ah-scan rules add <file>   # Install a TOML rule file
+ah-scan rules validate <f> # Validate a rule file without installing
 ```
 
 ## Output formats
@@ -67,6 +70,7 @@ ah-scan quick --summary    # Compact statistics only
 ah-scan quick --json       # JSON to stdout
 ah-scan quick --out        # JSON to ./ahscan-report.json
 ah-scan quick --out r.json # JSON to custom path
+ah-scan quick --contract   # JSON in AH-Verify data contract format
 ```
 
 ## What it detects
@@ -145,8 +149,8 @@ The scanner checks S3 for the latest release, verifies SHA-256 checksums, and re
 ## Privacy
 
 - **Path-first scanning** — content is only read from specific allowlisted file types
-- **Bounded walking** — max depth of 5, file count limits (50K shallow / 500K deep)
-- **No broad ingestion** — `.git/`, `node_modules/`, `.venv/`, `target/` and similar are always excluded
+- **Bounded walking** — max depth of 5 for shallow scans; full scan enumerates the entire filesystem with no caps
+- **Scoped exclusions** — `.git/`, `node_modules/`, `.venv/`, `target/` and similar are excluded from home/workdir/filesystem scans (full scan has no exclusions)
 - **Secret detection without storage** — token patterns trigger a signal tag, but values are never stored or transmitted
 - **Browser presence only** — extension directories are noted, but no extension content or preferences are read
 - **Declarative rules** — custom rules are TOML config files; they use the same content-read allowlist as built-in detectors

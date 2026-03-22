@@ -17,3 +17,41 @@ pub fn get_all_detectors(mode: &str) -> Vec<Box<dyn Detector>> {
     }
     d
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workdir_mode_has_three_detectors() {
+        let detectors = get_all_detectors("workdir");
+        assert_eq!(detectors.len(), 3);
+    }
+
+    #[test]
+    fn host_mode_includes_browser_detector() {
+        let detectors = get_all_detectors("host");
+        assert_eq!(detectors.len(), 4);
+        assert!(detectors.iter().any(|d| d.name() == "browser_footprints"));
+    }
+
+    #[test]
+    fn root_mode_includes_browser_detector() {
+        let detectors = get_all_detectors("root");
+        assert_eq!(detectors.len(), 4);
+    }
+
+    #[test]
+    fn file_mode_excludes_browser_detector() {
+        let detectors = get_all_detectors("file");
+        assert!(!detectors.iter().any(|d| d.name() == "browser_footprints"));
+    }
+
+    #[test]
+    fn all_detectors_have_names() {
+        let detectors = get_all_detectors("host");
+        for d in &detectors {
+            assert!(!d.name().is_empty());
+        }
+    }
+}
