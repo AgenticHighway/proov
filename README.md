@@ -2,24 +2,11 @@
 
 **Detect, analyze, and report AI execution artifacts on a host machine.**
 
-ah-scanner is a Rust CLI tool that scans your system for AI-related configuration files — things like `.cursorrules`, MCP server configs, prompt files, and container definitions — analyzes them for risk, and optionally submits findings to a verification server.
+ah-scanner is a Rust CLI tool that scans your system for AI-related configuration files — things like `.cursorrules`, MCP server configs, prompt files, and container definitions — analyzes them for risk, and produces structured reports.
 
 ## How it works
 
-```
-Your machine                                 Server (optional)
-┌──────────────────────┐                     ┌──────────────────────┐
-│                      │                     │                      │
-│  ah-scan quick       │   HTTP POST         │  ah-verified-poc     │
-│                      │ ──────────────────► │                      │
-│  1. Walk filesystem  │  /api/scans/ingest  │  Next.js + Postgres  │
-│  2. Detect artifacts │                     │  Stores + displays   │
-│  3. Score risk       │                     │  scan results        │
-│  4. Report findings  │                     │                      │
-└──────────────────────┘                     └──────────────────────┘
-```
-
-The scanner is the **client side** of a two-repo system. The companion server is [`AgenticHighway/ah-verified-poc`](https://github.com/AgenticHighway/ah-verified-poc). The scanner works fully offline — server submission is optional and opt-in.
+The scanner runs fully offline by default. It walks your filesystem, identifies AI execution artifacts, scores them for risk, and outputs results locally. Optionally, you can submit findings to [AgenticHighway](https://agentichighway.com) for centralized verification and dashboard review.
 
 ## Install
 
@@ -70,7 +57,7 @@ ah-scan quick --summary    # Compact statistics only
 ah-scan quick --json       # JSON to stdout
 ah-scan quick --out        # JSON to ./ahscan-report.json
 ah-scan quick --out r.json # JSON to custom path
-ah-scan quick --contract   # JSON in AH-Verify data contract format
+ah-scan quick --contract   # JSON in AgenticHighway data contract format
 ```
 
 ## What it detects
@@ -116,7 +103,7 @@ mode = "licensed"
 license_key = "your-key-here"
 ```
 
-## Submitting to a server
+## Submitting to AgenticHighway
 
 With a licensed configuration and API key:
 
@@ -127,14 +114,13 @@ ah-scan setup
 # Or set credentials directly
 ah-scan auth --key your-api-key
 
-# Submit during a scan
-ah-scan repo . --submit http://localhost:3000/api/scans/ingest --api-key your-key
+# Submit scan results
+ah-scan repo . --submit --api-key your-key
 ```
 
 ### Safety defaults
 
-- Only local/private endpoints are allowed by default (`localhost`, `127.0.0.1`, `192.168.x.x`)
-- Pass `--allow-public-endpoint` to submit to public servers
+- Submissions go to the AgenticHighway ingestion endpoint
 - Retry logic handles transient failures (429, 502, 503, 504)
 - Audit log is written to `.ahscan-submissions.json` (tokens are never logged)
 
@@ -170,7 +156,7 @@ ah-scanner/
 │   ├── architecture.md   # System design and data flow
 │   ├── detectors.md      # How detection works
 │   └── custom-rules.md   # Writing custom detection rules
-└── scanner-data-contract.json  # JSON Schema for the ingest API
+└── scanner-data-contract.json  # JSON Schema for scan output
 ```
 
 ## Developing
@@ -202,7 +188,7 @@ mode = "lite"                   # lite | licensed
 license_key = ""                # required for licensed mode
 
 [submit]
-endpoint = "http://localhost:3000/api/scans/ingest"
+endpoint = ""                  # AgenticHighway endpoint (set via ah-scan setup)
 token = ""
 scanner_uuid = ""               # auto-generated if empty
 scanner_account_uuid = ""       # auto-generated if empty
