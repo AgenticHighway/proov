@@ -201,3 +201,124 @@ fn tag_analysis_origin(artifact: &mut ArtifactReport) {
         serde_json::Value::String(origin.to_string()),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn artifact_at(atype: &str, path: &str) -> ArtifactReport {
+        let mut a = ArtifactReport::new(atype, 0.8);
+        a.metadata.insert("paths".into(), json!([path]));
+        a
+    }
+
+    // --- classify_artifact: scope ---
+
+    #[test]
+    fn browser_footprint_scope_is_host() {
+        let mut a = artifact_at("browser_footprint", "/home/user/.config/chrome");
+        classify_artifact(&mut a, "home");
+        assert_eq!(a.artifact_scope, "host");
+    }
+
+    #[test]
+    fn container_scope_is_container() {
+        let mut a = artifact_at("container_config", "/project/Dockerfile");
+        classify_artifact(&mut a, "workdir");
+        assert_eq!(a.artifact_scope, "container");
+    }
+
+    #[test]
+    fn container_candidate_scope_is_container() {
+        let mut a = artifact_at("container_candidate", "/project/Dockerfile");
+        classify_artifact(&mut a, "workdir");
+        assert_eq!(a.artifact_scope, "container");
+    }
+
+    #[test]
+    fn docs_path_produces_docs_scope() {
+        let mut a = artifact_at("cursor_rules", "/project/docs/.cursorrules");
+        classify_artifact(&mut a, "workdir");
+        assert_eq!(a.artifact_scope, "docs");
+    }
+
+    #[test]
+    fn host_mode_produces_host_scope() {
+        let mut a = artifact_at("cursor_rules", "/home/user/.cursorrules");
+        classify_artifact(&mut a, "host");
+        assert_eq!(a.artifact_scope, "host");
+    }
+
+    #[test]
+    fn workdir_mode_produces_project_scope() {
+        let mut a = artifact_at("cursor_rules", "/project/.cursorrules");
+        classify_artifact(&mut a, "workdir");
+        assert_eq!(a.artifact_scope, "project");
+    }
+
+    // --- classify_artifact: registry_eligible ---
+
+    #[test]
+    fn cursor_rules_always_eligible() {
+        let mut a = artifact_at("cursor_rules", "/project/.cursorrules");
+        classify_artifact(&mut a, "workdir");
+        assert!(a.registry_eligible);
+    }
+
+    #[test]
+    fn container_candidate_never_eligible() {
+        let mut a = artifact_at("container_candidate", "/project/Dockerfile");
+        classify_artifact(&mut a, "workdir");
+        assert!(!a.registry_eligible);
+    }
+
+    #[test]
+    fn prompt_config_in_docs_not_eligible() {
+        let mut a = artifact_at("prompt_config", "/project/docs/prompt.md");
+        classify_artifact(&mut a, "workdir");
+        assert!(!a.registry_eligible);
+    }
+
+    #[test]
+    fn prompt_config_with_keywords_eligible() {
+        let mut a = artifact_at("prompt_config", "/project/prompt.md");
+        a.signals.push("keyword:shell".into());
+        classify_artifact(&mut a, "workdir");
+        assert!(a.registry_eligible);
+    }
+
+    #[test]
+    fn prompt_config_high_confidence_eligible() {
+        let mut a = ArtifactReport::new("prompt_config", 0.90);
+        a.metadata.insert("paths".into(), json!(["/project/prompt.md"]));
+        classify_artifact(&mut a, "workdir");
+        assert!(a.registry_eligible);
+    }
+
+    // --- tag_analysis_origin ---
+
+    #[test]
+    fn local_signal_tags_local_origin() {
+        let mut a = artifact_at("cursor_rules", "/project/.cursorrules");
+        a.signals.push("keyword:shell".into());
+        tag_analysis_origin(&mut a);
+        assert_eq!(a.metadata["analysis_origin"], "local");
+    }
+
+    #[test]
+    fn no_local_signal_tags_server_candidate() {
+        let mut a = artifact_at("cursor_rules", "/project/.cursorrules");
+        a.signals.push("filename_match:.cursorrules".into());
+        tag_analysis_origin(&mut a);
+        assert_eq!(a.metadata["analysis_origin"], "server_candidate");
+    }
+
+    #[test]
+    fn failed_verification_tags_local_origin() {
+        let mut a = artifact_at("cursor_rules", "/project/.cursorrules");
+        a.verification_status = "fail".into();
+        tag_analysis_origin(&mut a);
+        assert_eq!(a.metadata["analysis_origin"], "local");
+    }
+}

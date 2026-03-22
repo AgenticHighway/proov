@@ -130,3 +130,89 @@ pub fn print_locked_summary(artifacts: &[ArtifactReport]) {
     }
     println!();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_artifact(atype: &str, signals: &[&str], risk_score: i32, confidence: f64) -> ArtifactReport {
+        let mut a = ArtifactReport::new(atype, confidence);
+        a.signals = signals.iter().map(|s| s.to_string()).collect();
+        a.risk_score = risk_score;
+        a
+    }
+
+    #[test]
+    fn local_policy_score_includes_type_base() {
+        let a = make_artifact("cursor_rules", &[], 0, 0.5);
+        let score = local_policy_score(&a);
+        assert_eq!(score, 4); // cursor_rules base = 4
+    }
+
+    #[test]
+    fn local_policy_score_adds_signal_weights() {
+        let a = make_artifact("cursor_rules", &["keyword:shell", "keyword:browser"], 0, 0.5);
+        let score = local_policy_score(&a);
+        assert_eq!(score, 4 + 15 + 10); // base + shell + browser
+    }
+
+    #[test]
+    fn local_policy_score_caps_at_100() {
+        let a = make_artifact("cursor_rules", &[
+            "credential_exposure_signal",
+            "dangerous_combo:shell+network+fs",
+            "dangerous_keyword:exfiltrate",
+            "dangerous_keyword:steal",
+            "keyword:shell",
+            "keyword:browser",
+        ], 0, 0.5);
+        let score = local_policy_score(&a);
+        assert_eq!(score, 100);
+    }
+
+    #[test]
+    fn local_policy_score_unknown_type_gets_base_1() {
+        let a = make_artifact("unknown_type", &[], 0, 0.5);
+        let score = local_policy_score(&a);
+        assert_eq!(score, 1);
+    }
+
+    #[test]
+    fn limit_lite_mode_report_returns_top_n() {
+        let mut report = ScanReport::new("/test");
+        report.artifacts = vec![
+            make_artifact("cursor_rules", &["keyword:shell"], 30, 0.9),
+            make_artifact("prompt_config", &[], 5, 0.5),
+            make_artifact("agents_md", &["credential_exposure_signal"], 80, 0.95),
+        ];
+        let (visible, hidden_count, hidden) = limit_lite_mode_report(&report, 2);
+        assert_eq!(visible.artifacts.len(), 2);
+        assert_eq!(hidden_count, 1);
+        assert_eq!(hidden.len(), 1);
+    }
+
+    #[test]
+    fn limit_lite_mode_highest_risk_first() {
+        let mut report = ScanReport::new("/test");
+        report.artifacts = vec![
+            make_artifact("prompt_config", &[], 5, 0.5),
+            make_artifact("agents_md", &["credential_exposure_signal"], 80, 0.95),
+        ];
+        let (visible, _, _) = limit_lite_mode_report(&report, 1);
+        // The credential_exposure artifact should be first (highest policy score)
+        assert!(visible.artifacts[0].signals.contains(&"credential_exposure_signal".to_string()));
+    }
+
+    #[test]
+    fn locked_summary_counts_by_type_and_status() {
+        let artifacts = vec![
+            make_artifact("cursor_rules", &[], 10, 0.8),
+            make_artifact("cursor_rules", &[], 15, 0.7),
+            make_artifact("mcp_config", &[], 5, 0.9),
+        ];
+        let summary = locked_summary_counts(&artifacts);
+        assert_eq!(summary["count"], 3);
+        assert_eq!(summary["by_type"]["cursor_rules"], 2);
+        assert_eq!(summary["by_type"]["mcp_config"], 1);
+    }
+}

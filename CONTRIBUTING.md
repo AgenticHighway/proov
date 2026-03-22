@@ -118,7 +118,7 @@ feat: add new detector for X
 fix: handle empty MCP config gracefully
 chore: bump serde to 1.0.200
 refactor: split submit.rs into smaller modules
-docs: add plugin development guide
+docs: add custom detection rule guide
 ```
 
 ## Code guidelines
