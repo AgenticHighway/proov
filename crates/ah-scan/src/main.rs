@@ -17,6 +17,7 @@ mod payload;
 mod progress;
 mod risk_engine;
 mod rule_engine;
+mod rules;
 mod scan;
 mod setup;
 mod submit;
