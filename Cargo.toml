@@ -2,12 +2,8 @@
 resolver = "2"
 members = [
     "crates/ah-scan",
-    "crates/ah-scan-sdk",
 ]
-exclude = [
-    "examples/detector-cursor-rules",
-    "examples/detector-template",
-]
+exclude = []
 
 [workspace.package]
 version = "0.4.0"

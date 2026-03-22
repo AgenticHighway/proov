@@ -1,6 +1,6 @@
 //! Scan orchestration — wire discovery → detectors → risk scoring → verification.
 //!
-//! Runs both built-in (native) detectors and WASM plugin detectors,
+//! Runs built-in detectors and custom rule-based detectors,
 //! merging their results into a single report.
 
 use std::collections::HashSet;
@@ -14,7 +14,6 @@ use crate::discovery::{
 use crate::models::{ArtifactReport, ScanReport};
 use crate::risk_engine::score_artifact;
 use crate::verifier::verify;
-use crate::wasm_bridge;
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -88,11 +87,7 @@ pub fn run_scan(
         artifacts.extend(detector.detect(&candidates, deep));
     }
 
-    // 3. Run WASM plugin detectors
-    let wasm_findings = wasm_bridge::run_wasm_detectors(&candidates, mode, deep, tick);
-    artifacts.extend(wasm_findings);
-
-    // 4. Score, verify, classify each artifact
+    // 3. Score, verify, classify each artifact
     tick(&format!("Analyzing {} artifact(s)…", artifacts.len()));
     for artifact in &mut artifacts {
         score_artifact(artifact);

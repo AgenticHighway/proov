@@ -43,9 +43,8 @@ cargo run -p ah-scan -- full
 # All tests
 cargo test
 
-# Tests for a specific crate
+# Tests for the main crate
 cargo test -p ah-scan
-cargo test -p ah-scan-sdk
 
 # Run with output shown
 cargo test -- --nocapture
@@ -71,12 +70,11 @@ This should produce zero warnings. Fix any that appear before submitting a PR.
 
 ## Project structure
 
-The workspace has two crates:
+The workspace has one crate:
 
-| Crate         | Path                  | Purpose                                 |
-| ------------- | --------------------- | --------------------------------------- |
-| `ah-scan`     | `crates/ah-scan/`     | The CLI binary — all the scanning logic |
-| `ah-scan-sdk` | `crates/ah-scan-sdk/` | Shared types for WASM plugins           |
+| Crate     | Path              | Purpose                                 |
+| --------- | ----------------- | --------------------------------------- |
+| `ah-scan` | `crates/ah-scan/` | The CLI binary — all the scanning logic |
 
 For detailed architecture, see [docs/architecture.md](docs/architecture.md).
 
@@ -141,9 +139,9 @@ docs: add plugin development guide
 
 See [docs/detectors.md](docs/detectors.md) for a step-by-step guide.
 
-### Adding a WASM plugin
+### Adding a custom detection rule
 
-See [docs/plugin-guide.md](docs/plugin-guide.md).
+See [docs/custom-rules.md](docs/custom-rules.md).
 
 ## Release process
 
@@ -185,5 +183,5 @@ AH_TEST_API_KEY=your_key ./scripts/test-scanner.sh
 
 - Read the architecture docs: [docs/architecture.md](docs/architecture.md)
 - Check existing detectors in `crates/ah-scan/src/detectors/` for patterns to follow
-- Look at `examples/detector-template/` for plugin development
+- Look at `examples/rules/` for custom rule examples
 - Run `ah-scan --help` for CLI usage

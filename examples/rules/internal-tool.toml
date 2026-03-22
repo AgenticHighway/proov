@@ -1,0 +1,27 @@
+# Detect internal tool configuration files.
+#
+# Example rule for organizations that use a custom internal AI tool
+# with its own config format. Adapt the filenames and keywords to
+# match your specific tooling.
+
+[detector]
+name = "internal_tool"
+description = "Detect internal AI tool configuration files"
+artifact_type = "internal_tool_config"
+
+[match]
+filenames = ["ai-tool.yaml", "ai-tool.yml", ".ai-toolrc"]
+suffixes = [".ai-tool.json"]
+confidence = 0.7
+
+[keywords]
+keywords = ["model", "endpoint", "api_key", "temperature", "max_tokens"]
+signals_prefix = "keyword"
+boost_confidence = 0.9
+boost_threshold = 2
+
+[deep_keywords]
+keywords = ["execute", "shell", "system", "subprocess"]
+signals_prefix = "deep_keyword"
+boost_confidence = 0.95
+boost_threshold = 1

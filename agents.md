@@ -11,7 +11,7 @@ This is the **client/scanner side** of a two-repo client/server system:
 
 The scanner is the data producer. The server is the data consumer, store, and reviewer. They communicate over HTTP.
 
-This repository is a Rust workspace with two crates (`ah-scan` CLI and `ah-scan-sdk` for plugins).
+This repository is a Rust workspace with one crate (`ah-scan` CLI). Custom detection rules are declarative TOML files in `~/.ahscan/rules/`.
 
 ## Expectations for coding agents
 

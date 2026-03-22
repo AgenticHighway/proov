@@ -3,6 +3,7 @@ pub mod browser_footprints;
 pub mod containers;
 pub mod content_analysis;
 pub mod cursor_rules;
+pub mod custom_rules;
 pub mod mcp_configs;
 pub mod prompt_configs;
 
@@ -17,6 +18,11 @@ pub fn get_all_detectors(mode: &str) -> Vec<Box<dyn Detector>> {
     ];
     if matches!(mode, "host" | "filesystem" | "home" | "root") {
         d.push(Box::new(browser_footprints::BrowserFootprintDetector));
+    }
+    // Custom TOML rule-based detectors
+    let custom = custom_rules::CustomRulesDetector::load();
+    if !custom.is_empty() {
+        d.push(Box::new(custom));
     }
     d
 }

@@ -1,0 +1,37 @@
+# Detect Terraform files with AI-related provider usage.
+#
+# This rule looks for .tf files that reference AI services like OpenAI,
+# Anthropic, or LangChain — indicating infrastructure that provisions
+# or configures AI capabilities.
+
+[detector]
+name = "terraform_ai"
+description = "Detect Terraform files provisioning AI services"
+artifact_type = "terraform_config"
+
+[match]
+suffixes = [".tf"]
+confidence = 0.6
+
+[keywords]
+keywords = [
+    "openai",
+    "anthropic",
+    "langchain",
+    "bedrock",
+    "sagemaker",
+    "azure_cognitive",
+    "vertex_ai",
+    "ollama",
+    "huggingface",
+    "replicate",
+]
+signals_prefix = "keyword"
+boost_confidence = 0.85
+boost_threshold = 1
+
+[deep_keywords]
+keywords = ["api_key", "secret", "token", "credentials"]
+signals_prefix = "deep_keyword"
+boost_confidence = 0.9
+boost_threshold = 1
