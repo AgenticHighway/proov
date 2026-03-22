@@ -118,36 +118,11 @@ fn classify_candidate(
     // Content scan for AI relevance tokens + container-specific primitives
     if is_content_read_allowed(&candidate.path) {
         if let Some(content) = read_head(&candidate.path) {
-            let lowered = content.to_lowercase();
-            let found: Vec<String> = AI_RELEVANCE_TOKENS
-                .iter()
-                .filter(|t| lowered.contains(**t))
-                .map(|s| format!("ai_token:{s}"))
-                .collect();
-            if !found.is_empty() {
-                has_ai_signal = true;
-                signals.extend(found);
-            }
-            signals.extend(check_for_secrets(&content));
-            signals.extend(check_for_dangerous_patterns(&content));
+            let (content_signals, content_is_ai) = scan_content(&content);
+            signals.extend(content_signals);
+            has_ai_signal = has_ai_signal || content_is_ai;
 
-            // Type-specific primitives
-            let is_compose = name.contains("compose");
-            if is_compose {
-                let services = extract_compose_services(&content);
-                if !services.is_empty() {
-                    metadata.insert("services".into(), json!(services));
-                }
-            } else {
-                // Dockerfile primitives
-                if let Some(base) = extract_base_image(&content) {
-                    metadata.insert("base_image".into(), json!(base));
-                }
-                let ports = extract_exposed_ports(&content);
-                if !ports.is_empty() {
-                    metadata.insert("exposed_ports".into(), json!(ports));
-                }
-            }
+            extract_container_metadata(name, &content, &mut metadata);
         }
     }
 
@@ -168,6 +143,48 @@ fn classify_candidate(
     report.artifact_scope = candidate.origin.clone();
     report.compute_hash();
     Some(report)
+}
+
+fn scan_content(content: &str) -> (Vec<String>, bool) {
+    let mut signals = Vec::new();
+    let mut has_ai = false;
+    let lowered = content.to_lowercase();
+
+    let found: Vec<String> = AI_RELEVANCE_TOKENS
+        .iter()
+        .filter(|t| lowered.contains(**t))
+        .map(|s| format!("ai_token:{s}"))
+        .collect();
+    if !found.is_empty() {
+        has_ai = true;
+        signals.extend(found);
+    }
+    signals.extend(check_for_secrets(content));
+    signals.extend(check_for_dangerous_patterns(content));
+
+    (signals, has_ai)
+}
+
+fn extract_container_metadata(
+    name: &str,
+    content: &str,
+    metadata: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    let is_compose = name.contains("compose");
+    if is_compose {
+        let services = extract_compose_services(content);
+        if !services.is_empty() {
+            metadata.insert("services".into(), json!(services));
+        }
+    } else {
+        if let Some(base) = extract_base_image(content) {
+            metadata.insert("base_image".into(), json!(base));
+        }
+        let ports = extract_exposed_ports(content);
+        if !ports.is_empty() {
+            metadata.insert("exposed_ports".into(), json!(ports));
+        }
+    }
 }
 
 /// Extract the base image from the first FROM instruction in a Dockerfile.
