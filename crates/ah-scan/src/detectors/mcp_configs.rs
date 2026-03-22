@@ -4,6 +4,10 @@ use crate::models::{check_for_secrets, gather_file_primitives, ArtifactReport};
 use super::base::Detector;
 use serde_json::{json, Value};
 use std::fs;
+use std::sync::LazyLock;
+
+static URL_REGEX: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#"https?://[^\s"'\\,\]}>]+"#).unwrap());
 
 const MAX_READ_BYTES: usize = 8192;
 
@@ -142,8 +146,8 @@ fn scan_tokens(text: &str, tokens: &[&str]) -> Vec<String> {
 }
 
 fn extract_endpoints(text: &str) -> Vec<String> {
-    let re = regex::Regex::new(r#"https?://[^\s"'\\,\]}>]+"#).unwrap();
-    re.find_iter(text)
+    URL_REGEX
+        .find_iter(text)
         .map(|m| m.as_str().to_string())
         .collect()
 }

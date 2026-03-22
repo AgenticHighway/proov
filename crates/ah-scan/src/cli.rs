@@ -3,11 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::contract::build_contract_payload;
-use crate::formatters::{print_human, print_overview, print_summary};
 use crate::lite_mode::{limit_lite_mode_report, print_locked_summary, LITE_MODE_VISIBLE_RESULTS};
 use crate::models::ScanReport;
+use crate::output::{do_submit, emit};
 use crate::scan::run_scan;
-use crate::submit::{load_auth_config, load_submission_config, save_auth_config, submit_contract_payload, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT};
+use crate::submit::{load_submission_config, save_auth_config, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT};
 
 // ---------------------------------------------------------------------------
 // CLI argument definitions
@@ -281,47 +281,6 @@ fn output_args(cmd: &Commands) -> &OutputArgs {
 }
 
 // ---------------------------------------------------------------------------
-// Output emission
-// ---------------------------------------------------------------------------
-
-fn emit(
-    report: &ScanReport,
-    scan_duration_ms: u64,
-    json_output: bool,
-    out: &Option<Option<PathBuf>>,
-    summary: bool,
-    full: bool,
-) {
-    if json_output {
-        let payload = build_contract_payload(report, scan_duration_ms);
-        let json = serde_json::to_string_pretty(&payload)
-            .expect("contract payload serialization");
-        println!("{json}");
-    } else if summary {
-        print_summary(report);
-    } else if full {
-        print_human(report);
-    } else {
-        print_overview(report);
-    }
-
-    if let Some(maybe_path) = out {
-        let dest = match maybe_path {
-            Some(p) => p.clone(),
-            None => PathBuf::from("ahscan-report.json"),
-        };
-        let payload = build_contract_payload(report, scan_duration_ms);
-        let json = serde_json::to_string_pretty(&payload)
-            .expect("contract payload serialization");
-        if let Err(e) = fs::write(&dest, &json) {
-            eprintln!("Error writing report to {}: {}", dest.display(), e);
-        } else {
-            eprintln!("Report written to {}", dest.display());
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Access gate
 // ---------------------------------------------------------------------------
 
@@ -455,20 +414,33 @@ pub fn run() {
 
     let wants_submit = out.submit.is_some();
 
-    if out.contract {
+    if out.contract || wants_submit {
         let payload = build_contract_payload(&report, scan_duration_ms);
-        let json = serde_json::to_string_pretty(&payload)
-            .expect("contract payload serialization");
+        let json = match serde_json::to_string_pretty(&payload) {
+            Ok(j) => j,
+            Err(e) => {
+                eprintln!("Error serializing contract payload: {e}");
+                std::process::exit(1);
+            }
+        };
 
-        if !wants_submit {
+        if out.contract && !wants_submit {
             println!("{json}");
         }
 
-        if let Some(maybe_path) = &out.out {
-            let dest = match maybe_path {
+        // Write to file if --out is specified, or always when submitting
+        let write_dest = if let Some(maybe_path) = &out.out {
+            Some(match maybe_path {
                 Some(p) => p.clone(),
                 None => PathBuf::from("ahscan-contract.json"),
-            };
+            })
+        } else if wants_submit {
+            Some(PathBuf::from("ahscan-contract.json"))
+        } else {
+            None
+        };
+
+        if let Some(dest) = write_dest {
             if let Err(e) = fs::write(&dest, &json) {
                 eprintln!("Error writing contract to {}: {}", dest.display(), e);
             } else {
@@ -479,75 +451,10 @@ pub fn run() {
         if wants_submit {
             do_submit(&json, &out.submit, out.api_key.as_deref());
         }
-    } else if wants_submit {
-        // --submit without --contract: build contract payload automatically
-        let payload = build_contract_payload(&report, scan_duration_ms);
-        let json = serde_json::to_string_pretty(&payload)
-            .expect("contract payload serialization");
-
-        // Write to file
-        let dest = match &out.out {
-            Some(Some(p)) => p.clone(),
-            _ => PathBuf::from("ahscan-contract.json"),
-        };
-        if let Err(e) = fs::write(&dest, &json) {
-            eprintln!("Error writing contract to {}: {}", dest.display(), e);
-        } else {
-            eprintln!("Contract written to {}", dest.display());
-        }
-
-        do_submit(&json, &out.submit, out.api_key.as_deref());
     } else {
         emit(&report, scan_duration_ms, out.json, &out.out, out.summary, out.full);
     }
 
     // Passive update check after scan completes
     crate::updater::passive_update_check();
-}
-
-/// Resolve auth (from flags + config file) and POST the payload.
-fn do_submit(
-    payload_json: &str,
-    submit_flag: &Option<Option<String>>,
-    api_key_flag: Option<&str>,
-) {
-    // Load saved config as baseline
-    let saved = load_auth_config();
-
-    // Resolve endpoint: --submit <url> > config file > default
-    let endpoint = match submit_flag {
-        Some(Some(url)) => url.clone(),
-        _ => saved
-            .as_ref()
-            .map(|c| c.endpoint.clone())
-            .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string()),
-    };
-
-    // Resolve API key: --api-key > config file
-    let api_key = match api_key_flag {
-        Some(k) => k.to_string(),
-        None => match saved.as_ref().map(|c| c.api_key.clone()) {
-            Some(k) => k,
-            None => {
-                eprintln!(
-                    "No API key provided. Pass --api-key or run `ah-scan auth --key <your-key>`."
-                );
-                std::process::exit(1);
-            }
-        },
-    };
-
-    let auth = AuthConfig {
-        endpoint,
-        api_key,
-    };
-
-    eprintln!("Submitting scan to {}...", auth.endpoint);
-    match submit_contract_payload(payload_json, &auth) {
-        Ok(()) => {}
-        Err(e) => {
-            eprintln!("Submission failed: {e}");
-            std::process::exit(1);
-        }
-    }
 }
