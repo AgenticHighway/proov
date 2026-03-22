@@ -14,3 +14,4 @@ target/
 ._*
 test-runs/
 ahscan-contract.json
+results.json
