@@ -101,6 +101,11 @@ pub fn load_rules_from_dir(dir: &Path) -> Vec<DetectionRule> {
 }
 
 fn load_rule_file(path: &Path) -> Result<DetectionRule, String> {
+    load_rule_file_pub(path)
+}
+
+/// Public entry point for rule loading — used by `rules.rs` CLI commands.
+pub fn load_rule_file_pub(path: &Path) -> Result<DetectionRule, String> {
     let content =
         fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let rule: DetectionRule =

@@ -79,6 +79,32 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Manage custom detection rules
+    Rules {
+        #[command(subcommand)]
+        action: RuleAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RuleAction {
+    /// List installed rules
+    List,
+    /// Install a rule file into ~/.ahscan/rules/
+    Add {
+        /// Path to the .toml rule file
+        path: PathBuf,
+    },
+    /// Remove an installed rule by name (e.g. terraform-ai or terraform-ai.toml)
+    Remove {
+        /// Rule name or filename
+        name: String,
+    },
+    /// Validate a rule file without installing it
+    Validate {
+        /// Path to the .toml rule file
+        path: PathBuf,
+    },
 }
 
 #[derive(clap::Args)]
@@ -234,7 +260,7 @@ fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
             file: None,
             deep: true,
         },
-        Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } => {
+        Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } | Commands::Rules { .. } => {
             unreachable!("handled before scan dispatch")
         }
     }
@@ -248,7 +274,7 @@ fn output_args(cmd: &Commands) -> &OutputArgs {
         | Commands::File { output, .. }
         | Commands::Folder { output, .. }
         | Commands::Repo { output, .. } => output,
-        Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } => {
+        Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } | Commands::Rules { .. } => {
             unreachable!("handled before output dispatch")
         }
     }
@@ -327,6 +353,17 @@ pub fn run() {
         }
     };
 
+    // Handle rules subcommand
+    if let Commands::Rules { action } = &cmd {
+        match action {
+            RuleAction::List => crate::rules::cmd_list(),
+            RuleAction::Add { path } => crate::rules::cmd_add(path),
+            RuleAction::Remove { name } => crate::rules::cmd_remove(name),
+            RuleAction::Validate { path } => crate::rules::cmd_validate(path),
+        }
+        return;
+    }
+
     // Handle setup command
     if matches!(cmd, Commands::Setup) {
         crate::setup::run_setup(true);
@@ -398,6 +435,7 @@ pub fn run() {
                 std::process::exit(1);
             }
         }
+        Commands::Rules { .. } => unreachable!("handled above"),
         _ => {}
     }
 
