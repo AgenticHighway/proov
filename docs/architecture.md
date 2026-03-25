@@ -1,14 +1,14 @@
 # Architecture
 
-This document explains how ah-scanner is built, how data flows through it, and how the modules connect. Read this before diving into the source code.
+This document explains how proov is built, how data flows through it, and how the modules connect. Read this before diving into the source code.
 
 ## System context
 
-ah-scanner is one half of a two-repo client/server system:
+proov is one half of a two-repo client/server system:
 
 ```
 ┌──────────────────┐         HTTP POST          ┌──────────────────────┐
-│   ah-scanner     │ ──────────────────────────► │   ah-verified-poc    │
+│   proov          │ ──────────────────────────► │   ah-verified-poc    │
 │   (this repo)    │    /api/scans/ingest        │   (server repo)      │
 │                  │                              │                      │
 │  Rust CLI binary │                              │  Next.js + Postgres  │
@@ -22,9 +22,9 @@ The scanner runs locally on a developer's machine, discovers AI-related configur
 ## Workspace layout
 
 ```
-ah-scanner/
+proov/
 ├── crates/
-│   ├── ah-scan/              # The main CLI binary
+│   ├── proov/                # The main CLI binary
 │   │   └── src/
 │   │       ├── main.rs       # Entry point, module declarations
 │   │       ├── cli.rs        # Command-line parsing + dispatch
@@ -66,7 +66,7 @@ Here is the complete path data takes through the scanner, from CLI invocation to
 
 ```
  ┌─────────────┐
- │  User runs   │  ah-scan quick / scan / file <path> / ...
+ │  User runs   │  proov quick / scan / file <path> / ...
  │  CLI command  │
  └──────┬───────┘
         │
@@ -265,7 +265,7 @@ Access is controlled via `.ahscan.toml` in the working directory.
 
 | File                             | Purpose                     | Created by                         |
 | -------------------------------- | --------------------------- | ---------------------------------- |
-| `~/.config/ahscan/config.json`   | API key + endpoint          | `ah-scan setup` or `ah-scan auth`  |
+| `~/.config/ahscan/config.json`   | API key + endpoint          | `proov setup` or `proov auth`      |
 | `.ahscan.toml`                   | Access mode + license key   | User creates manually              |
 | `~/.ahscan/scanner_uuid`         | Persistent scanner identity | Auto-generated on first submit     |
 | `~/.ahscan/scanner_account_uuid` | Persistent account identity | Auto-generated on first submit     |

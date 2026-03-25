@@ -1,4 +1,4 @@
-//! Interactive wizard for ah-scan.
+//! Interactive wizard for proov.
 //!
 //! Presents a guided menu for scanning, viewing results, and choosing output
 //! formats.  Uses crossterm for raw key input when running in a TTY; falls
@@ -187,7 +187,7 @@ fn graceful_exit() -> ! {
 fn print_banner() {
     eprintln!();
     eprintln!("  {DIM}┌──────────────────────────────────────────┐{RESET}");
-    eprintln!("  {DIM}│{RESET}  {BOLD}{CYAN}ah-scan{RESET}  —  AI Execution Inventory       {DIM}│{RESET}");
+    eprintln!("  {DIM}│{RESET}  {BOLD}{CYAN}proov{RESET}  —  AI Execution Inventory         {DIM}│{RESET}");
     eprintln!("  {DIM}└──────────────────────────────────────────┘{RESET}");
     eprintln!();
 }
@@ -363,7 +363,7 @@ fn post_scan_actions(report: &ScanReport, scan_duration_ms: u64) {
         let label = if auth.endpoint.contains("localhost") {
             "localhost"
         } else {
-            "verify.agentichighway.ai"
+            "vettd.agentichighway.ai"
         };
         if confirm(&format!("Submit results to {label}?"), true) {
             let payload = build_contract_payload(report, scan_duration_ms);

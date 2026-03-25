@@ -1,6 +1,6 @@
 # Detectors
 
-Detectors are the core of what ah-scanner does — they examine filesystem candidates and produce `ArtifactReport`s describing what they found.
+Detectors are the core of what proov does — they examine filesystem candidates and produce `ArtifactReport`s describing what they found.
 
 ## How detection works
 
@@ -24,7 +24,7 @@ These are produced by `gather_file_primitives()` in `models.rs` and merged into 
 
 ## Built-in detectors
 
-All built-in detectors live in `crates/ah-scan/src/detectors/` and implement the `Detector` trait:
+All built-in detectors live in `crates/proov/src/detectors/` and implement the `Detector` trait:
 
 ```rust
 pub trait Detector {
@@ -151,7 +151,7 @@ Signals are string tags that describe what a detector found. They follow a namin
 
 ## Adding a new built-in detector
 
-1. Create a new file in `crates/ah-scan/src/detectors/`, e.g., `my_detector.rs`
+1. Create a new file in `crates/proov/src/detectors/`, e.g., `my_detector.rs`
 
 2. Implement the `Detector` trait:
 

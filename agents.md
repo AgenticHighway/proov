@@ -6,17 +6,17 @@ This is the **client/scanner side** of a two-repo client/server system:
 
 | Role                   | Repo                             | Description                                                                                                                     |
 | ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **Client (this repo)** | `AgenticHighway/ah-scanner-poc`  | System-level scanner that runs on target machines, produces scan reports, and submits them to the server ingest API.            |
+| **Client (this repo)** | `AgenticHighway/proov`           | System-level scanner that runs on target machines, produces scan reports, and submits them to the server ingest API.            |
 | **Server**             | `AgenticHighway/ah-verified-poc` | Next.js app + PostgreSQL (via Prisma). Exposes `POST /api/ingest`, stores scan results, and renders the verification dashboard. |
 
 The scanner is the data producer. The server is the data consumer, store, and reviewer. They communicate over HTTP.
 
-This repository is a Rust workspace with one crate (`ah-scan` CLI). Custom detection rules are declarative TOML files in `~/.ahscan/rules/`.
+This repository is a Rust workspace with one crate (`proov` CLI). Custom detection rules are declarative TOML files in `~/.ahscan/rules/`.
 
 ## Expectations for coding agents
 
 - **This is a Rust project** — use `cargo build`, `cargo test`, `cargo clippy`.
-- Release binary: `target/release/ah-scan` (via `cargo build --release -p ah-scan`).
+- Release binary: `target/release/proov` (via `cargo build --release -p proov`).
 - Keep changes small and focused.
 - Prefer adding tests for non-trivial behavior changes.
 - Preserve existing project structure unless restructuring is required.
