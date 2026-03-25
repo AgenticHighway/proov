@@ -45,7 +45,7 @@ fn write_json_report(
 ) {
     let dest = match maybe_path {
         Some(p) => p.clone(),
-        None => PathBuf::from("ahscan-report.json"),
+        None => PathBuf::from("proov-report.json"),
     };
     let payload = build_contract_payload(report, scan_duration_ms);
     match serde_json::to_string_pretty(&payload) {
