@@ -432,10 +432,10 @@ pub fn run() {
         let write_dest = if let Some(maybe_path) = &out.out {
             Some(match maybe_path {
                 Some(p) => p.clone(),
-                None => PathBuf::from("ahscan-contract.json"),
+                None => PathBuf::from("proov-contract.json"),
             })
         } else if wants_submit {
-            Some(PathBuf::from("ahscan-contract.json"))
+            Some(PathBuf::from("proov-contract.json"))
         } else {
             None
         };
