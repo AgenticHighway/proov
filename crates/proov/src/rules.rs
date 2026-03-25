@@ -1,4 +1,4 @@
-//! `ah-scan rules` subcommand — manage custom TOML detection rule files.
+//! `proov rules` subcommand — manage custom TOML detection rule files.
 //!
 //! Commands:
 //!   list      — show installed rules
@@ -29,7 +29,7 @@ pub fn cmd_list() {
 
     if entries.is_empty() {
         eprintln!("No rules installed in {}.", dir.display());
-        eprintln!("Use `ah-scan rules add <file.toml>` to install one.");
+        eprintln!("Use `proov rules add <file.toml>` to install one.");
         return;
     }
 

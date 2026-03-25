@@ -17,7 +17,7 @@ use crate::network::ensure_endpoint_allowed;
 use crate::payload::build_ingest_payload;
 
 pub const DEFAULT_INGEST_ENDPOINT: &str = "http://localhost:3000/api/ingest";
-pub const DEFAULT_PRODUCTION_ENDPOINT: &str = "https://verify.agentichighway.ai/api/scans/ingest";
+pub const DEFAULT_PRODUCTION_ENDPOINT: &str = "https://vettd.agentichighway.ai/api/scans/ingest";
 pub const DEFAULT_TIMEOUT_SECONDS: f64 = 10.0;
 
 // ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ impl Default for SubmissionConfig {
             allow_public_endpoint: false,
             source: "cli".to_string(),
             audit_log_enabled: false,
-            audit_log_path: "ah-scan-audit.jsonl".to_string(),
+            audit_log_path: "proov-audit.jsonl".to_string(),
         }
     }
 }
