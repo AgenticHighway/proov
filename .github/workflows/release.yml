@@ -140,7 +140,7 @@ jobs:
                   for file in release/proov-*; do
                     name=$(basename "$file")
                     echo "Uploading $name → s3://ah-scanner-releases/${TAG}/${name}"
-                    aws s3 cp "$file" "s3://ah-scanner-releases/${TAG}/${name}"
+                    aws s3 cp "$file" "s3://ah-scanner-releases/${TAG}/${name}" --acl public-read
                   done
 
             - name: Generate SHA-256 checksums
@@ -195,4 +195,5 @@ jobs:
                   cat /tmp/latest.json
 
                   aws s3 cp /tmp/latest.json s3://ah-scanner-releases/latest.json \
-                    --content-type application/json
+                    --content-type application/json \
+                    --acl public-read
