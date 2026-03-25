@@ -9,29 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "ah-scan"
-version = "0.4.0"
-dependencies = [
- "chrono",
- "clap",
- "crossterm",
- "dirs",
- "flate2",
- "glob",
- "hostname",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tempfile",
- "toml",
- "ureq",
- "uuid",
- "walkdir",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -790,6 +767,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proov"
+version = "0.4.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "crossterm",
+ "dirs",
+ "flate2",
+ "glob",
+ "hostname",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tempfile",
+ "toml",
+ "ureq",
+ "uuid",
+ "walkdir",
 ]
 
 [[package]]

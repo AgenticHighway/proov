@@ -15,7 +15,7 @@ use crate::submit::{load_submission_config, save_auth_config, AuthConfig, DEFAUL
 
 #[derive(Parser)]
 #[command(
-    name = "ah-scan",
+    name = "proov",
     about = "AI Execution Inventory — detect, analyze, and report AI execution artifacts.",
     version = env!("CARGO_PKG_VERSION"),
 )]
@@ -339,7 +339,7 @@ pub fn run() {
                             "Update available: {} → {}",
                             result.current_version, result.latest_version
                         );
-                        eprintln!("Run `ah-scan update` to install.");
+                        eprintln!("Run `proov update` to install.");
                     } else {
                         eprintln!(
                             "You are running the latest version ({}).",

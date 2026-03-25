@@ -11,7 +11,7 @@ permissions:
 
 env:
     CARGO_TERM_COLOR: always
-    BINARY_NAME: ah-scan
+    BINARY_NAME: proov
 
 jobs:
     build:
@@ -20,20 +20,20 @@ jobs:
                 include:
                     - target: aarch64-apple-darwin
                       os: macos-latest
-                      artifact: ah-scanner-darwin-arm64.tar.gz
+                      artifact: proov-darwin-arm64.tar.gz
                     - target: x86_64-apple-darwin
                       os: macos-latest
-                      artifact: ah-scanner-darwin-amd64.tar.gz
+                      artifact: proov-darwin-amd64.tar.gz
                     - target: aarch64-unknown-linux-gnu
                       os: blacksmith-4vcpu-ubuntu-2204
-                      artifact: ah-scanner-linux-arm64.tar.gz
+                      artifact: proov-linux-arm64.tar.gz
                       cross: true
                     - target: x86_64-unknown-linux-gnu
                       os: blacksmith-4vcpu-ubuntu-2204
-                      artifact: ah-scanner-linux-amd64.tar.gz
+                      artifact: proov-linux-amd64.tar.gz
                     - target: x86_64-pc-windows-msvc
                       os: blacksmith-4vcpu-windows-2025
-                      artifact: ah-scanner-windows-amd64.exe
+                      artifact: proov-windows-amd64.exe
         runs-on: ${{ matrix.os }}
         steps:
             - uses: actions/checkout@v4
@@ -63,13 +63,13 @@ jobs:
                   echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
             - name: Build release binary
-              run: cargo build --release --target ${{ matrix.target }} -p ah-scan
+              run: cargo build --release --target ${{ matrix.target }} -p proov
 
             - name: Package binary (Unix)
               if: runner.os != 'Windows'
               run: |
-                  cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} ah-scanner
-                  tar -czf ${{ matrix.artifact }} ah-scanner
+                  cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} proov
+                  tar -czf ${{ matrix.artifact }} proov
 
             - name: Package binary (Windows)
               if: runner.os == 'Windows'
@@ -95,7 +95,7 @@ jobs:
             - name: Collect binaries
               run: |
                   mkdir -p release
-                  for dir in artifacts/ah-scanner-*; do
+                  for dir in artifacts/proov-*; do
                     name=$(basename "$dir")
                     cp "$dir/$name" "release/$name"
                   done
@@ -119,7 +119,7 @@ jobs:
             - name: Collect binaries
               run: |
                   mkdir -p release
-                  for dir in artifacts/ah-scanner-*; do
+                  for dir in artifacts/proov-*; do
                     name=$(basename "$dir")
                     cp "$dir/$name" "release/$name"
                   done
@@ -137,7 +137,7 @@ jobs:
             - name: Upload binaries to S3
               run: |
                   TAG="${{ steps.tag.outputs.TAG }}"
-                  for file in release/ah-scanner-*; do
+                  for file in release/proov-*; do
                     name=$(basename "$file")
                     echo "Uploading $name → s3://ah-scanner-releases/${TAG}/${name}"
                     aws s3 cp "$file" "s3://ah-scanner-releases/${TAG}/${name}"
@@ -146,7 +146,7 @@ jobs:
             - name: Generate SHA-256 checksums
               id: checksums
               run: |
-                  for file in release/ah-scanner-*; do
+                  for file in release/proov-*; do
                     name=$(basename "$file")
                     hash=$(sha256sum "$file" | awk '{print $1}')
                     echo "SHA256 $name = $hash"
@@ -168,24 +168,24 @@ jobs:
                     "date": "${DATE}",
                     "artifacts": {
                       "darwin-arm64": {
-                        "url": "${S3_BASE}/ah-scanner-darwin-arm64.tar.gz",
-                        "sha256": "${{ steps.checksums.outputs.ah_scanner_darwin_arm64_tar_gz }}"
+                        "url": "${S3_BASE}/proov-darwin-arm64.tar.gz",
+                        "sha256": "${{ steps.checksums.outputs.proov_darwin_arm64_tar_gz }}"
                       },
                       "darwin-amd64": {
-                        "url": "${S3_BASE}/ah-scanner-darwin-amd64.tar.gz",
-                        "sha256": "${{ steps.checksums.outputs.ah_scanner_darwin_amd64_tar_gz }}"
+                        "url": "${S3_BASE}/proov-darwin-amd64.tar.gz",
+                        "sha256": "${{ steps.checksums.outputs.proov_darwin_amd64_tar_gz }}"
                       },
                       "linux-arm64": {
-                        "url": "${S3_BASE}/ah-scanner-linux-arm64.tar.gz",
-                        "sha256": "${{ steps.checksums.outputs.ah_scanner_linux_arm64_tar_gz }}"
+                        "url": "${S3_BASE}/proov-linux-arm64.tar.gz",
+                        "sha256": "${{ steps.checksums.outputs.proov_linux_arm64_tar_gz }}"
                       },
                       "linux-amd64": {
-                        "url": "${S3_BASE}/ah-scanner-linux-amd64.tar.gz",
-                        "sha256": "${{ steps.checksums.outputs.ah_scanner_linux_amd64_tar_gz }}"
+                        "url": "${S3_BASE}/proov-linux-amd64.tar.gz",
+                        "sha256": "${{ steps.checksums.outputs.proov_linux_amd64_tar_gz }}"
                       },
                       "windows-amd64": {
-                        "url": "${S3_BASE}/ah-scanner-windows-amd64.exe",
-                        "sha256": "${{ steps.checksums.outputs.ah_scanner_windows_amd64_exe }}"
+                        "url": "${S3_BASE}/proov-windows-amd64.exe",
+                        "sha256": "${{ steps.checksums.outputs.proov_windows_amd64_exe }}"
                       }
                     }
                   }

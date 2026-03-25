@@ -129,7 +129,7 @@ fn downloads_dir() -> Result<PathBuf, String> {
 }
 
 fn backup_path() -> Result<PathBuf, String> {
-    Ok(ahscan_dir()?.join("ah-scan.backup"))
+    Ok(ahscan_dir()?.join("proov.backup"))
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +271,7 @@ fn verify_sha256(path: &Path, expected: &str) -> Result<(), String> {
 
 pub fn user_agent_string() -> String {
     format!(
-        "ah-scan/{} ({}/{})",
+        "proov/{} ({}/{})",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH,
@@ -321,10 +321,10 @@ pub fn passive_update_check() {
             let still_newer = is_version_newer(env!("CARGO_PKG_VERSION"), &cache.latest_version);
             if still_newer {
                 eprintln!(
-                    "\n  A newer version of ah-scan is available ({}).",
+                    "\n  A newer version of proov is available ({}).",
                     cache.latest_version
                 );
-                eprintln!("  Run `ah-scan update` to upgrade.\n");
+                eprintln!("  Run `proov update` to upgrade.\n");
             }
         }
         return;
@@ -334,10 +334,10 @@ pub fn passive_update_check() {
     match check_for_update(PASSIVE_CHECK_TIMEOUT_SECS) {
         Ok(result) if result.is_newer => {
             eprintln!(
-                "\n  ah-scan {} is available (you have {}).",
+                "\n  proov {} is available (you have {}).",
                 result.latest_version, result.current_version
             );
-            eprintln!("  Run `ah-scan update` to upgrade.\n");
+            eprintln!("  Run `proov update` to upgrade.\n");
         }
         _ => {} // silently ignore errors and up-to-date
     }
@@ -392,7 +392,7 @@ pub fn perform_update(force: bool) -> Result<(), String> {
         .map_err(|e| format!("Cannot determine current binary path: {e}"))?;
     let dl_dir = downloads_dir()?;
     let dl_path = dl_dir.join(format!(
-        "ah-scan-{}.tmp",
+        "proov-{}.tmp",
         result.latest_version.replace('/', "-")
     ));
     let backup = backup_path()?;
@@ -429,7 +429,7 @@ pub fn perform_update(force: bool) -> Result<(), String> {
             // Clean up download
             let _ = fs::remove_file(&dl_path);
             eprintln!(
-                "Updated ah-scan {} → {}.",
+                "Updated proov {} → {}.",
                 result.current_version, result.latest_version
             );
 
@@ -480,7 +480,7 @@ fn extract_and_replace(archive_path: &Path, dest: &Path) -> Result<(), String> {
     let decoder = GzDecoder::new(file);
     let mut archive = Archive::new(decoder);
 
-    // Find the binary inside the tar (expect a single file named "ah-scanner")
+    // Find the binary inside the tar (expect a single file named "proov")
     let mut found = false;
     for entry in archive
         .entries()
@@ -497,7 +497,7 @@ fn extract_and_replace(archive_path: &Path, dest: &Path) -> Result<(), String> {
             .and_then(|n| n.to_str())
             .unwrap_or_default();
 
-        if name == "ah-scanner" || name == "ah-scan" {
+        if name == "proov" || name == "ah-scan" {
             // Extract to a temp file next to dest, then atomic rename
             let tmp = dest.with_extension("new");
             let mut out = fs::File::create(&tmp)
@@ -528,7 +528,7 @@ fn extract_and_replace(archive_path: &Path, dest: &Path) -> Result<(), String> {
     }
 
     if !found {
-        return Err("Downloaded archive does not contain the ah-scan binary.".into());
+        return Err("Downloaded archive does not contain the proov binary.".into());
     }
     Ok(())
 }
@@ -554,7 +554,7 @@ fn extract_and_replace(downloaded: &Path, dest: &Path) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 pub fn print_version() {
-    println!("ah-scan {}", env!("CARGO_PKG_VERSION"));
+    println!("proov {}", env!("CARGO_PKG_VERSION"));
 }
 
 // ---------------------------------------------------------------------------
@@ -634,14 +634,14 @@ mod tests {
     #[test]
     fn test_user_agent_string_format() {
         let ua = user_agent_string();
-        assert!(ua.starts_with("ah-scan/"), "UA should start with ah-scan/: {ua}");
+        assert!(ua.starts_with("proov/"), "UA should start with proov/: {ua}");
         assert!(ua.contains('/'), "UA should contain OS/ARCH: {ua}");
         assert!(ua.contains('('), "UA should contain parens: {ua}");
     }
 
     #[test]
     fn test_verify_sha256_correct() {
-        let dir = std::env::temp_dir().join("ah-scan-test-sha256");
+        let dir = std::env::temp_dir().join("proov-test-sha256");
         let _ = fs::create_dir_all(&dir);
         let path = dir.join("test-verify.bin");
         fs::write(&path, b"hello world").unwrap();
@@ -655,7 +655,7 @@ mod tests {
 
     #[test]
     fn test_verify_sha256_mismatch() {
-        let dir = std::env::temp_dir().join("ah-scan-test-sha256-bad");
+        let dir = std::env::temp_dir().join("proov-test-sha256-bad");
         let _ = fs::create_dir_all(&dir);
         let path = dir.join("test-verify-bad.bin");
         fs::write(&path, b"hello world").unwrap();
@@ -670,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_verify_sha256_case_insensitive() {
-        let dir = std::env::temp_dir().join("ah-scan-test-sha256-case");
+        let dir = std::env::temp_dir().join("proov-test-sha256-case");
         let _ = fs::create_dir_all(&dir);
         let path = dir.join("test-verify-case.bin");
         fs::write(&path, b"hello world").unwrap();
@@ -688,7 +688,7 @@ mod tests {
             "date": "2026-03-21T00:00:00Z",
             "artifacts": {
                 "darwin-arm64": {
-                    "url": "https://example.com/ah-scanner-darwin-arm64.tar.gz",
+                    "url": "https://example.com/proov-darwin-arm64.tar.gz",
                     "sha256": "abcdef1234567890"
                 }
             }

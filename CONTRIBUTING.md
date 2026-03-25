@@ -1,4 +1,4 @@
-# Contributing to ah-scanner
+# Contributing to proov
 
 ## Getting started
 
@@ -11,30 +11,30 @@
 ### Clone and build
 
 ```bash
-git clone https://github.com/AgenticHighway/ah-scanner.git
-cd ah-scanner
+git clone https://github.com/AgenticHighway/proov.git
+cd proov
 cargo build
 ```
 
-This builds the `ah-scan` binary in debug mode at `target/debug/ah-scan`.
+This builds the `proov` binary in debug mode at `target/debug/proov`.
 
 ### Run the scanner
 
 ```bash
 # Interactive wizard
-cargo run -p ah-scan
+cargo run -p proov
 
 # Quick scan (AI config areas only)
-cargo run -p ah-scan -- quick
+cargo run -p proov -- quick
 
 # Scan a specific file
-cargo run -p ah-scan -- file agents.md
+cargo run -p proov -- file agents.md
 
 # Scan current directory
-cargo run -p ah-scan -- folder .
+cargo run -p proov -- folder .
 
 # Full system scan
-cargo run -p ah-scan -- full
+cargo run -p proov -- full
 ```
 
 ### Run tests
@@ -44,7 +44,7 @@ cargo run -p ah-scan -- full
 cargo test
 
 # Tests for the main crate
-cargo test -p ah-scan
+cargo test -p proov
 
 # Run with output shown
 cargo test -- --nocapture
@@ -72,9 +72,9 @@ This should produce zero warnings. Fix any that appear before submitting a PR.
 
 The workspace has one crate:
 
-| Crate     | Path              | Purpose                                 |
-| --------- | ----------------- | --------------------------------------- |
-| `ah-scan` | `crates/ah-scan/` | The CLI binary — all the scanning logic |
+| Crate   | Path            | Purpose                                 |
+| ------- | --------------- | --------------------------------------- |
+| `proov` | `crates/proov/` | The CLI binary — all the scanning logic |
 
 For detailed architecture, see [docs/architecture.md](docs/architecture.md).
 
@@ -182,6 +182,6 @@ AH_TEST_API_KEY=your_key ./scripts/test-scanner.sh
 ## Getting help
 
 - Read the architecture docs: [docs/architecture.md](docs/architecture.md)
-- Check existing detectors in `crates/ah-scan/src/detectors/` for patterns to follow
+- Check existing detectors in `crates/proov/src/detectors/` for patterns to follow
 - Look at `examples/rules/` for custom rule examples
-- Run `ah-scan --help` for CLI usage
+- Run `proov --help` for CLI usage
