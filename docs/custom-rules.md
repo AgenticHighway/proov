@@ -1,6 +1,6 @@
 # Writing Custom Detection Rules
 
-This guide explains how to extend ah-scanner with custom detection rules. Rules are declarative TOML files — no code, no build pipeline required.
+This guide explains how to extend proov with custom detection rules. Rules are declarative TOML files — no code, no build pipeline required.
 
 ## Why write a custom rule?
 
@@ -28,7 +28,7 @@ Custom rules let you detect artifacts specific to your environment:
 3. **Run a scan** — custom rules are loaded automatically:
 
     ```bash
-    ah-scan quick
+    proov quick
     ```
 
     You'll see `Loaded 1 custom rule(s) from ~/.ahscan/rules` in the output.
@@ -94,7 +94,7 @@ Filename matching is **case-insensitive**. Glob patterns (using `*`) are support
 
 #### `[deep_keywords]` (optional)
 
-Same format as `[keywords]`, but only applied in deep scan mode (`ah-scan repo`, `ah-scan full`).
+Same format as `[keywords]`, but only applied in deep scan mode (`proov repo`, `proov full`).
 
 ## How it works
 
@@ -131,7 +131,7 @@ These signals feed into the risk engine and verifier. Use the same signal patter
 - **Use glob patterns** for broad matching (`"*.ai.yaml"`) and exact names for precision.
 - **Set confidence conservatively.** Let keyword boosts raise it.
 - **Check the examples** in `examples/rules/` for working patterns.
-- **Test with `ah-scan file <path>`** to verify a rule fires on a specific file.
+- **Test with `proov file <path>`** to verify a rule fires on a specific file.
 
 ## Examples
 

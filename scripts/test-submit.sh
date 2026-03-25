@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────
-# test-submit.sh — Build ah-scan and submit a test scan to the server.
+# test-submit.sh — Build proov and submit a test scan to the server.
 #
 # Usage:
 #   ./scripts/test-submit.sh <API_KEY> [SCAN_TARGET] [ENDPOINT]
@@ -14,7 +14,7 @@ set -euo pipefail
 
 API_KEY="${1:?Usage: $0 <API_KEY> [SCAN_TARGET] [ENDPOINT]}"
 SCAN_TARGET="${2:-.}"
-ENDPOINT="${3:-https://verify.agentichighway.ai/api/scans/ingest}"
+ENDPOINT="${3:-https://vettd.agentichighway.ai/api/scans/ingest}"
 
 TIMESTAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
 OUT_DIR="test-runs"
@@ -23,7 +23,7 @@ OUT_FILE="${OUT_DIR}/${TIMESTAMP}-test.json"
 mkdir -p "$OUT_DIR"
 
 echo "═══════════════════════════════════════════════════════"
-echo "  ah-scan test-submit"
+echo "  proov test-submit"
 echo "═══════════════════════════════════════════════════════"
 echo "  Target:   $SCAN_TARGET"
 echo "  Endpoint: $ENDPOINT"
@@ -32,12 +32,12 @@ echo "  Time:     $TIMESTAMP"
 echo "═══════════════════════════════════════════════════════"
 echo ""
 
-echo "→ Building ah-scan..."
-cargo build -p ah-scan 2>&1 | tail -1
+echo "→ Building proov..."
+cargo build -p proov 2>&1 | tail -1
 echo ""
 
 echo "→ Running scan + submit..."
-cargo run -p ah-scan -- repo "$SCAN_TARGET" \
+cargo run -p proov -- repo "$SCAN_TARGET" \
     --contract \
     --out "$OUT_FILE" \
     --submit "$ENDPOINT" \

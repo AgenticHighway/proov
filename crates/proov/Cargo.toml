@@ -1,11 +1,11 @@
 [package]
-name = "ah-scan"
+name = "proov"
 version.workspace = true
 edition.workspace = true
 description = "Agentic Highway scanner CLI — detect, analyze, and report AI execution artifacts."
 
 [[bin]]
-name = "ah-scan"
+name = "proov"
 path = "src/main.rs"
 
 [dependencies]

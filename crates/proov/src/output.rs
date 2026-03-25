@@ -82,7 +82,7 @@ pub fn do_submit(
             Some(k) => k,
             None => {
                 eprintln!(
-                    "No API key provided. Pass --api-key or run `ah-scan auth --key <your-key>`."
+                    "No API key provided. Pass --api-key or run `proov auth --key <your-key>`."
                 );
                 std::process::exit(1);
             }

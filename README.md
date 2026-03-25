@@ -1,8 +1,8 @@
-# ah-scanner
+# proov
 
 **Detect, analyze, and report AI execution artifacts on a host machine.**
 
-ah-scanner is a Rust CLI tool that scans your system for AI-related configuration files — things like `.cursorrules`, MCP server configs, prompt files, and container definitions — analyzes them for risk, and produces structured reports.
+proov is a Rust CLI tool that scans your system for AI-related configuration files — things like `.cursorrules`, MCP server configs, prompt files, and container definitions — analyzes them for risk, and produces structured reports.
 
 ## How it works
 
@@ -12,64 +12,70 @@ The scanner runs fully offline by default. It walks your filesystem, identifies 
 
 ### From a release binary
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/AgenticHighway/ah-scanner/releases).
+Download the latest binary for your platform from [GitHub Releases](https://github.com/AgenticHighway/proov/releases).
 
 ```bash
 # macOS (Apple Silicon)
-tar xzf ah-scanner-darwin-arm64.tar.gz
-./ah-scanner quick
+tar xzf proov-darwin-arm64.tar.gz
+./proov quick
 
 # Linux (x86_64)
-tar xzf ah-scanner-linux-amd64.tar.gz
-./ah-scanner quick
+tar xzf proov-linux-amd64.tar.gz
+./proov quick
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/AgenticHighway/ah-scanner.git
-cd ah-scanner
+git clone https://github.com/AgenticHighway/proov.git
+cd proov
 cargo build --release
-./target/release/ah-scan quick
+./target/release/proov quick
 ```
 
 ## Quick start
 
 ```bash
-ah-scan                    # Interactive wizard — walks you through options
-ah-scan quick              # Fast scan of AI config areas (~/.cursor, VS Code, Claude, etc.)
-ah-scan scan               # Default scan (home directory, recursive)
-ah-scan full               # Deep system-wide scan (slow, thorough)
-ah-scan file <path>        # Scan a single file
-ah-scan folder <path>      # Scan a directory
-ah-scan repo <path>        # Deep-scan a git repository
-ah-scan rules list         # List installed custom detection rules
-ah-scan rules add <file>   # Install a TOML rule file
-ah-scan rules validate <f> # Validate a rule file without installing
+proov                      # Interactive wizard — walks you through options
+proov quick                # Fast scan of AI config areas (~/.cursor, VS Code, Claude, etc.)
+proov scan                 # Default scan (home directory, recursive)
+proov full                 # Deep system-wide scan (slow, thorough)
+proov file <path>          # Scan a single file
+proov folder <path>        # Scan a directory
+proov repo <path>          # Deep-scan a git repository
+proov setup                # Interactive first-time setup (API key + endpoint)
+proov auth --key <key>     # Save API credentials directly
+proov update               # Check for and install updates
+proov rules list           # List installed custom detection rules
+proov rules add <file>     # Install a TOML rule file
+proov rules remove <name>  # Remove an installed rule by name
+proov rules validate <f>   # Validate a rule file without installing
 ```
 
 ## Output formats
 
 ```bash
-ah-scan quick              # Overview with risk bars (default)
-ah-scan quick --full       # Detailed per-artifact breakdown
-ah-scan quick --summary    # Compact statistics only
-ah-scan quick --json       # JSON to stdout
-ah-scan quick --out        # JSON to ./ahscan-report.json
-ah-scan quick --out r.json # JSON to custom path
-ah-scan quick --contract   # JSON in AgenticHighway data contract format
+proov quick              # Overview with risk bars (default)
+proov quick --full       # Detailed per-artifact breakdown
+proov quick --summary    # Compact statistics only
+proov quick --json       # JSON to stdout
+proov quick --out        # JSON to ./ahscan-report.json
+proov quick --out r.json # JSON to custom path
+proov quick --contract   # AH data contract JSON to stdout
+proov quick --contract --out r.json  # Contract JSON to file
+proov quick --contract --submit --api-key <key>  # Contract to file + submit
 ```
 
 ## What it detects
 
-| Detector              | Files                                                         | What it looks for                                    |
-| --------------------- | ------------------------------------------------------------- | ---------------------------------------------------- |
-| Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md`                      | AI instruction files with capability keywords        |
-| Prompt configs        | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md` | Prompt configuration for GitHub Copilot and similar  |
-| MCP configs           | `mcp.json`, `claude_desktop_config.json`                      | Model Context Protocol server declarations           |
-| Container configs     | `Dockerfile`, `compose.yaml`, `docker-compose.yml`            | Containers with AI-related tooling                   |
-| Browser footprints    | Chrome, Edge, Brave, Arc profiles                             | Extension directory presence only (no content reads) |
-| Custom rules          | Any `.toml` in `~/.ahscan/rules/`                             | Declarative rules you define                         |
+| Detector              | Files                                                         | What it looks for                                               |
+| --------------------- | ------------------------------------------------------------- | --------------------------------------------------------------- |
+| Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md`                      | AI instruction files with capability keywords (TOML rule)       |
+| Prompt configs        | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md` | Prompt configuration for GitHub Copilot and similar (TOML rule) |
+| MCP configs           | `mcp.json`, `claude_desktop_config.json`                      | Model Context Protocol server declarations                      |
+| Container configs     | `Dockerfile`, `compose.yaml`, `docker-compose.yml`            | Containers with AI-related tooling                              |
+| Browser footprints    | Chrome, Edge, Brave, Arc profiles                             | Extension directory presence only (no content reads)            |
+| Custom rules          | Any `.toml` in `~/.ahscan/rules/`                             | Declarative rules you define                                    |
 
 ## Risk scoring
 
@@ -109,13 +115,13 @@ With a licensed configuration and API key:
 
 ```bash
 # First-time setup (saves credentials)
-ah-scan setup
+proov setup
 
 # Or set credentials directly
-ah-scan auth --key your-api-key
+proov auth --key your-api-key
 
 # Submit scan results
-ah-scan repo . --submit --api-key your-key
+proov repo . --submit --api-key your-key
 ```
 
 ### Safety defaults
@@ -127,7 +133,9 @@ ah-scan repo . --submit --api-key your-key
 ## Self-update
 
 ```bash
-ah-scan update           # Check for and install updates
+proov update           # Check for and install updates
+proov update --check   # Check only, don't install
+proov update --force   # Force update even if current
 ```
 
 The scanner checks S3 for the latest release, verifies SHA-256 checksums, and replaces itself.
@@ -144,9 +152,10 @@ The scanner checks S3 for the latest release, verifies SHA-256 checksums, and re
 ## Project structure
 
 ```
-ah-scanner/
+proov/
 ├── crates/
-│   └── ah-scan/          # CLI binary (scanning, detection, submission)
+│   └── proov/            # CLI binary (scanning, detection, submission)
+├── rules/                # Built-in TOML detection rules (compiled into binary)
 ├── examples/
 │   └── rules/            # Example custom detection rules (.toml)
 ├── scripts/
@@ -156,6 +165,7 @@ ah-scanner/
 │   ├── architecture.md   # System design and data flow
 │   ├── detectors.md      # How detection works
 │   └── custom-rules.md   # Writing custom detection rules
+├── agents.md             # Project guidelines for AI coding agents
 └── scanner-data-contract.json  # JSON Schema for scan output
 ```
 
@@ -173,12 +183,12 @@ For architecture and code walkthrough: [docs/architecture.md](docs/architecture.
 
 ## Configuration reference
 
-| File                           | Purpose                                         |
-| ------------------------------ | ----------------------------------------------- |
-| `~/.config/ahscan/config.json` | API key + endpoint (created by `ah-scan setup`) |
-| `.ahscan.toml`                 | Access tier + license key (project-level)       |
-| `~/.ahscan/scanner_uuid`       | Persistent scanner identity (auto-generated)    |
-| `~/.ahscan/rules/*.toml`       | Custom detection rules                          |
+| File                           | Purpose                                       |
+| ------------------------------ | --------------------------------------------- |
+| `~/.config/ahscan/config.json` | API key + endpoint (created by `proov setup`) |
+| `.ahscan.toml`                 | Access tier + license key (project-level)     |
+| `~/.ahscan/scanner_uuid`       | Persistent scanner identity (auto-generated)  |
+| `~/.ahscan/rules/*.toml`       | Custom detection rules                        |
 
 Full `.ahscan.toml` options:
 
@@ -188,7 +198,7 @@ mode = "lite"                   # lite | licensed
 license_key = ""                # required for licensed mode
 
 [submit]
-endpoint = ""                  # AgenticHighway endpoint (set via ah-scan setup)
+endpoint = ""                  # AgenticHighway endpoint (set via proov setup)
 token = ""
 scanner_uuid = ""               # auto-generated if empty
 scanner_account_uuid = ""       # auto-generated if empty

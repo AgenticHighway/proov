@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────
-# test-scanner.sh — Exercise every non-interactive ah-scan subcommand.
+# test-scanner.sh — Exercise every non-interactive proov subcommand.
 #
 # Runs via `cargo run` so no separate binary build step is needed.
 # Designed for macOS dev machines. No API key required — all tests
@@ -12,7 +12,7 @@
 # Environment variables (optional — enables submission tests):
 #   AH_TEST_API_KEY         API key for testing submissions
 #   AH_TEST_LOCAL_ENDPOINT  Local server URL  (default: http://localhost:3000/api/scans/ingest)
-#   AH_TEST_REMOTE_ENDPOINT Remote server URL (default: https://verify.agentichighway.ai/api/scans/ingest)
+#   AH_TEST_REMOTE_ENDPOINT Remote server URL (default: https://vettd.agentichighway.ai/api/scans/ingest)
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -31,7 +31,7 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
     done < "$REPO_ROOT/.env"
 fi
 
-RUN="cargo run -p ah-scan --"
+RUN="cargo run -p proov --"
 OUT_DIR="test-runs"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
 PASS=0
@@ -41,7 +41,7 @@ SKIP=0
 # Submission test config (from env or .env defaults)
 AH_TEST_API_KEY="${AH_TEST_API_KEY:-}"
 AH_TEST_LOCAL_ENDPOINT="${AH_TEST_LOCAL_ENDPOINT:-http://localhost:3000/api/scans/ingest}"
-AH_TEST_REMOTE_ENDPOINT="${AH_TEST_REMOTE_ENDPOINT:-https://verify.agentichighway.ai/api/scans/ingest}"
+AH_TEST_REMOTE_ENDPOINT="${AH_TEST_REMOTE_ENDPOINT:-https://vettd.agentichighway.ai/api/scans/ingest}"
 
 mkdir -p "$OUT_DIR"
 
@@ -126,17 +126,17 @@ expect_json_file() {
 
 echo ""
 bold "┌──────────────────────────────────────────┐"
-bold "│  ah-scan test suite — $TIMESTAMP  │"
+bold "│  proov test suite — $TIMESTAMP  │"
 bold "└──────────────────────────────────────────┘"
 
 # ── 0. Build ─────────────────────────────────────────────────────────
 
 section "Build"
-echo "  Building ah-scan..."
-if cargo build -p ah-scan 2>&1 | tail -1; then
-    pass "cargo build -p ah-scan"
+echo "  Building proov..."
+if cargo build -p proov 2>&1 | tail -1; then
+    pass "cargo build -p proov"
 else
-    fail "cargo build -p ah-scan"
+    fail "cargo build -p proov"
     echo ""
     red "Build failed — cannot continue."
     exit 1
@@ -145,22 +145,22 @@ fi
 # ── 1. Help / version ───────────────────────────────────────────────
 
 section "Help & version"
-expect_ok    "ah-scan --help"         $RUN --help
-expect_ok    "ah-scan --version"      $RUN --version
-expect_ok    "ah-scan scan --help"    $RUN scan --help
-expect_ok    "ah-scan quick --help"   $RUN quick --help
-expect_ok    "ah-scan full --help"    $RUN full --help
-expect_ok    "ah-scan file --help"    $RUN file --help
-expect_ok    "ah-scan folder --help"  $RUN folder --help
-expect_ok    "ah-scan repo --help"    $RUN repo --help
-expect_ok    "ah-scan plugins --help" $RUN plugins --help
-expect_ok    "ah-scan auth --help"    $RUN auth --help
-expect_ok    "ah-scan setup --help"   $RUN setup --help
-expect_ok    "ah-scan update --help"  $RUN update --help
+expect_ok    "proov --help"         $RUN --help
+expect_ok    "proov --version"      $RUN --version
+expect_ok    "proov scan --help"    $RUN scan --help
+expect_ok    "proov quick --help"   $RUN quick --help
+expect_ok    "proov full --help"    $RUN full --help
+expect_ok    "proov file --help"    $RUN file --help
+expect_ok    "proov folder --help"  $RUN folder --help
+expect_ok    "proov repo --help"    $RUN repo --help
+expect_ok    "proov plugins --help" $RUN plugins --help
+expect_ok    "proov auth --help"    $RUN auth --help
+expect_ok    "proov setup --help"   $RUN setup --help
+expect_ok    "proov update --help"  $RUN update --help
 
 # Version flag output contains version number
 VERSION_OUT=$($RUN --version 2>&1) || true
-if echo "$VERSION_OUT" | grep -qE '^ah-scan [0-9]+\.[0-9]+\.[0-9]+$'; then
+if echo "$VERSION_OUT" | grep -qE '^proov [0-9]+\.[0-9]+\.[0-9]+$'; then
     pass "--version prints semver"
 else
     fail "--version output unexpected: $VERSION_OUT"
@@ -473,7 +473,7 @@ fi
 section "Self-update system"
 
 # update --help should work
-expect_ok "ah-scan update --help" $RUN update --help
+expect_ok "proov update --help" $RUN update --help
 
 # update --check should fail gracefully (S3 manifest may not be reachable)
 UPDATE_CHECK_OUT=$($RUN update --check 2>&1) && UPDATE_CHECK_OK=true || UPDATE_CHECK_OK=false
@@ -546,7 +546,7 @@ fi
 
 # ── 15. Remote submission ─────────────────────────────────────────────
 
-section "Remote submission (verify.agentichighway.ai)"
+section "Remote submission (vettd.agentichighway.ai)"
 
 if [ -n "$AH_TEST_API_KEY" ]; then
     REMOTE_SUBMIT_JSON="$OUT_DIR/${TIMESTAMP}-remote-submit.json"
