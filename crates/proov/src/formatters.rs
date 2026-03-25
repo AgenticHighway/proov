@@ -90,14 +90,28 @@ pub fn print_overview(report: &ScanReport) {
     let mut sorted: Vec<&ArtifactReport> = report.artifacts.iter().collect();
     sorted.sort_by(|a, b| b.risk_score.cmp(&a.risk_score));
 
-    for a in sorted {
+    const MAX_DISPLAY: usize = 20;
+    for a in sorted.iter().take(MAX_DISPLAY) {
         print_overview_line(a);
+    }
+    if sorted.len() > MAX_DISPLAY {
+        println!("  {DIM}… and {} more artifact(s){RESET}", sorted.len() - MAX_DISPLAY);
     }
     println!();
 }
 
+fn shorten_path(path: &str) -> String {
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = home.to_string_lossy();
+        if let Some(rest) = path.strip_prefix(home.as_ref()) {
+            return format!("~{rest}");
+        }
+    }
+    path.to_string()
+}
+
 fn print_overview_line(a: &ArtifactReport) {
-    let loc = artifact_location(a);
+    let loc = shorten_path(artifact_location(a));
     let (label, color) = severity(a.risk_score);
     let kind = a.artifact_type.replace('_', " ");
     let filled = (a.risk_score / 10) as usize;

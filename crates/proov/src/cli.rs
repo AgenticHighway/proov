@@ -455,6 +455,29 @@ pub fn run() {
         emit(&report, scan_duration_ms, out.json, &out.out, out.summary, out.full);
     }
 
+    // Show Vettd hint for local-only users (not submitting, not JSON)
+    if !wants_submit && !out.json {
+        print_vettd_cta();
+    }
+
     // Passive update check after scan completes
     crate::updater::passive_update_check();
+}
+
+fn print_vettd_cta() {
+    use crate::submit::load_auth_config;
+    let has_key = load_auth_config()
+        .map(|a| !a.api_key.is_empty())
+        .unwrap_or(false);
+    if has_key {
+        return;
+    }
+    eprintln!("  \x1b[2m┌──────────────────────────────────────────────────────────┐\x1b[0m");
+    eprintln!("  \x1b[2m│\x1b[0m  \x1b[1mWant deeper analysis?\x1b[0m  Sync your results to \x1b[36mVettd\x1b[0m       \x1b[2m│\x1b[0m");
+    eprintln!("  \x1b[2m│\x1b[0m  for verification scoring, trend tracking, and more.   \x1b[2m│\x1b[0m");
+    eprintln!("  \x1b[2m│\x1b[0m                                                        \x1b[2m│\x1b[0m");
+    eprintln!("  \x1b[2m│\x1b[0m  Get your API key → \x1b[36mhttps://vettd.agentichighway.ai\x1b[0m    \x1b[2m│\x1b[0m");
+    eprintln!("  \x1b[2m│\x1b[0m  Then run:  \x1b[1mproov setup\x1b[0m                                \x1b[2m│\x1b[0m");
+    eprintln!("  \x1b[2m└──────────────────────────────────────────────────────────┘\x1b[0m");
+    eprintln!();
 }
