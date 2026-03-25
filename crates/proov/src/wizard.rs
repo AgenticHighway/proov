@@ -17,7 +17,6 @@ use crate::formatters::{print_human, print_overview, print_summary, severity};
 use crate::models::ScanReport;
 use crate::progress::ScanProgress;
 use crate::scan::run_scan;
-use crate::setup;
 use crate::submit::{load_auth_config, submit_contract_payload};
 
 // ── ANSI constants ──────────────────────────────────────────────────────
@@ -305,7 +304,7 @@ fn offer_save(report: &ScanReport, scan_duration_ms: u64) {
     if !confirm("Save JSON report to file?", false) {
         return;
     }
-    let dest = ask("Output path", "ahscan-report.json");
+    let dest = ask("Output path", "proov-report.json");
     let payload = build_contract_payload(report, scan_duration_ms);
     let json = serde_json::to_string_pretty(&payload)
         .expect("contract payload serialization");
@@ -313,6 +312,20 @@ fn offer_save(report: &ScanReport, scan_duration_ms: u64) {
         Ok(()) => eprintln!("  {DIM}Saved to {dest}{RESET}"),
         Err(e) => eprintln!("  Error: {e}"),
     }
+}
+
+// ── Vettd upsell (shown to local-only users after scan) ─────────────────
+
+fn print_vettd_hint() {
+    eprintln!();
+    eprintln!("  {DIM}┌──────────────────────────────────────────────────────────┐{RESET}");
+    eprintln!("  {DIM}│{RESET}  {BOLD}Want deeper analysis?{RESET}  Sync your results to {CYAN}Vettd{RESET}       {DIM}│{RESET}");
+    eprintln!("  {DIM}│{RESET}  for verification scoring, trend tracking, and more.   {DIM}│{RESET}");
+    eprintln!("  {DIM}│{RESET}                                                        {DIM}│{RESET}");
+    eprintln!("  {DIM}│{RESET}  Get your API key → {CYAN}https://vettd.agentichighway.ai{RESET}    {DIM}│{RESET}");
+    eprintln!("  {DIM}│{RESET}  Then run:  {BOLD}proov setup{RESET}                                {DIM}│{RESET}");
+    eprintln!("  {DIM}└──────────────────────────────────────────────────────────┘{RESET}");
+    eprintln!();
 }
 
 // ── Menu loop ───────────────────────────────────────────────────────────
@@ -378,7 +391,7 @@ fn post_scan_actions(report: &ScanReport, scan_duration_ms: u64) {
     } else {
         // Local-only: auto-save to timestamped file
         let ts = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%SZ");
-        let dest = format!("ahscan-{ts}.json");
+        let dest = format!("proov-{ts}.json");
         let payload = build_contract_payload(report, scan_duration_ms);
         let json = serde_json::to_string_pretty(&payload)
             .expect("contract payload serialization");
@@ -388,6 +401,7 @@ fn post_scan_actions(report: &ScanReport, scan_duration_ms: u64) {
             }
             Err(e) => eprintln!("  Error saving results: {e}"),
         }
+        print_vettd_hint();
     }
 }
 
@@ -395,9 +409,6 @@ fn post_scan_actions(report: &ScanReport, scan_duration_ms: u64) {
 
 pub fn run_wizard() {
     print_banner();
-
-    setup::ensure_configured();
-    eprintln!();
 
     let (mode, workdir) = step_choose_mode();
     let scan_start = std::time::Instant::now();

@@ -2,7 +2,7 @@
 name = "proov"
 version.workspace = true
 edition.workspace = true
-description = "Agentic Highway scanner CLI — detect, analyze, and report AI execution artifacts."
+description = "AI Execution Inventory — detect, analyze, and report AI execution artifacts."
 
 [[bin]]
 name = "proov"

@@ -164,9 +164,9 @@ pub fn run_setup(force: bool) -> bool {
 
     print_welcome();
 
-    eprintln!("  {DIM}Enter your API key to submit scan results to the");
-    eprintln!("  Agentic Highway verification service, or press");
-    eprintln!("  Enter to run in local-only mode.{RESET}");
+    eprintln!("  {DIM}Enter your API key to sync scan results to Vettd");
+    eprintln!("  for verification scoring and trend tracking, or");
+    eprintln!("  press Enter to run in local-only mode.{RESET}");
     eprintln!();
 
     let key = ask("API key (or Enter to skip)", "");
@@ -181,7 +181,7 @@ pub fn run_setup(force: bool) -> bool {
     }
 
     let endpoints = &[
-        "Agentic Highway Cloud (vettd.agentichighway.ai)",
+        "Vettd Cloud (vettd.agentichighway.ai)",
         "Local development server (localhost:3000)",
     ];
     let idx = pick("Endpoint", endpoints, 0);
