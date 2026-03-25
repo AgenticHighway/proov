@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "proov"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "chrono",
  "clap",
