@@ -14,4 +14,9 @@ target/
 ._*
 test-runs/
 ahscan-contract.json
+proov-contract.json
+proov-report.json
+proov-*.json
+ahscan-*.json
 results.json
+*.jsonl
