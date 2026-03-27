@@ -68,37 +68,7 @@ fn top_risk_reasons(a: &ArtifactReport) -> &[String] {
     &a.risk_reasons[..len]
 }
 
-// ── print_overview ──────────────────────────────────────────────────────
-
-pub fn print_overview(report: &ScanReport) {
-    let line = format!("{DIM}{}{RESET}", "─".repeat(52));
-    println!();
-    println!("{line}");
-    println!("  {BOLD}Scanned:{RESET} {CYAN}{}{RESET}", report.scanned_path);
-    println!("{line}");
-    println!();
-
-    if report.artifacts.is_empty() {
-        println!("  {DIM}No AI execution artifacts detected.{RESET}");
-        println!();
-        return;
-    }
-
-    println!("  {BOLD}Found {} artifact(s):{RESET}", report.artifacts.len());
-    println!();
-
-    let mut sorted: Vec<&ArtifactReport> = report.artifacts.iter().collect();
-    sorted.sort_by(|a, b| b.risk_score.cmp(&a.risk_score));
-
-    const MAX_DISPLAY: usize = 20;
-    for a in sorted.iter().take(MAX_DISPLAY) {
-        print_overview_line(a);
-    }
-    if sorted.len() > MAX_DISPLAY {
-        println!("  {DIM}… and {} more artifact(s){RESET}", sorted.len() - MAX_DISPLAY);
-    }
-    println!();
-}
+// ── Shared helpers ──────────────────────────────────────────────────────
 
 fn shorten_path(path: &str) -> String {
     if let Some(home) = std::env::var_os("HOME") {
@@ -110,76 +80,258 @@ fn shorten_path(path: &str) -> String {
     path.to_string()
 }
 
-fn print_overview_line(a: &ArtifactReport) {
-    let loc = shorten_path(artifact_location(a));
-    let (label, color) = severity(a.risk_score);
-    let kind = a.artifact_type.replace('_', " ");
-    let filled = (a.risk_score / 10) as usize;
-    let empty = 10 - filled;
-    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+fn pretty_type(raw: &str) -> &str {
+    match raw {
+        "agents_md" => "AGENTS.md",
+        "cursor_rules" => "Cursor rules",
+        "prompt_config" => "prompt config",
+        "mcp_config" => "MCP server config",
+        "container_config" => "container config",
+        "container_candidate" => "container candidate",
+        "browser_footprint" => "browser footprint",
+        other => other,
+    }
+}
 
+fn status_icon(status: &str) -> (&'static str, &'static str) {
+    match status {
+        "fail" => ("\x1b[31m✗\x1b[0m", "\x1b[31m"),
+        "conditional_pass" => ("\x1b[33m⚠\x1b[0m", "\x1b[33m"),
+        _ => ("\x1b[32m✓\x1b[0m", "\x1b[32m"),
+    }
+}
+
+// ── print_overview ──────────────────────────────────────────────────────
+
+pub fn print_overview(report: &ScanReport) {
+    let w = 58;
+    let line = format!("{DIM}{}{RESET}", "─".repeat(w));
+
+    println!();
+    println!("{line}");
+    println!("  {BOLD}proov{RESET} · AI Execution Inventory");
+    println!("  Scanned: {CYAN}{}{RESET}", report.scanned_path);
+    println!("{line}");
+
+    if report.artifacts.is_empty() {
+        println!();
+        println!("  {DIM}No AI execution artifacts detected.{RESET}");
+        println!();
+        return;
+    }
+
+    // ── Section 1: What was found ───────────────────────────────────
+    println!();
     println!(
-        "  {color}{label}{RESET}  {BOLD}{kind:<22}{RESET} \
-         {color}{bar}{RESET} {DIM}{:>3}{RESET}  {DIM}{loc}{RESET}",
-        a.risk_score
+        "  {BOLD}INVENTORY{RESET}{DIM}{:>width$} artifact(s){RESET}",
+        report.artifacts.len(),
+        width = w - 21
+    );
+    println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
+
+    let type_counts = count_by(&report.artifacts, |a| &a.artifact_type);
+    for (atype, count) in &type_counts {
+        let label = pretty_type(atype);
+        println!("  {BOLD}{count:>4}{RESET}  {label}");
+    }
+
+    // ── Section 2: What is risky and why ────────────────────────────
+    let fail_count = report
+        .artifacts
+        .iter()
+        .filter(|a| a.verification_status == "fail")
+        .count();
+    let review_count = report
+        .artifacts
+        .iter()
+        .filter(|a| a.verification_status == "conditional_pass")
+        .count();
+    let pass_count = report
+        .artifacts
+        .iter()
+        .filter(|a| a.verification_status == "pass")
+        .count();
+
+    println!();
+    let mut status_parts: Vec<String> = Vec::new();
+    if fail_count > 0 {
+        status_parts.push(format!("\x1b[31m{fail_count} fail\x1b[0m"));
+    }
+    if review_count > 0 {
+        status_parts.push(format!("\x1b[33m{review_count} review\x1b[0m"));
+    }
+    if pass_count > 0 {
+        status_parts.push(format!("\x1b[32m{pass_count} pass\x1b[0m"));
+    }
+    println!(
+        "  {BOLD}RISK{RESET}  {}",
+        status_parts.join(&format!(" {DIM}·{RESET} "))
+    );
+    println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
+
+    let mut sorted: Vec<&ArtifactReport> = report.artifacts.iter().collect();
+    sorted.sort_by(|a, b| {
+        let rank = |s: &str| match s {
+            "fail" => 2,
+            "conditional_pass" => 1,
+            _ => 0,
+        };
+        rank(&b.verification_status)
+            .cmp(&rank(&a.verification_status))
+            .then(b.risk_score.cmp(&a.risk_score))
+    });
+
+    // Show all fail + conditional_pass, then up to a few pass items
+    let actionable: Vec<&&ArtifactReport> = sorted
+        .iter()
+        .filter(|a| a.verification_status != "pass")
+        .collect();
+    let passing: Vec<&&ArtifactReport> = sorted
+        .iter()
+        .filter(|a| a.verification_status == "pass")
+        .collect();
+
+    const MAX_PASS_SHOWN: usize = 3;
+
+    if actionable.is_empty() && passing.is_empty() {
+        println!("  {DIM}No artifacts to display.{RESET}");
+    }
+
+    for a in &actionable {
+        print_risk_card(a);
+    }
+
+    if !passing.is_empty() {
+        if !actionable.is_empty() {
+            println!();
+        }
+        for a in passing.iter().take(MAX_PASS_SHOWN) {
+            print_pass_line(a);
+        }
+        if passing.len() > MAX_PASS_SHOWN {
+            println!(
+                "  {DIM}  … and {} more passing artifact(s){RESET}",
+                passing.len() - MAX_PASS_SHOWN
+            );
+        }
+    }
+
+    // ── Section 3: Save & share ─────────────────────────────────────
+    println!();
+    println!("  {BOLD}SAVE & SHARE{RESET}");
+    println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
+    println!(
+        "  {DIM}proov scan --json{RESET}          {DIM}→{RESET} JSON to stdout"
+    );
+    println!(
+        "  {DIM}proov scan --out{RESET}           {DIM}→{RESET} write proov-report.json"
+    );
+    println!(
+        "  {DIM}proov scan --submit{RESET}        {DIM}→{RESET} send to Vettd"
+    );
+    println!();
+}
+
+fn print_risk_card(a: &ArtifactReport) {
+    let loc = shorten_path(artifact_location(a));
+    let (icon, color) = status_icon(&a.verification_status);
+    let label = if a.verification_status == "fail" {
+        "FAIL"
+    } else {
+        "REVIEW"
+    };
+    let kind = pretty_type(&a.artifact_type);
+
+    println!();
+    println!(
+        "  {icon} {color}{BOLD}{label}{RESET}  {BOLD}{kind}{RESET}{DIM}{:>width$}{RESET}",
+        format!("risk {}", a.risk_score),
+        width = 50 - label.len() - kind.len()
+    );
+    println!("    {DIM}{loc}{RESET}");
+
+    let reasons = top_risk_reasons(a);
+    if !reasons.is_empty() {
+        println!("    Reason: {}", reasons.join(", "));
+    }
+
+    let caps = derive_capabilities(a);
+    if !caps.is_empty() {
+        println!(
+            "    Capabilities: {CYAN}{}{RESET}",
+            caps.join(", ")
+        );
+    }
+}
+
+fn print_pass_line(a: &ArtifactReport) {
+    let loc = shorten_path(artifact_location(a));
+    let (icon, _color) = status_icon(&a.verification_status);
+    let kind = pretty_type(&a.artifact_type);
+    println!(
+        "  {icon} {DIM}PASS{RESET}  {kind:<24} {DIM}{loc}{RESET}"
     );
 }
 
 // ── print_human ─────────────────────────────────────────────────────────
 
 pub fn print_human(report: &ScanReport) {
+    let w = 58;
+    let line = format!("{DIM}{}{RESET}", "─".repeat(w));
+
     println!();
-    println!("AI Execution Inventory");
-    println!("{}", "=".repeat(40));
-    println!("Run ID:  {}", report.run_id);
-    println!("Scanned: {}", report.scanned_path);
-    println!("Time:    {}", report.timestamp);
-    println!();
+    println!("{line}");
+    println!("  {BOLD}proov{RESET} · AI Execution Inventory  {DIM}(full detail){RESET}");
+    println!("  Run ID:  {DIM}{}{RESET}", report.run_id);
+    println!("  Scanned: {CYAN}{}{RESET}", report.scanned_path);
+    println!("  Time:    {DIM}{}{RESET}", report.timestamp);
+    println!("{line}");
 
     if report.artifacts.is_empty() {
-        println!("No AI execution artifacts detected.");
+        println!();
+        println!("  {DIM}No AI execution artifacts detected.{RESET}");
+        println!();
         return;
     }
 
     print_type_counts(report);
-    print_verification_policy();
-    print_status_legend();
     print_artifact_details(report);
 }
 
 fn print_type_counts(report: &ScanReport) {
     let type_counts = count_by(&report.artifacts, |a| &a.artifact_type);
-    let eligible: usize = report.artifacts.iter().filter(|a| a.registry_eligible).count();
-    let info = report.artifacts.len() - eligible;
 
-    println!("Detected {} artifact(s):", report.artifacts.len());
-    println!("  Verified candidates:     {eligible}");
-    println!("  Informational artifacts: {info}");
+    println!();
+    println!(
+        "  {BOLD}INVENTORY{RESET}{DIM}{:>width$} artifact(s){RESET}",
+        report.artifacts.len(),
+        width = 36
+    );
+    println!("  {DIM}{}{RESET}", "─".repeat(56));
     for (atype, count) in &type_counts {
-        println!("  {atype}: {count}");
+        let label = pretty_type(atype);
+        println!("  {BOLD}{count:>4}{RESET}  {label}");
     }
     println!();
 }
 
-fn print_verification_policy() {
-    println!("Verification policy:");
-    println!("  pass:             score < 20");
-    println!("  conditional_pass: score 20\u{2013}49 (or dangerous combo \u{2192} manual review)");
-    println!("  fail:             score \u{2265} 50 (or credential exposure / ungoverned dangerous keyword)");
-    println!();
-}
-
-fn print_status_legend() {
-    println!("Status definitions:");
-    println!("  pass = low risk, matches declared/expected patterns");
-    println!("  conditional_pass = usable but needs review or limited permissions");
-    println!("  fail = high risk / unsafe patterns / likely malicious");
-    println!();
-}
-
 fn print_artifact_details(report: &ScanReport) {
-    for (i, a) in report.artifacts.iter().enumerate() {
-        let location = artifact_location(a);
+    let mut sorted: Vec<&ArtifactReport> = report.artifacts.iter().collect();
+    sorted.sort_by(|a, b| {
+        let rank = |s: &str| match s {
+            "fail" => 2,
+            "conditional_pass" => 1,
+            _ => 0,
+        };
+        rank(&b.verification_status)
+            .cmp(&rank(&a.verification_status))
+            .then(b.risk_score.cmp(&a.risk_score))
+    });
+
+    for (i, a) in sorted.iter().enumerate() {
+        let loc = shorten_path(artifact_location(a));
+        let (icon, color) = status_icon(&a.verification_status);
+        let kind = pretty_type(&a.artifact_type);
         let hash_short = if a.artifact_hash.len() >= 12 {
             &a.artifact_hash[..12]
         } else if a.artifact_hash.is_empty() {
@@ -187,41 +339,44 @@ fn print_artifact_details(report: &ScanReport) {
         } else {
             &a.artifact_hash
         };
-        let eligible = if a.registry_eligible {
-            "yes"
-        } else {
-            "no (informational)"
+        let status_label = match a.verification_status.as_str() {
+            "fail" => "FAIL",
+            "conditional_pass" => "REVIEW",
+            _ => "PASS",
         };
 
-        println!("  {}. {}", i + 1, a.artifact_type);
-        println!("     Location:      {location}");
-        println!("     Artifact hash: {hash_short}");
-        println!("     Kind:          {}", a.artifact_type);
-        println!("     Scope:         {}", a.artifact_scope);
-        println!("     Registry:      {eligible}");
-        println!("     Schema:        v1");
-        println!("     Confidence:    {:.0}%", a.confidence * 100.0);
-        println!("     Risk score:    {}", a.risk_score);
-        println!("     Status:        {}", a.verification_status);
+        println!(
+            "  {icon} {color}{BOLD}{}{RESET}. {BOLD}{kind}{RESET}  {color}{status_label}{RESET}  risk {}{RESET}",
+            i + 1,
+            a.risk_score
+        );
+        println!("    {DIM}{loc}{RESET}");
+        println!(
+            "    {DIM}hash:{RESET} {hash_short}  \
+{DIM}scope:{RESET} {}  \
+{DIM}confidence:{RESET} {:.0}%",
+            a.artifact_scope,
+            a.confidence * 100.0
+        );
 
         let reasons = top_risk_reasons(a);
         if !reasons.is_empty() {
-            println!("     Risk reasons: {}", reasons.join(", "));
+            println!("    {DIM}Reason:{RESET} {}", reasons.join(", "));
         }
 
         let caps = derive_capabilities(a);
         if !caps.is_empty() {
-            println!("     Capabilities:");
-            for cap in &caps {
-                println!("       {cap}");
-            }
+            println!(
+                "    {DIM}Capabilities:{RESET} {CYAN}{}{RESET}",
+                caps.join(", ")
+            );
         }
 
         if !a.signals.is_empty() {
-            println!("     Signals:");
-            for sig in &a.signals {
-                println!("       {sig}");
-            }
+            println!(
+                "    {DIM}Signals:{RESET} {}",
+                a.signals.join(", ")
+            );
         }
         println!();
     }
@@ -230,26 +385,41 @@ fn print_artifact_details(report: &ScanReport) {
 // ── print_summary ───────────────────────────────────────────────────────
 
 pub fn print_summary(report: &ScanReport) {
-    println!();
-    println!("AI Execution Inventory Summary");
-    println!("{}", "-".repeat(40));
+    let w = 58;
+    let line = format!("{DIM}{}{RESET}", "─".repeat(w));
 
-    let eligible: Vec<&ArtifactReport> =
-        report.artifacts.iter().filter(|a| a.registry_eligible).collect();
-    let info_count = report.artifacts.len() - eligible.len();
-
-    println!("Verified candidates:    {}", eligible.len());
-    println!("Informational artifacts: {info_count}");
     println!();
+    println!("{line}");
+    println!("  {BOLD}proov{RESET} · Summary");
+    println!("{line}");
 
     if report.artifacts.is_empty() {
+        println!();
+        println!("  {DIM}No AI execution artifacts detected.{RESET}");
+        println!();
         return;
     }
 
+    let eligible: Vec<&ArtifactReport> =
+        report.artifacts.iter().filter(|a| a.registry_eligible).collect();
+
+    // Counts by type
+    let type_counts = count_by(&report.artifacts, |a| &a.artifact_type);
+    println!();
+    println!(
+        "  {BOLD}INVENTORY{RESET}{DIM}{:>width$} artifact(s){RESET}",
+        report.artifacts.len(),
+        width = w - 21
+    );
+    for (atype, count) in &type_counts {
+        let label = pretty_type(atype);
+        println!("  {BOLD}{count:>4}{RESET}  {label}");
+    }
+
+    // Status distribution
+    println!();
     print_status_distribution(&eligible);
-    print_scope_breakdown(report);
     print_top_capabilities(report);
-    print_type_breakdown(report);
     print_risk_drivers(report);
     print_next_actions(&eligible);
 }
@@ -259,10 +429,24 @@ fn print_status_distribution(eligible: &[&ArtifactReport]) {
         return;
     }
     let counts = count_by_status(eligible);
-    println!("Status distribution (verified):");
-    for status in &["pass", "conditional_pass", "fail"] {
-        println!("  {status}: {}", counts.get(*status).copied().unwrap_or(0));
+    let fail = counts.get("fail").copied().unwrap_or(0);
+    let review = counts.get("conditional_pass").copied().unwrap_or(0);
+    let pass = counts.get("pass").copied().unwrap_or(0);
+
+    let mut parts: Vec<String> = Vec::new();
+    if fail > 0 {
+        parts.push(format!("\x1b[31m{fail} fail\x1b[0m"));
     }
+    if review > 0 {
+        parts.push(format!("\x1b[33m{review} review\x1b[0m"));
+    }
+    if pass > 0 {
+        parts.push(format!("\x1b[32m{pass} pass\x1b[0m"));
+    }
+    println!(
+        "  {BOLD}STATUS{RESET}  {}",
+        parts.join(&format!(" {DIM}·{RESET} "))
+    );
     println!();
 }
 
@@ -274,15 +458,6 @@ fn count_by_status(artifacts: &[&ArtifactReport]) -> HashMap<String, usize> {
     counts
 }
 
-fn print_scope_breakdown(report: &ScanReport) {
-    let scope_counts = count_by(&report.artifacts, |a| &a.artifact_scope);
-    println!("Artifact scopes:");
-    for (scope, count) in &scope_counts {
-        println!("  {scope}: {count}");
-    }
-    println!();
-}
-
 fn print_top_capabilities(report: &ScanReport) {
     let mut all_caps: Vec<String> = Vec::new();
     for a in &report.artifacts {
@@ -292,18 +467,9 @@ fn print_top_capabilities(report: &ScanReport) {
         return;
     }
     let cap_counts = count_strings(&all_caps);
-    println!("Top capabilities detected:");
+    println!("  {BOLD}CAPABILITIES{RESET}");
     for (cap, count) in cap_counts.iter().take(8) {
-        println!("  {cap}: {count}");
-    }
-    println!();
-}
-
-fn print_type_breakdown(report: &ScanReport) {
-    let type_counts = count_by(&report.artifacts, |a| &a.artifact_type);
-    println!("Artifact types:");
-    for (atype, count) in &type_counts {
-        println!("  {atype}: {count}");
+        println!("  {BOLD}{count:>4}{RESET}  {cap}");
     }
     println!();
 }
@@ -318,34 +484,34 @@ fn print_risk_drivers(report: &ScanReport) {
         return;
     }
     let reason_counts = count_strings(&all_reasons);
-    println!("Top risk drivers:");
+    println!("  {BOLD}TOP RISK DRIVERS{RESET}");
     for (reason, count) in reason_counts.iter().take(5) {
-        println!("  {reason}: {count}");
+        println!("  {BOLD}{count:>4}{RESET}  {reason}");
     }
     println!();
 }
 
 fn print_next_actions(eligible: &[&ArtifactReport]) {
     let counts = count_by_status(eligible);
-    let actions = [
-        ("pass", "allow"),
-        ("conditional_pass", "restrict + review"),
-        ("fail", "block + investigate"),
+    let actions: &[(&str, &str, &str)] = &[
+        ("fail", "\x1b[31m", "block + investigate"),
+        ("conditional_pass", "\x1b[33m", "restrict + review"),
+        ("pass", "\x1b[32m", "allow"),
     ];
 
     let present: Vec<_> = actions
         .iter()
-        .filter(|(s, _)| counts.get(*s).copied().unwrap_or(0) > 0)
+        .filter(|(s, _, _)| counts.get(*s).copied().unwrap_or(0) > 0)
         .collect();
 
     if present.is_empty() {
         return;
     }
 
-    println!("Recommended next actions:");
-    for (status, action) in &present {
+    println!("  {BOLD}NEXT ACTIONS{RESET}");
+    for (status, color, action) in &present {
         let n = counts[*status];
-        println!("  {status} ({n}): {action}");
+        println!("  {color}{n:>4}{RESET}  {status} → {action}");
     }
     println!();
 }
