@@ -44,16 +44,6 @@ where
     pairs
 }
 
-fn count_strings(items: &[String]) -> Vec<(String, usize)> {
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for item in items {
-        *counts.entry(item.clone()).or_default() += 1;
-    }
-    let mut pairs: Vec<_> = counts.into_iter().collect();
-    pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    pairs
-}
-
 fn artifact_location(a: &ArtifactReport) -> &str {
     a.metadata
         .get("paths")
@@ -382,6 +372,43 @@ fn print_artifact_details(report: &ScanReport) {
     }
 }
 
+// ── Human-readable signal/reason labels ─────────────────────────────────
+
+fn humanize_reason(raw: &str) -> &str {
+    // Strip the "(+N)" weight suffix to match the signal key
+    let key = raw.split(" (+").next().unwrap_or(raw);
+    match key {
+        "keyword:api" => "Makes external API calls",
+        "keyword:shell" => "Runs shell commands",
+        "keyword:browser" => "Controls a browser",
+        "keyword:execute" => "Executes code at runtime",
+        "keyword:network" => "Accesses the network",
+        "keyword:filesystem" => "Reads/writes the filesystem",
+        "keyword:docker" => "Uses container runtimes",
+        "keyword:system" => "Sets or overrides the system prompt",
+        "keyword:permissions" => "Requests elevated permissions",
+        "keyword:tools" => "Declares callable tools",
+        "keyword:dependencies" => "Installs or runs dependencies",
+        "keyword:secrets" => "References secrets or credentials",
+        "keyword:instructions" => "Contains instruction directives",
+        "credential_exposure_signal" => "Credential / secret exposure",
+        "mcp_server_declared" => "Declares an MCP server",
+        "dangerous_combo:shell+network+fs" => "Shell + network + filesystem combined",
+        "dangerous_keyword:exfiltrate" => "References data exfiltration",
+        "dangerous_keyword:wipe" => "References destructive wiping",
+        "dangerous_keyword:rm" => "References file deletion",
+        "dangerous_keyword:steal" => "References data theft",
+        "dangerous_keyword:upload" => "References data upload",
+        "dangerous_keyword:reverse" => "References reverse connection",
+        "dangerous_keyword:disable" => "References disabling protections",
+        "dangerous_keyword:bypass" => "References bypassing controls",
+        "extensions_directory_present" => "Browser extensions directory found",
+        _ if key.starts_with("extension_count:") => "Browser extensions installed",
+        _ if key.starts_with("mcp_server_count:") => "Multiple MCP servers declared",
+        _ => raw,
+    }
+}
+
 // ── print_summary ───────────────────────────────────────────────────────
 
 pub fn print_summary(report: &ScanReport) {
@@ -402,52 +429,161 @@ pub fn print_summary(report: &ScanReport) {
 
     let eligible: Vec<&ArtifactReport> =
         report.artifacts.iter().filter(|a| a.registry_eligible).collect();
+    let counts = count_by_status(&eligible);
+    let fail_n = counts.get("fail").copied().unwrap_or(0);
+    let review_n = counts.get("conditional_pass").copied().unwrap_or(0);
+    let pass_n = counts.get("pass").copied().unwrap_or(0);
 
-    // Counts by type
-    let type_counts = count_by(&report.artifacts, |a| &a.artifact_type);
+    // ── Posture headline ────────────────────────────────────────────
     println!();
+    let mut parts: Vec<String> = Vec::new();
+    if fail_n > 0 {
+        parts.push(format!("\x1b[31m{fail_n} blocked\x1b[0m"));
+    }
+    if review_n > 0 {
+        parts.push(format!("\x1b[33m{review_n} need review\x1b[0m"));
+    }
+    if pass_n > 0 {
+        parts.push(format!("\x1b[32m{pass_n} clear\x1b[0m"));
+    }
     println!(
-        "  {BOLD}INVENTORY{RESET}{DIM}{:>width$} artifact(s){RESET}",
-        report.artifacts.len(),
-        width = w - 21
+        "  {}",
+        parts.join(&format!("  {DIM}·{RESET}  "))
     );
-    for (atype, count) in &type_counts {
-        let label = pretty_type(atype);
-        println!("  {BOLD}{count:>4}{RESET}  {label}");
+
+    // ── Blocked items (listed individually — usually few) ───────────
+    let mut sorted: Vec<&ArtifactReport> = eligible.to_vec();
+    sorted.sort_by(|a, b| {
+        let rank = |s: &str| match s {
+            "fail" => 2,
+            "conditional_pass" => 1,
+            _ => 0,
+        };
+        rank(&b.verification_status)
+            .cmp(&rank(&a.verification_status))
+            .then(b.risk_score.cmp(&a.risk_score))
+    });
+
+    let blocked: Vec<&&ArtifactReport> = sorted
+        .iter()
+        .filter(|a| a.verification_status == "fail")
+        .collect();
+
+    if !blocked.is_empty() {
+        println!();
+        println!(
+            "  \x1b[31m{BOLD}BLOCKED{RESET} {DIM}── investigate before use{RESET}"
+        );
+        println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
+        for a in &blocked {
+            print_summary_card(a);
+        }
     }
 
-    // Status distribution
+    // ── Review items (grouped by top risk reason) ───────────────────
+    let review: Vec<&&ArtifactReport> = sorted
+        .iter()
+        .filter(|a| a.verification_status == "conditional_pass")
+        .collect();
+
+    if !review.is_empty() {
+        println!();
+        println!(
+            "  \x1b[33m{BOLD}NEEDS REVIEW{RESET} {DIM}── restrict until reviewed{RESET}"
+        );
+        println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
+        print_review_groups(&review, w);
+    }
+
+    // ── Clear items (compact one-liner) ─────────────────────────────
+    if pass_n > 0 {
+        println!();
+        println!(
+            "  \x1b[32m{BOLD}CLEAR{RESET} {DIM}── {pass_n} artifact(s) passed all checks{RESET}"
+        );
+    }
+
+    // ── Compact inventory ───────────────────────────────────────────
+    let type_counts = count_by(&report.artifacts, |a| &a.artifact_type);
+    let inventory_parts: Vec<String> = type_counts
+        .iter()
+        .map(|(t, c)| format!("{c} {}", pretty_type(t)))
+        .collect();
     println!();
-    print_status_distribution(&eligible);
-    print_top_capabilities(report);
-    print_risk_drivers(report);
-    print_next_actions(&eligible);
+    println!(
+        "  {DIM}Scanned {total} artifact(s): {list}{RESET}",
+        total = report.artifacts.len(),
+        list = inventory_parts.join(", ")
+    );
+    println!();
 }
 
-fn print_status_distribution(eligible: &[&ArtifactReport]) {
-    if eligible.is_empty() {
-        return;
-    }
-    let counts = count_by_status(eligible);
-    let fail = counts.get("fail").copied().unwrap_or(0);
-    let review = counts.get("conditional_pass").copied().unwrap_or(0);
-    let pass = counts.get("pass").copied().unwrap_or(0);
+fn print_summary_card(a: &ArtifactReport) {
+    let loc = shorten_path(artifact_location(a));
+    let (icon, _) = status_icon(&a.verification_status);
+    let kind = pretty_type(&a.artifact_type);
 
-    let mut parts: Vec<String> = Vec::new();
-    if fail > 0 {
-        parts.push(format!("\x1b[31m{fail} fail\x1b[0m"));
-    }
-    if review > 0 {
-        parts.push(format!("\x1b[33m{review} review\x1b[0m"));
-    }
-    if pass > 0 {
-        parts.push(format!("\x1b[32m{pass} pass\x1b[0m"));
-    }
     println!(
-        "  {BOLD}STATUS{RESET}  {}",
-        parts.join(&format!(" {DIM}·{RESET} "))
+        "  {icon}  {BOLD}{kind}{RESET}  {DIM}risk {}{RESET}",
+        a.risk_score
     );
-    println!();
+    println!("     {DIM}{loc}{RESET}");
+
+    let reasons = top_risk_reasons(a);
+    if !reasons.is_empty() {
+        let human: Vec<&str> = reasons.iter().map(|r| humanize_reason(r)).collect();
+        println!("     {CYAN}{}{RESET}", human.join(", "));
+    }
+}
+
+/// Group review artifacts by their top risk reason and show counts.
+fn print_review_groups(items: &[&&ArtifactReport], _w: usize) {
+    // Build groups keyed by the first (highest-weight) risk reason.
+    let mut groups: Vec<(String, Vec<&ArtifactReport>)> = Vec::new();
+    let mut group_map: HashMap<String, usize> = HashMap::new();
+
+    for a in items {
+        let key = a
+            .risk_reasons
+            .first()
+            .map(|r| humanize_reason(r).to_string())
+            .unwrap_or_else(|| "Other".to_string());
+
+        if let Some(&idx) = group_map.get(&key) {
+            groups[idx].1.push(a);
+        } else {
+            group_map.insert(key.clone(), groups.len());
+            groups.push((key, vec![a]));
+        }
+    }
+
+    // Sort groups by count descending
+    groups.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+
+    const MAX_EXAMPLES: usize = 2;
+
+    for (reason, members) in &groups {
+        let n = members.len();
+        let plural = if n == 1 { "" } else { "s" };
+        println!(
+            "  \x1b[33m⚠{RESET}  {BOLD}{reason}{RESET}  {DIM}({n} artifact{plural}){RESET}"
+        );
+
+        // Show a couple of example paths
+        for a in members.iter().take(MAX_EXAMPLES) {
+            let loc = shorten_path(artifact_location(a));
+            let kind = pretty_type(&a.artifact_type);
+            println!(
+                "     {DIM}{kind} · {loc}{RESET}"
+            );
+        }
+        if n > MAX_EXAMPLES {
+            println!(
+                "     {DIM}… and {} more{RESET}",
+                n - MAX_EXAMPLES
+            );
+        }
+    }
 }
 
 fn count_by_status(artifacts: &[&ArtifactReport]) -> HashMap<String, usize> {
@@ -456,62 +592,4 @@ fn count_by_status(artifacts: &[&ArtifactReport]) -> HashMap<String, usize> {
         *counts.entry(a.verification_status.clone()).or_default() += 1;
     }
     counts
-}
-
-fn print_top_capabilities(report: &ScanReport) {
-    let mut all_caps: Vec<String> = Vec::new();
-    for a in &report.artifacts {
-        all_caps.extend(derive_capabilities(a));
-    }
-    if all_caps.is_empty() {
-        return;
-    }
-    let cap_counts = count_strings(&all_caps);
-    println!("  {BOLD}CAPABILITIES{RESET}");
-    for (cap, count) in cap_counts.iter().take(8) {
-        println!("  {BOLD}{count:>4}{RESET}  {cap}");
-    }
-    println!();
-}
-
-fn print_risk_drivers(report: &ScanReport) {
-    let all_reasons: Vec<String> = report
-        .artifacts
-        .iter()
-        .flat_map(|a| a.risk_reasons.clone())
-        .collect();
-    if all_reasons.is_empty() {
-        return;
-    }
-    let reason_counts = count_strings(&all_reasons);
-    println!("  {BOLD}TOP RISK DRIVERS{RESET}");
-    for (reason, count) in reason_counts.iter().take(5) {
-        println!("  {BOLD}{count:>4}{RESET}  {reason}");
-    }
-    println!();
-}
-
-fn print_next_actions(eligible: &[&ArtifactReport]) {
-    let counts = count_by_status(eligible);
-    let actions: &[(&str, &str, &str)] = &[
-        ("fail", "\x1b[31m", "block + investigate"),
-        ("conditional_pass", "\x1b[33m", "restrict + review"),
-        ("pass", "\x1b[32m", "allow"),
-    ];
-
-    let present: Vec<_> = actions
-        .iter()
-        .filter(|(s, _, _)| counts.get(*s).copied().unwrap_or(0) > 0)
-        .collect();
-
-    if present.is_empty() {
-        return;
-    }
-
-    println!("  {BOLD}NEXT ACTIONS{RESET}");
-    for (status, color, action) in &present {
-        let n = counts[*status];
-        println!("  {color}{n:>4}{RESET}  {status} → {action}");
-    }
-    println!();
 }
