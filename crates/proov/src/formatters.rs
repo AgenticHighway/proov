@@ -169,10 +169,7 @@ pub fn print_overview(report: &ScanReport, cmd_name: &str) {
     let remaining = &sorted[TOP_N.min(sorted.len())..];
     if !remaining.is_empty() {
         println!();
-        println!(
-            "  {DIM}… and {} more:{RESET}",
-            remaining.len()
-        );
+        println!("  {DIM}… and {} more:{RESET}", remaining.len());
         print_directory_summary(remaining);
     }
 
@@ -180,15 +177,11 @@ pub fn print_overview(report: &ScanReport, cmd_name: &str) {
     println!();
     println!("  {BOLD}SAVE & SHARE{RESET}");
     println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
-    println!(
-        "  {DIM}proov {cmd_name} --json{RESET}          {DIM}→{RESET} JSON to stdout"
-    );
+    println!("  {DIM}proov {cmd_name} --json{RESET}          {DIM}→{RESET} JSON to stdout");
     println!(
         "  {DIM}proov {cmd_name} --out{RESET}           {DIM}→{RESET} write proov-report.json"
     );
-    println!(
-        "  {DIM}proov {cmd_name} --submit{RESET}        {DIM}→{RESET} send to Vettd"
-    );
+    println!("  {DIM}proov {cmd_name} --submit{RESET}        {DIM}→{RESET} send to Vettd");
     println!();
 }
 
@@ -217,10 +210,7 @@ fn print_risk_card(a: &ArtifactReport) {
 
     let caps = derive_capabilities(a);
     if !caps.is_empty() {
-        println!(
-            "    {CYAN}{}{RESET}",
-            caps.join(", ")
-        );
+        println!("    {CYAN}{}{RESET}", caps.join(", "));
     }
 }
 
@@ -259,10 +249,7 @@ fn print_directory_summary(artifacts: &[&ArtifactReport]) {
                 }
             })
             .collect();
-        println!(
-            "     {DIM}{dir}/{RESET}  {parts}",
-            parts = parts.join(", ")
-        );
+        println!("     {DIM}{dir}/{RESET}  {parts}", parts = parts.join(", "));
     }
 }
 
@@ -366,10 +353,7 @@ fn print_artifact_details(report: &ScanReport) {
         }
 
         if !a.signals.is_empty() {
-            println!(
-                "    {DIM}Signals:{RESET} {}",
-                a.signals.join(", ")
-            );
+            println!("    {DIM}Signals:{RESET} {}", a.signals.join(", "));
         }
         println!();
     }
@@ -430,8 +414,11 @@ pub fn print_summary(report: &ScanReport, _cmd_name: &str) {
         return;
     }
 
-    let eligible: Vec<&ArtifactReport> =
-        report.artifacts.iter().filter(|a| a.registry_eligible).collect();
+    let eligible: Vec<&ArtifactReport> = report
+        .artifacts
+        .iter()
+        .filter(|a| a.registry_eligible)
+        .collect();
     let counts = count_by_status(&eligible);
     let fail_n = counts.get("fail").copied().unwrap_or(0);
     let review_n = counts.get("conditional_pass").copied().unwrap_or(0);
@@ -449,10 +436,7 @@ pub fn print_summary(report: &ScanReport, _cmd_name: &str) {
     if pass_n > 0 {
         parts.push(format!("\x1b[32m{pass_n} clear\x1b[0m"));
     }
-    println!(
-        "  {}",
-        parts.join(&format!("  {DIM}·{RESET}  "))
-    );
+    println!("  {}", parts.join(&format!("  {DIM}·{RESET}  ")));
 
     // ── Flagged items (listed individually — usually few) ───────────
     let mut sorted: Vec<&ArtifactReport> = eligible.to_vec();
@@ -474,9 +458,7 @@ pub fn print_summary(report: &ScanReport, _cmd_name: &str) {
 
     if !flagged.is_empty() {
         println!();
-        println!(
-            "  \x1b[31m{BOLD}FLAGGED{RESET} {DIM}── investigate before use{RESET}"
-        );
+        println!("  \x1b[31m{BOLD}FLAGGED{RESET} {DIM}── investigate before use{RESET}");
         println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
         for a in &flagged {
             print_summary_card(a);
@@ -491,9 +473,7 @@ pub fn print_summary(report: &ScanReport, _cmd_name: &str) {
 
     if !review.is_empty() {
         println!();
-        println!(
-            "  \x1b[33m{BOLD}NEEDS REVIEW{RESET} {DIM}── restrict until reviewed{RESET}"
-        );
+        println!("  \x1b[33m{BOLD}NEEDS REVIEW{RESET} {DIM}── restrict until reviewed{RESET}");
         println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
         print_review_groups(&review, w);
     }
@@ -568,23 +548,16 @@ fn print_review_groups(items: &[&&ArtifactReport], _w: usize) {
     for (reason, members) in &groups {
         let n = members.len();
         let plural = if n == 1 { "" } else { "s" };
-        println!(
-            "  \x1b[33m⚠{RESET}  {BOLD}{reason}{RESET}  {DIM}({n} artifact{plural}){RESET}"
-        );
+        println!("  \x1b[33m⚠{RESET}  {BOLD}{reason}{RESET}  {DIM}({n} artifact{plural}){RESET}");
 
         // Show a couple of example paths
         for a in members.iter().take(MAX_EXAMPLES) {
             let loc = shorten_path(artifact_location(a));
             let kind = pretty_type(&a.artifact_type);
-            println!(
-                "     {DIM}{kind} · {loc}{RESET}"
-            );
+            println!("     {DIM}{kind} · {loc}{RESET}");
         }
         if n > MAX_EXAMPLES {
-            println!(
-                "     {DIM}… and {} more{RESET}",
-                n - MAX_EXAMPLES
-            );
+            println!("     {DIM}… and {} more{RESET}", n - MAX_EXAMPLES);
         }
     }
 }
@@ -607,8 +580,7 @@ mod tests {
         let mut a = ArtifactReport::new(atype, 0.8);
         a.risk_score = risk;
         a.verification_status = status.to_string();
-        a.metadata
-            .insert("paths".to_string(), json!(["/tmp/test"]));
+        a.metadata.insert("paths".to_string(), json!(["/tmp/test"]));
         a
     }
 
@@ -761,7 +733,10 @@ mod tests {
 
     #[test]
     fn humanize_reason_strips_weight_suffix() {
-        assert_eq!(humanize_reason("keyword:api (+10)"), "Makes external API calls");
+        assert_eq!(
+            humanize_reason("keyword:api (+10)"),
+            "Makes external API calls"
+        );
     }
 
     #[test]

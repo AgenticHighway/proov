@@ -39,11 +39,7 @@ pub fn emit(
     }
 }
 
-fn write_json_report(
-    report: &ScanReport,
-    scan_duration_ms: u64,
-    maybe_path: &Option<PathBuf>,
-) {
+fn write_json_report(report: &ScanReport, scan_duration_ms: u64, maybe_path: &Option<PathBuf>) {
     let dest = match maybe_path {
         Some(p) => p.clone(),
         None => PathBuf::from("proov-report.json"),

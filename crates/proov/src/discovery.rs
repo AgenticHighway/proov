@@ -182,17 +182,11 @@ pub fn ai_cli_config_roots() -> Vec<PathBuf> {
 // Walking functions
 // ---------------------------------------------------------------------------
 
-pub fn walk_bounded(
-    root: &Path,
-    origin: &str,
-    on_tick: Option<&dyn Fn(&str)>,
-) -> Vec<Candidate> {
+pub fn walk_bounded(root: &Path, origin: &str, on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> {
     let mut candidates = Vec::new();
     let mut count: usize = 0;
 
-    let walker = WalkDir::new(root)
-        .max_depth(MAX_DEPTH)
-        .follow_links(false);
+    let walker = WalkDir::new(root).max_depth(MAX_DEPTH).follow_links(false);
 
     for entry in walker.into_iter().filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
@@ -222,7 +216,9 @@ pub fn walk_deep_workdir(
     let mut count: usize = 0;
 
     let walker = WalkDir::new(root).follow_links(false);
-    let filtered = walker.into_iter().filter_entry(|e| !is_excluded_dir(e, &excluded));
+    let filtered = walker
+        .into_iter()
+        .filter_entry(|e| !is_excluded_dir(e, &excluded));
 
     for entry in filtered.filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
@@ -432,11 +428,7 @@ mod tests {
     fn walk_deep_workdir_excludes_node_modules() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir(tmp.path().join("node_modules")).unwrap();
-        fs::write(
-            tmp.path().join("node_modules").join("package.json"),
-            "{}",
-        )
-        .unwrap();
+        fs::write(tmp.path().join("node_modules").join("package.json"), "{}").unwrap();
         fs::write(tmp.path().join("index.js"), "code").unwrap();
 
         let candidates = walk_deep_workdir(tmp.path(), "workdir", None);
@@ -470,8 +462,7 @@ mod tests {
 
     #[test]
     fn discover_workdir_surfaces_nonexistent() {
-        let candidates =
-            discover_workdir_surfaces(Path::new("/nonexistent/path"), false, None);
+        let candidates = discover_workdir_surfaces(Path::new("/nonexistent/path"), false, None);
         assert!(candidates.is_empty());
     }
 

@@ -72,10 +72,19 @@ fn default_boost_threshold() -> usize {
 /// rules in `~/.ahscan/rules/`.
 pub fn load_builtin_rules() -> Vec<DetectionRule> {
     const SOURCES: &[(&str, &str)] = &[
-        ("cursor-rules",        include_str!("../../../rules/cursor-rules.toml")),
-        ("agents-md",           include_str!("../../../rules/agents-md.toml")),
-        ("prompt-configs",      include_str!("../../../rules/prompt-configs.toml")),
-        ("prompt-configs-weak", include_str!("../../../rules/prompt-configs-weak.toml")),
+        (
+            "cursor-rules",
+            include_str!("../../../rules/cursor-rules.toml"),
+        ),
+        ("agents-md", include_str!("../../../rules/agents-md.toml")),
+        (
+            "prompt-configs",
+            include_str!("../../../rules/prompt-configs.toml"),
+        ),
+        (
+            "prompt-configs-weak",
+            include_str!("../../../rules/prompt-configs-weak.toml"),
+        ),
     ];
 
     let mut rules = Vec::new();
@@ -112,10 +121,7 @@ pub fn load_rules_from_dir(dir: &Path) -> Vec<DetectionRule> {
         match load_rule_file(&path) {
             Ok(rule) => rules.push(rule),
             Err(e) => {
-                eprintln!(
-                    "Warning: skipping invalid rule {}: {e}",
-                    path.display()
-                );
+                eprintln!("Warning: skipping invalid rule {}: {e}", path.display());
             }
         }
     }
@@ -129,8 +135,7 @@ fn load_rule_file(path: &Path) -> Result<DetectionRule, String> {
 
 /// Parse and validate a rule from raw TOML content (no file I/O).
 pub fn parse_rule_content(content: &str) -> Result<DetectionRule, String> {
-    let rule: DetectionRule =
-        toml::from_str(content).map_err(|e| format!("parse error: {e}"))?;
+    let rule: DetectionRule = toml::from_str(content).map_err(|e| format!("parse error: {e}"))?;
 
     if rule.detector.name.is_empty() {
         return Err("detector.name is required".to_string());
@@ -314,18 +319,27 @@ confidence = 0.7
         let rules = load_builtin_rules();
         assert_eq!(rules.len(), 4, "expected 4 built-in rules");
 
-        let types: Vec<&str> = rules.iter().map(|r| r.detector.artifact_type.as_str()).collect();
-        assert!(types.contains(&"cursor_rules"),  "missing cursor_rules");
-        assert!(types.contains(&"agents_md"),      "missing agents_md");
+        let types: Vec<&str> = rules
+            .iter()
+            .map(|r| r.detector.artifact_type.as_str())
+            .collect();
+        assert!(types.contains(&"cursor_rules"), "missing cursor_rules");
+        assert!(types.contains(&"agents_md"), "missing agents_md");
         // Two prompt_config rules (strong + weak)
-        assert_eq!(types.iter().filter(|&&t| t == "prompt_config").count(), 2,
-            "expected 2 prompt_config rules");
+        assert_eq!(
+            types.iter().filter(|&&t| t == "prompt_config").count(),
+            2,
+            "expected 2 prompt_config rules"
+        );
     }
 
     #[test]
     fn builtin_cursor_rules_matches_cursorrules_file() {
         let rules = load_builtin_rules();
-        let rule = rules.iter().find(|r| r.detector.artifact_type == "cursor_rules").unwrap();
+        let rule = rules
+            .iter()
+            .find(|r| r.detector.artifact_type == "cursor_rules")
+            .unwrap();
         assert!(matches_rule(".cursorrules", rule));
         assert!(!matches_rule("readme.md", rule));
     }
@@ -333,7 +347,10 @@ confidence = 0.7
     #[test]
     fn builtin_agents_md_matches_both_casings() {
         let rules = load_builtin_rules();
-        let rule = rules.iter().find(|r| r.detector.artifact_type == "agents_md").unwrap();
+        let rule = rules
+            .iter()
+            .find(|r| r.detector.artifact_type == "agents_md")
+            .unwrap();
         assert!(matches_rule("agents.md", rule));
         assert!(matches_rule("AGENTS.md", rule));
         assert!(!matches_rule("agents.txt", rule));
@@ -344,9 +361,13 @@ confidence = 0.7
         let rules = load_builtin_rules();
         // The strong rule should match copilot-instructions.md
         let matched = rules.iter().any(|r| {
-            r.detector.artifact_type == "prompt_config" && matches_rule("copilot-instructions.md", r)
+            r.detector.artifact_type == "prompt_config"
+                && matches_rule("copilot-instructions.md", r)
         });
-        assert!(matched, "no prompt_config rule matched copilot-instructions.md");
+        assert!(
+            matched,
+            "no prompt_config rule matched copilot-instructions.md"
+        );
     }
 
     #[test]

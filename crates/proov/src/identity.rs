@@ -19,9 +19,9 @@ pub fn default_scanner_account_uuid_path() -> Result<PathBuf, String> {
 }
 
 fn ahscan_dir() -> Result<PathBuf, String> {
-    dirs::home_dir()
-        .map(|h| h.join(".ahscan"))
-        .ok_or_else(|| "Unable to determine home directory — cannot resolve scanner identity paths".to_string())
+    dirs::home_dir().map(|h| h.join(".ahscan")).ok_or_else(|| {
+        "Unable to determine home directory — cannot resolve scanner identity paths".to_string()
+    })
 }
 
 /// Resolve a UUID through the following cascade:
@@ -62,8 +62,12 @@ pub fn resolve_persisted_uuid(
 
     // 3. Read from file
     if id_path.exists() {
-        let content = fs::read_to_string(id_path)
-            .map_err(|e| format!("Failed to read {field_name} from {}: {e}", id_path.display()))?;
+        let content = fs::read_to_string(id_path).map_err(|e| {
+            format!(
+                "Failed to read {field_name} from {}: {e}",
+                id_path.display()
+            )
+        })?;
         let val = content.trim().to_string();
         if !val.is_empty() {
             if !is_valid_uuid(&val) {
@@ -132,7 +136,8 @@ mod tests {
     fn default_paths_end_correctly() {
         let p = default_scanner_uuid_path().expect("home dir must be available in test env");
         assert!(p.ends_with("scanner_uuid"));
-        let p = default_scanner_account_uuid_path().expect("home dir must be available in test env");
+        let p =
+            default_scanner_account_uuid_path().expect("home dir must be available in test env");
         assert!(p.ends_with("scanner_account_uuid"));
     }
 
@@ -197,8 +202,7 @@ mod tests {
         let tmp = tempdir();
         let path = tmp.join("id");
         fs::write(&path, uuid).unwrap();
-        let result =
-            resolve_persisted_uuid(None, "UNUSED_VAR_5678", &path, "test");
+        let result = resolve_persisted_uuid(None, "UNUSED_VAR_5678", &path, "test");
         assert_eq!(result.unwrap(), uuid);
     }
 
@@ -206,8 +210,7 @@ mod tests {
     fn generates_and_persists_when_nothing_exists() {
         let tmp = tempdir();
         let path = tmp.join("sub").join("id");
-        let result =
-            resolve_persisted_uuid(None, "UNUSED_VAR_9012", &path, "test");
+        let result = resolve_persisted_uuid(None, "UNUSED_VAR_9012", &path, "test");
         let uuid = result.unwrap();
         assert!(is_valid_uuid(&uuid));
         assert_eq!(fs::read_to_string(&path).unwrap(), uuid);

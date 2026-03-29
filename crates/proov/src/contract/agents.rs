@@ -179,10 +179,7 @@ fn build_trust_breakdown(a: &ArtifactReport) -> Vec<TrustFactor> {
     };
     if base > 0 {
         factors.push(TrustFactor {
-            label: format!(
-                "Known artifact type: {}",
-                a.artifact_type.replace('_', " ")
-            ),
+            label: format!("Known artifact type: {}", a.artifact_type.replace('_', " ")),
             delta: base,
         });
     }
@@ -326,7 +323,9 @@ mod tests {
     fn trust_breakdown_agents_md_base() {
         let a = ArtifactReport::new("agents_md", 0.8);
         let factors = build_trust_breakdown(&a);
-        assert!(factors.iter().any(|f| f.delta == 10 && f.label.contains("agents md")));
+        assert!(factors
+            .iter()
+            .any(|f| f.delta == 10 && f.label.contains("agents md")));
     }
 
     #[test]
@@ -350,7 +349,9 @@ mod tests {
         let mut a = ArtifactReport::new("agents_md", 0.8);
         a.verification_status = "pass".to_string();
         let factors = build_trust_breakdown(&a);
-        assert!(factors.iter().any(|f| f.delta == 15 && f.label == "Verification passed"));
+        assert!(factors
+            .iter()
+            .any(|f| f.delta == 15 && f.label == "Verification passed"));
     }
 
     #[test]

@@ -160,9 +160,7 @@ pub fn build_ingest_payload(
     let informational_count = total_count - registry_count;
 
     // -- client details -----------------------------------------------------
-    let emitted_at = client_emitted_at
-        .unwrap_or(&report.timestamp)
-        .to_string();
+    let emitted_at = client_emitted_at.unwrap_or(&report.timestamp).to_string();
 
     let client_details = json!({
         "client_details_scanner_name": "proov",
@@ -217,10 +215,8 @@ mod tests {
         a.registry_eligible = eligible;
         a.artifact_hash = "abc123".to_string();
         a.artifact_id = "id456".to_string();
-        a.metadata.insert(
-            "paths".to_string(),
-            serde_json::json!(["/tmp/mcp.json"]),
-        );
+        a.metadata
+            .insert("paths".to_string(), serde_json::json!(["/tmp/mcp.json"]));
         a
     }
 
@@ -279,9 +275,8 @@ mod tests {
         report.artifacts.push(sample_artifact(true));
         report.artifacts.push(sample_artifact(false));
 
-        let payload = build_ingest_payload(
-            &report, false, None, "test", "uuid1", "acct1", None, None,
-        );
+        let payload =
+            build_ingest_payload(&report, false, None, "test", "uuid1", "acct1", None, None);
         let arts = payload["artifacts"].as_array().unwrap();
         assert_eq!(arts.len(), 1);
     }
@@ -292,9 +287,8 @@ mod tests {
         report.artifacts.push(sample_artifact(true));
         report.artifacts.push(sample_artifact(false));
 
-        let payload = build_ingest_payload(
-            &report, true, None, "test", "uuid1", "acct1", None, None,
-        );
+        let payload =
+            build_ingest_payload(&report, true, None, "test", "uuid1", "acct1", None, None);
         let arts = payload["artifacts"].as_array().unwrap();
         assert_eq!(arts.len(), 2);
     }
@@ -303,9 +297,8 @@ mod tests {
     fn build_payload_embeds_lite_mode_summary() {
         let report = ScanReport::new("/tmp");
         let summary = json!({"total": 0});
-        let payload = build_ingest_payload(
-            &report, true, None, "test", "u", "a", None, Some(&summary),
-        );
+        let payload =
+            build_ingest_payload(&report, true, None, "test", "u", "a", None, Some(&summary));
         assert_eq!(payload["lite_mode_summary"]["total"], 0);
     }
 }

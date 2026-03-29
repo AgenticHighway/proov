@@ -17,7 +17,11 @@ fn rank_max<'a>(a: &'a str, b: &'a str) -> &'a str {
         "fail" => 2,
         _ => 0,
     };
-    if rank(a) >= rank(b) { a } else { b }
+    if rank(a) >= rank(b) {
+        a
+    } else {
+        b
+    }
 }
 
 /// True when the artifact declares tools, permissions, or API endpoints.
@@ -49,7 +53,10 @@ fn has_governance_constraints(artifact: &ArtifactReport) -> bool {
 ///   4. `dangerous_combo:*` escalates to at least conditional_pass.
 pub fn verify(artifact: &mut ArtifactReport) -> String {
     // Rule 1: credential exposure is an automatic failure.
-    if artifact.signals.contains(&"credential_exposure_signal".to_string()) {
+    if artifact
+        .signals
+        .contains(&"credential_exposure_signal".to_string())
+    {
         artifact.verification_status = "fail".to_string();
         return artifact.verification_status.clone();
     }
@@ -65,8 +72,14 @@ pub fn verify(artifact: &mut ArtifactReport) -> String {
     };
 
     // Rule 3-4: dangerous signal escalation.
-    let has_dangerous_keyword = artifact.signals.iter().any(|s| s.starts_with("dangerous_keyword:"));
-    let has_dangerous_combo = artifact.signals.iter().any(|s| s.starts_with("dangerous_combo:"));
+    let has_dangerous_keyword = artifact
+        .signals
+        .iter()
+        .any(|s| s.starts_with("dangerous_keyword:"));
+    let has_dangerous_combo = artifact
+        .signals
+        .iter()
+        .any(|s| s.starts_with("dangerous_combo:"));
 
     if has_dangerous_keyword && status != "fail" {
         status = if has_governance_constraints(artifact) {
@@ -132,10 +145,8 @@ mod tests {
     #[test]
     fn dangerous_keyword_with_governance_conditional_pass() {
         let mut a = artifact_with("cursor_rules", 10, &["dangerous_keyword:steal"]);
-        a.metadata.insert(
-            "declared_tools".to_string(),
-            json!(["shell"]),
-        );
+        a.metadata
+            .insert("declared_tools".to_string(), json!(["shell"]));
         let status = verify(&mut a);
         assert_eq!(status, "conditional_pass");
     }

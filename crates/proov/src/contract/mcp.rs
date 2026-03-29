@@ -79,10 +79,17 @@ fn infer_auth(val: &serde_json::Value) -> String {
     let has_env_pattern = server_text.contains("${")
         || server_text.contains("process.env")
         || server_text.contains("os.environ");
-    let has_cred_key =
-        ["api_key", "apikey", "secret", "token", "password", "credential", "auth"]
-            .iter()
-            .any(|kw| server_text.contains(kw));
+    let has_cred_key = [
+        "api_key",
+        "apikey",
+        "secret",
+        "token",
+        "password",
+        "credential",
+        "auth",
+    ]
+    .iter()
+    .any(|kw| server_text.contains(kw));
     if has_cred_key || has_env_pattern {
         "API Key".to_string()
     } else {

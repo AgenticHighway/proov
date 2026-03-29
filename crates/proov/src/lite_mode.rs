@@ -23,11 +23,7 @@ fn local_policy_signal_weights() -> HashMap<&'static str, i32> {
 }
 
 fn local_policy_type_base() -> HashMap<&'static str, i32> {
-    HashMap::from([
-        ("cursor_rules", 4),
-        ("agents_md", 4),
-        ("prompt_config", 3),
-    ])
+    HashMap::from([("cursor_rules", 4), ("agents_md", 4), ("prompt_config", 3)])
 }
 
 pub fn local_policy_score(artifact: &ArtifactReport) -> i32 {
@@ -56,11 +52,7 @@ pub fn limit_lite_mode_report(
             )
         })
         .collect();
-    scored.sort_by(|a, b| {
-        b.0.cmp(&a.0)
-            .then(b.1.cmp(&a.1))
-            .then(b.2.cmp(&a.2))
-    });
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(b.2.cmp(&a.2)));
 
     let visible: Vec<ArtifactReport> = scored.iter().take(top_n).map(|t| t.3.clone()).collect();
     let hidden: Vec<ArtifactReport> = scored.iter().skip(top_n).map(|t| t.3.clone()).collect();
@@ -135,7 +127,12 @@ pub fn print_locked_summary(artifacts: &[ArtifactReport]) {
 mod tests {
     use super::*;
 
-    fn make_artifact(atype: &str, signals: &[&str], risk_score: i32, confidence: f64) -> ArtifactReport {
+    fn make_artifact(
+        atype: &str,
+        signals: &[&str],
+        risk_score: i32,
+        confidence: f64,
+    ) -> ArtifactReport {
         let mut a = ArtifactReport::new(atype, confidence);
         a.signals = signals.iter().map(|s| s.to_string()).collect();
         a.risk_score = risk_score;
@@ -151,21 +148,31 @@ mod tests {
 
     #[test]
     fn local_policy_score_adds_signal_weights() {
-        let a = make_artifact("cursor_rules", &["keyword:shell", "keyword:browser"], 0, 0.5);
+        let a = make_artifact(
+            "cursor_rules",
+            &["keyword:shell", "keyword:browser"],
+            0,
+            0.5,
+        );
         let score = local_policy_score(&a);
         assert_eq!(score, 4 + 15 + 10); // base + shell + browser
     }
 
     #[test]
     fn local_policy_score_caps_at_100() {
-        let a = make_artifact("cursor_rules", &[
-            "credential_exposure_signal",
-            "dangerous_combo:shell+network+fs",
-            "dangerous_keyword:exfiltrate",
-            "dangerous_keyword:steal",
-            "keyword:shell",
-            "keyword:browser",
-        ], 0, 0.5);
+        let a = make_artifact(
+            "cursor_rules",
+            &[
+                "credential_exposure_signal",
+                "dangerous_combo:shell+network+fs",
+                "dangerous_keyword:exfiltrate",
+                "dangerous_keyword:steal",
+                "keyword:shell",
+                "keyword:browser",
+            ],
+            0,
+            0.5,
+        );
         let score = local_policy_score(&a);
         assert_eq!(score, 100);
     }
@@ -200,7 +207,9 @@ mod tests {
         ];
         let (visible, _, _) = limit_lite_mode_report(&report, 1);
         // The credential_exposure artifact should be first (highest policy score)
-        assert!(visible.artifacts[0].signals.contains(&"credential_exposure_signal".to_string()));
+        assert!(visible.artifacts[0]
+            .signals
+            .contains(&"credential_exposure_signal".to_string()));
     }
 
     #[test]

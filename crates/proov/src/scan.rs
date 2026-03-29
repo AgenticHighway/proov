@@ -140,7 +140,10 @@ fn classify_artifact(artifact: &mut ArtifactReport, mode: &str) {
         "host".to_string()
     } else if atype == "container_config" || atype == "container_candidate" {
         "container".to_string()
-    } else if DOCS_PATH_SEGMENTS.iter().any(|seg| path_parts.contains(seg)) {
+    } else if DOCS_PATH_SEGMENTS
+        .iter()
+        .any(|seg| path_parts.contains(seg))
+    {
         "docs".to_string()
     } else if mode == "host" {
         "host".to_string()
@@ -291,7 +294,8 @@ mod tests {
     #[test]
     fn prompt_config_high_confidence_eligible() {
         let mut a = ArtifactReport::new("prompt_config", 0.90);
-        a.metadata.insert("paths".into(), json!(["/project/prompt.md"]));
+        a.metadata
+            .insert("paths".into(), json!(["/project/prompt.md"]));
         classify_artifact(&mut a, "workdir");
         assert!(a.registry_eligible);
     }

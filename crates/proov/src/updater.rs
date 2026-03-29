@@ -21,8 +21,7 @@ use sha2::{Digest, Sha256};
 // ---------------------------------------------------------------------------
 
 /// S3 bucket URL for release manifests and artifacts.
-const MANIFEST_URL: &str =
-    "https://ah-scanner-releases.s3.amazonaws.com/latest.json";
+const MANIFEST_URL: &str = "https://ah-scanner-releases.s3.amazonaws.com/latest.json";
 
 /// How long to cache a "no update" result before checking again.
 const CHECK_CACHE_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
@@ -158,7 +157,10 @@ fn write_check_cache(result: &UpdateCheckResult) {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        let _ = fs::write(&path, serde_json::to_string_pretty(&cache).unwrap_or_default());
+        let _ = fs::write(
+            &path,
+            serde_json::to_string_pretty(&cache).unwrap_or_default(),
+        );
     }
 }
 
@@ -210,8 +212,8 @@ fn download_to_file(url: &str, dest: &Path) -> Result<u64, String> {
             .map_err(|e| format!("Failed to create download directory: {e}"))?;
     }
 
-    let mut file = fs::File::create(dest)
-        .map_err(|e| format!("Failed to create download file: {e}"))?;
+    let mut file =
+        fs::File::create(dest).map_err(|e| format!("Failed to create download file: {e}"))?;
 
     let mut reader = response.into_reader();
     let mut buf = [0u8; 8192];
@@ -237,8 +239,8 @@ fn download_to_file(url: &str, dest: &Path) -> Result<u64, String> {
 // ---------------------------------------------------------------------------
 
 fn verify_sha256(path: &Path, expected: &str) -> Result<(), String> {
-    let mut file = fs::File::open(path)
-        .map_err(|e| format!("Cannot open file for verification: {e}"))?;
+    let mut file =
+        fs::File::open(path).map_err(|e| format!("Cannot open file for verification: {e}"))?;
 
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 8192];
@@ -475,8 +477,8 @@ fn extract_and_replace(archive_path: &Path, dest: &Path) -> Result<(), String> {
     use flate2::read::GzDecoder;
     use tar::Archive;
 
-    let file = fs::File::open(archive_path)
-        .map_err(|e| format!("Cannot open downloaded archive: {e}"))?;
+    let file =
+        fs::File::open(archive_path).map_err(|e| format!("Cannot open downloaded archive: {e}"))?;
     let decoder = GzDecoder::new(file);
     let mut archive = Archive::new(decoder);
 
@@ -500,10 +502,9 @@ fn extract_and_replace(archive_path: &Path, dest: &Path) -> Result<(), String> {
         if name == "proov" || name == "ah-scan" {
             // Extract to a temp file next to dest, then atomic rename
             let tmp = dest.with_extension("new");
-            let mut out = fs::File::create(&tmp)
-                .map_err(|e| format!("Cannot create temp file: {e}"))?;
-            io::copy(&mut entry, &mut out)
-                .map_err(|e| format!("Failed to extract binary: {e}"))?;
+            let mut out =
+                fs::File::create(&tmp).map_err(|e| format!("Cannot create temp file: {e}"))?;
+            io::copy(&mut entry, &mut out).map_err(|e| format!("Failed to extract binary: {e}"))?;
             drop(out);
 
             // Set executable permission
@@ -539,10 +540,8 @@ fn extract_and_replace(downloaded: &Path, dest: &Path) -> Result<(), String> {
     let old = dest.with_extension("old.exe");
     let _ = fs::remove_file(&old); // clean up any previous leftover
 
-    fs::rename(dest, &old)
-        .map_err(|e| format!("Cannot rename current binary: {e}"))?;
-    fs::copy(downloaded, dest)
-        .map_err(|e| format!("Cannot place new binary: {e}"))?;
+    fs::rename(dest, &old).map_err(|e| format!("Cannot rename current binary: {e}"))?;
+    fs::copy(downloaded, dest).map_err(|e| format!("Cannot place new binary: {e}"))?;
 
     // Best-effort cleanup of .old
     let _ = fs::remove_file(&old);
@@ -625,8 +624,14 @@ mod tests {
         assert!(result.is_ok(), "platform_key() failed: {:?}", result);
         let key = result.unwrap();
         assert!(
-            ["darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64", "windows-amd64"]
-                .contains(&key),
+            [
+                "darwin-arm64",
+                "darwin-amd64",
+                "linux-arm64",
+                "linux-amd64",
+                "windows-amd64"
+            ]
+            .contains(&key),
             "Unexpected platform key: {key}"
         );
     }
@@ -634,7 +639,10 @@ mod tests {
     #[test]
     fn test_user_agent_string_format() {
         let ua = user_agent_string();
-        assert!(ua.starts_with("proov/"), "UA should start with proov/: {ua}");
+        assert!(
+            ua.starts_with("proov/"),
+            "UA should start with proov/: {ua}"
+        );
         assert!(ua.contains('/'), "UA should contain OS/ARCH: {ua}");
         assert!(ua.contains('('), "UA should contain parens: {ua}");
     }
