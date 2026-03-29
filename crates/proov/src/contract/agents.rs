@@ -226,3 +226,143 @@ fn build_trust_breakdown(a: &ArtifactReport) -> Vec<TrustFactor> {
 
     factors
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ArtifactReport;
+
+    #[test]
+    fn infer_classification_code_for_shell() {
+        let caps = vec!["shell_execution".to_string()];
+        let a = ArtifactReport::new("agents_md", 0.8);
+        assert_eq!(infer_classification(&caps, &a), "Code");
+    }
+
+    #[test]
+    fn infer_classification_code_for_code_execution() {
+        let caps = vec!["code_execution".to_string()];
+        let a = ArtifactReport::new("agents_md", 0.8);
+        assert_eq!(infer_classification(&caps, &a), "Code");
+    }
+
+    #[test]
+    fn infer_classification_automation() {
+        let caps = vec!["container_runtime".to_string()];
+        let a = ArtifactReport::new("agents_md", 0.8);
+        assert_eq!(infer_classification(&caps, &a), "Automation");
+    }
+
+    #[test]
+    fn infer_classification_research() {
+        let caps = vec!["browser_access".to_string()];
+        let a = ArtifactReport::new("agents_md", 0.8);
+        assert_eq!(infer_classification(&caps, &a), "Research");
+    }
+
+    #[test]
+    fn infer_classification_system_for_agents_md() {
+        let caps: Vec<String> = vec![];
+        let a = ArtifactReport::new("agents_md", 0.8);
+        assert_eq!(infer_classification(&caps, &a), "System");
+    }
+
+    #[test]
+    fn infer_classification_system_default() {
+        let caps: Vec<String> = vec![];
+        let a = ArtifactReport::new("prompt_config", 0.8);
+        assert_eq!(infer_classification(&caps, &a), "System");
+    }
+
+    #[test]
+    fn execution_model_autonomous_for_dangerous_keyword() {
+        let mut a = ArtifactReport::new("agents_md", 0.8);
+        a.signals = vec!["dangerous_keyword:exfiltrate".to_string()];
+        assert_eq!(infer_execution_model(&a), "Autonomous");
+    }
+
+    #[test]
+    fn execution_model_autonomous_for_dangerous_combo() {
+        let mut a = ArtifactReport::new("agents_md", 0.8);
+        a.signals = vec!["dangerous_combo:shell+network+fs".to_string()];
+        assert_eq!(infer_execution_model(&a), "Autonomous");
+    }
+
+    #[test]
+    fn execution_model_user_in_loop_for_safe_signals() {
+        let mut a = ArtifactReport::new("agents_md", 0.8);
+        a.signals = vec!["keyword:shell".to_string()];
+        assert_eq!(infer_execution_model(&a), "User-in-the-loop");
+    }
+
+    #[test]
+    fn capability_flags_enable_matching_caps() {
+        let caps = vec![
+            "filesystem_access".to_string(),
+            "shell_execution".to_string(),
+        ];
+        let flags = build_capability_flags(&caps);
+        assert_eq!(flags.len(), 5);
+
+        let fs_flag = flags.iter().find(|f| f.name == "Filesystem").unwrap();
+        assert!(fs_flag.enabled);
+
+        let shell_flag = flags.iter().find(|f| f.name == "Shell").unwrap();
+        assert!(shell_flag.enabled);
+
+        let browser_flag = flags.iter().find(|f| f.name == "Browser").unwrap();
+        assert!(!browser_flag.enabled);
+    }
+
+    #[test]
+    fn capability_flags_network_enabled_by_external_api() {
+        let caps = vec!["external_api_calls".to_string()];
+        let flags = build_capability_flags(&caps);
+        let net = flags.iter().find(|f| f.name == "Network").unwrap();
+        assert!(net.enabled);
+    }
+
+    #[test]
+    fn trust_breakdown_agents_md_base() {
+        let a = ArtifactReport::new("agents_md", 0.8);
+        let factors = build_trust_breakdown(&a);
+        assert!(factors.iter().any(|f| f.delta == 10 && f.label.contains("agents md")));
+    }
+
+    #[test]
+    fn trust_breakdown_credential_exposure() {
+        let mut a = ArtifactReport::new("agents_md", 0.8);
+        a.signals = vec!["credential_exposure_signal".to_string()];
+        let factors = build_trust_breakdown(&a);
+        assert!(factors.iter().any(|f| f.delta == -25));
+    }
+
+    #[test]
+    fn trust_breakdown_dangerous_combo() {
+        let mut a = ArtifactReport::new("agents_md", 0.8);
+        a.signals = vec!["dangerous_combo:shell+network+fs".to_string()];
+        let factors = build_trust_breakdown(&a);
+        assert!(factors.iter().any(|f| f.delta == -30));
+    }
+
+    #[test]
+    fn trust_breakdown_pass_bonus() {
+        let mut a = ArtifactReport::new("agents_md", 0.8);
+        a.verification_status = "pass".to_string();
+        let factors = build_trust_breakdown(&a);
+        assert!(factors.iter().any(|f| f.delta == 15 && f.label == "Verification passed"));
+    }
+
+    #[test]
+    fn build_declared_tools_from_metadata() {
+        let mut a = ArtifactReport::new("agents_md", 0.8);
+        a.metadata.insert(
+            "declared_tools".to_string(),
+            serde_json::json!(["shell", "browser"]),
+        );
+        let tools = build_declared_tools(&a);
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name, "shell");
+        assert_eq!(tools[0].tool_type, "skill");
+    }
+}

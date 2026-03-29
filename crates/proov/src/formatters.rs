@@ -593,3 +593,176 @@ fn count_by_status(artifacts: &[&ArtifactReport]) -> HashMap<String, usize> {
     }
     counts
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ArtifactReport;
+    use serde_json::json;
+
+    fn make_artifact(atype: &str, risk: i32, status: &str) -> ArtifactReport {
+        let mut a = ArtifactReport::new(atype, 0.8);
+        a.risk_score = risk;
+        a.verification_status = status.to_string();
+        a.metadata
+            .insert("paths".to_string(), json!(["/tmp/test"]));
+        a
+    }
+
+    #[test]
+    fn severity_critical() {
+        assert_eq!(severity(90).0, "CRITICAL");
+        assert_eq!(severity(100).0, "CRITICAL");
+    }
+
+    #[test]
+    fn severity_high() {
+        assert_eq!(severity(70).0, "HIGH    ");
+        assert_eq!(severity(89).0, "HIGH    ");
+    }
+
+    #[test]
+    fn severity_medium() {
+        assert_eq!(severity(40).0, "MEDIUM  ");
+        assert_eq!(severity(69).0, "MEDIUM  ");
+    }
+
+    #[test]
+    fn severity_low() {
+        assert_eq!(severity(10).0, "LOW     ");
+        assert_eq!(severity(39).0, "LOW     ");
+    }
+
+    #[test]
+    fn severity_info() {
+        assert_eq!(severity(0).0, "INFO    ");
+        assert_eq!(severity(9).0, "INFO    ");
+    }
+
+    #[test]
+    fn pretty_type_known() {
+        assert_eq!(pretty_type("agents_md"), "AGENTS.md");
+        assert_eq!(pretty_type("cursor_rules"), "Cursor rules");
+        assert_eq!(pretty_type("prompt_config"), "prompt config");
+        assert_eq!(pretty_type("mcp_config"), "MCP server config");
+        assert_eq!(pretty_type("container_config"), "container config");
+        assert_eq!(pretty_type("container_candidate"), "container candidate");
+        assert_eq!(pretty_type("browser_footprint"), "browser footprint");
+    }
+
+    #[test]
+    fn pretty_type_unknown_passthrough() {
+        assert_eq!(pretty_type("something_else"), "something_else");
+    }
+
+    #[test]
+    fn status_icon_fail() {
+        let (icon, _color) = status_icon("fail");
+        assert!(icon.contains("✗"));
+    }
+
+    #[test]
+    fn status_icon_conditional_pass() {
+        let (icon, _) = status_icon("conditional_pass");
+        assert!(icon.contains("⚠"));
+    }
+
+    #[test]
+    fn status_icon_pass() {
+        let (icon, _) = status_icon("pass");
+        assert!(icon.contains("✓"));
+    }
+
+    #[test]
+    fn count_by_groups_by_type() {
+        let artifacts = vec![
+            make_artifact("prompt_config", 10, "pass"),
+            make_artifact("prompt_config", 20, "pass"),
+            make_artifact("agents_md", 50, "fail"),
+        ];
+        let counts = count_by(&artifacts, |a| &a.artifact_type);
+        let prompt_count = counts.iter().find(|(k, _)| k == "prompt_config").unwrap().1;
+        let agents_count = counts.iter().find(|(k, _)| k == "agents_md").unwrap().1;
+        assert_eq!(prompt_count, 2);
+        assert_eq!(agents_count, 1);
+    }
+
+    #[test]
+    fn count_by_sorted_descending() {
+        let artifacts = vec![
+            make_artifact("prompt_config", 10, "pass"),
+            make_artifact("agents_md", 50, "fail"),
+            make_artifact("agents_md", 60, "fail"),
+            make_artifact("agents_md", 70, "fail"),
+        ];
+        let counts = count_by(&artifacts, |a| &a.artifact_type);
+        assert_eq!(counts[0].0, "agents_md");
+        assert_eq!(counts[0].1, 3);
+    }
+
+    #[test]
+    fn count_by_status_counts_correctly() {
+        let a1 = make_artifact("prompt_config", 10, "pass");
+        let a2 = make_artifact("prompt_config", 50, "fail");
+        let a3 = make_artifact("prompt_config", 30, "conditional_pass");
+        let a4 = make_artifact("prompt_config", 15, "pass");
+        let refs: Vec<&ArtifactReport> = vec![&a1, &a2, &a3, &a4];
+        let counts = count_by_status(&refs);
+        assert_eq!(counts.get("pass").copied().unwrap_or(0), 2);
+        assert_eq!(counts.get("fail").copied().unwrap_or(0), 1);
+        assert_eq!(counts.get("conditional_pass").copied().unwrap_or(0), 1);
+    }
+
+    #[test]
+    fn artifact_location_from_paths() {
+        let a = make_artifact("prompt_config", 10, "pass");
+        assert_eq!(artifact_location(&a), "/tmp/test");
+    }
+
+    #[test]
+    fn artifact_location_unknown_when_missing() {
+        let a = ArtifactReport::new("prompt_config", 0.8);
+        assert_eq!(artifact_location(&a), "unknown");
+    }
+
+    #[test]
+    fn top_risk_reasons_max_two() {
+        let mut a = make_artifact("prompt_config", 50, "fail");
+        a.risk_reasons = vec![
+            "reason1".to_string(),
+            "reason2".to_string(),
+            "reason3".to_string(),
+        ];
+        assert_eq!(top_risk_reasons(&a).len(), 2);
+    }
+
+    #[test]
+    fn top_risk_reasons_empty() {
+        let a = make_artifact("prompt_config", 10, "pass");
+        assert!(top_risk_reasons(&a).is_empty());
+    }
+
+    #[test]
+    fn humanize_reason_known_keys() {
+        assert_eq!(humanize_reason("keyword:api"), "Makes external API calls");
+        assert_eq!(humanize_reason("keyword:shell"), "Runs shell commands");
+        assert_eq!(
+            humanize_reason("credential_exposure_signal"),
+            "Credential / secret exposure"
+        );
+        assert_eq!(
+            humanize_reason("dangerous_combo:shell+network+fs"),
+            "Shell + network + filesystem combined"
+        );
+    }
+
+    #[test]
+    fn humanize_reason_strips_weight_suffix() {
+        assert_eq!(humanize_reason("keyword:api (+10)"), "Makes external API calls");
+    }
+
+    #[test]
+    fn humanize_reason_passthrough_unknown() {
+        assert_eq!(humanize_reason("something_custom"), "something_custom");
+    }
+}

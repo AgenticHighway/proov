@@ -481,3 +481,294 @@ fn print_vettd_cta() {
     eprintln!("  \x1b[2m└──────────────────────────────────────────────────────────┘\x1b[0m");
     eprintln!();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn min_severity_score_critical() {
+        assert_eq!(min_severity_score("critical"), 90);
+    }
+
+    #[test]
+    fn min_severity_score_high() {
+        assert_eq!(min_severity_score("high"), 70);
+    }
+
+    #[test]
+    fn min_severity_score_medium() {
+        assert_eq!(min_severity_score("medium"), 40);
+    }
+
+    #[test]
+    fn min_severity_score_low() {
+        assert_eq!(min_severity_score("low"), 10);
+    }
+
+    #[test]
+    fn min_severity_score_info_default() {
+        assert_eq!(min_severity_score("info"), 0);
+        assert_eq!(min_severity_score("anything"), 0);
+    }
+
+    #[test]
+    fn filter_by_severity_removes_below_threshold() {
+        let mut report = ScanReport::new("/tmp");
+        let mut a1 = crate::models::ArtifactReport::new("prompt_config", 0.8);
+        a1.risk_score = 80;
+        let mut a2 = crate::models::ArtifactReport::new("prompt_config", 0.8);
+        a2.risk_score = 30;
+        let mut a3 = crate::models::ArtifactReport::new("prompt_config", 0.8);
+        a3.risk_score = 50;
+        report.artifacts = vec![a1, a2, a3];
+
+        filter_by_severity(&mut report, 40);
+        assert_eq!(report.artifacts.len(), 2);
+        assert!(report.artifacts.iter().all(|a| a.risk_score >= 40));
+    }
+
+    #[test]
+    fn filter_by_severity_zero_keeps_all() {
+        let mut report = ScanReport::new("/tmp");
+        let mut a = crate::models::ArtifactReport::new("prompt_config", 0.8);
+        a.risk_score = 5;
+        report.artifacts = vec![a];
+
+        filter_by_severity(&mut report, 0);
+        assert_eq!(report.artifacts.len(), 1);
+    }
+
+    #[test]
+    fn parse_cli_scan() {
+        let cli = Cli::parse_from(["proov", "scan"]);
+        assert!(matches!(cli.command, Some(Commands::Scan { .. })));
+    }
+
+    #[test]
+    fn parse_cli_quick() {
+        let cli = Cli::parse_from(["proov", "quick"]);
+        assert!(matches!(cli.command, Some(Commands::Quick { .. })));
+    }
+
+    #[test]
+    fn parse_cli_full() {
+        let cli = Cli::parse_from(["proov", "full"]);
+        assert!(matches!(cli.command, Some(Commands::Full { .. })));
+    }
+
+    #[test]
+    fn parse_cli_file() {
+        let cli = Cli::parse_from(["proov", "file", "/tmp/test.md"]);
+        match cli.command {
+            Some(Commands::File { path, .. }) => {
+                assert_eq!(path, PathBuf::from("/tmp/test.md"));
+            }
+            _ => panic!("Expected File command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_folder() {
+        let cli = Cli::parse_from(["proov", "folder", "/tmp"]);
+        match cli.command {
+            Some(Commands::Folder { path, .. }) => {
+                assert_eq!(path, PathBuf::from("/tmp"));
+            }
+            _ => panic!("Expected Folder command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_repo() {
+        let cli = Cli::parse_from(["proov", "repo", "."]);
+        match cli.command {
+            Some(Commands::Repo { path, .. }) => {
+                assert_eq!(path, PathBuf::from("."));
+            }
+            _ => panic!("Expected Repo command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_auth() {
+        let cli = Cli::parse_from(["proov", "auth", "--key", "ah_test123"]);
+        match cli.command {
+            Some(Commands::Auth { key, endpoint }) => {
+                assert_eq!(key, "ah_test123");
+                assert!(endpoint.is_none());
+            }
+            _ => panic!("Expected Auth command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_auth_with_endpoint() {
+        let cli = Cli::parse_from([
+            "proov",
+            "auth",
+            "--key",
+            "ah_test",
+            "--endpoint",
+            "https://example.com/api",
+        ]);
+        match cli.command {
+            Some(Commands::Auth { key, endpoint }) => {
+                assert_eq!(key, "ah_test");
+                assert_eq!(endpoint.unwrap(), "https://example.com/api");
+            }
+            _ => panic!("Expected Auth command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_update_check() {
+        let cli = Cli::parse_from(["proov", "update", "--check"]);
+        match cli.command {
+            Some(Commands::Update { check, force }) => {
+                assert!(check);
+                assert!(!force);
+            }
+            _ => panic!("Expected Update command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_rules_list() {
+        let cli = Cli::parse_from(["proov", "rules", "list"]);
+        match cli.command {
+            Some(Commands::Rules {
+                action: RuleAction::List,
+            }) => {}
+            _ => panic!("Expected Rules List"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_output_args_json() {
+        let cli = Cli::parse_from(["proov", "scan", "--json"]);
+        match cli.command {
+            Some(Commands::Scan { output, .. }) => {
+                assert!(output.json);
+                assert!(!output.summary);
+                assert!(!output.full);
+            }
+            _ => panic!("Expected Scan command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_output_args_summary() {
+        let cli = Cli::parse_from(["proov", "scan", "--summary"]);
+        match cli.command {
+            Some(Commands::Scan { output, .. }) => {
+                assert!(output.summary);
+            }
+            _ => panic!("Expected Scan command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_output_args_min_severity() {
+        let cli = Cli::parse_from(["proov", "scan", "--min-severity", "high"]);
+        match cli.command {
+            Some(Commands::Scan { output, .. }) => {
+                assert_eq!(output.min_severity, "high");
+            }
+            _ => panic!("Expected Scan command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_no_command() {
+        let cli = Cli::parse_from(["proov"]);
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn resolve_scan_params_scan() {
+        let cmd = Commands::Scan {
+            output: OutputArgs {
+                full: false,
+                json: false,
+                summary: false,
+                out: None,
+                min_severity: "info".to_string(),
+                contract: false,
+                submit: None,
+                api_key: None,
+            },
+        };
+        let params = resolve_scan_params(&cmd);
+        assert_eq!(params.mode, "home");
+        assert!(params.workdir.is_none());
+        assert!(!params.deep);
+    }
+
+    #[test]
+    fn resolve_scan_params_quick() {
+        let cmd = Commands::Quick {
+            output: OutputArgs {
+                full: false,
+                json: false,
+                summary: false,
+                out: None,
+                min_severity: "info".to_string(),
+                contract: false,
+                submit: None,
+                api_key: None,
+            },
+        };
+        let params = resolve_scan_params(&cmd);
+        assert_eq!(params.mode, "host");
+    }
+
+    #[test]
+    fn resolve_scan_params_repo_deep() {
+        let cmd = Commands::Repo {
+            path: PathBuf::from("/tmp/repo"),
+            output: OutputArgs {
+                full: false,
+                json: false,
+                summary: false,
+                out: None,
+                min_severity: "info".to_string(),
+                contract: false,
+                submit: None,
+                api_key: None,
+            },
+        };
+        let params = resolve_scan_params(&cmd);
+        assert_eq!(params.mode, "workdir");
+        assert!(params.deep);
+        assert_eq!(params.workdir.unwrap(), Path::new("/tmp/repo"));
+    }
+
+    #[test]
+    fn resolve_scan_params_file() {
+        let cmd = Commands::File {
+            path: PathBuf::from("/tmp/test.md"),
+            output: OutputArgs {
+                full: false,
+                json: false,
+                summary: false,
+                out: None,
+                min_severity: "info".to_string(),
+                contract: false,
+                submit: None,
+                api_key: None,
+            },
+        };
+        let params = resolve_scan_params(&cmd);
+        assert_eq!(params.mode, "file");
+        assert_eq!(params.file.unwrap(), Path::new("/tmp/test.md"));
+    }
+
+    #[test]
+    fn load_access_config_defaults_when_no_file() {
+        let cfg = load_access_config();
+        assert_eq!(cfg.mode, "licensed");
+        assert!(cfg.license_key.is_none());
+    }
+}

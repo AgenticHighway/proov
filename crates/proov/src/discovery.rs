@@ -365,3 +365,150 @@ pub fn discover_file_surface(path: &Path) -> Vec<Candidate> {
         origin: "workdir".to_string(),
     }]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn deep_excluded_set_contains_expected_dirs() {
+        let set = deep_excluded_set();
+        assert!(set.contains(".git"));
+        assert!(set.contains("node_modules"));
+        assert!(set.contains("target"));
+        assert!(set.contains("__pycache__"));
+    }
+
+    #[test]
+    fn filesystem_excluded_set_extends_deep_set() {
+        let deep = deep_excluded_set();
+        let fs_set = filesystem_excluded_set();
+        // Must be a superset of deep
+        for item in &deep {
+            assert!(fs_set.contains(item));
+        }
+        // Must contain filesystem-specific dirs
+        assert!(fs_set.contains("proc"));
+        assert!(fs_set.contains("sys"));
+        assert!(fs_set.contains("Library"));
+    }
+
+    #[test]
+    fn walk_bounded_finds_files() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("test.txt"), "hello").unwrap();
+        fs::create_dir(tmp.path().join("sub")).unwrap();
+        fs::write(tmp.path().join("sub").join("nested.txt"), "world").unwrap();
+
+        let candidates = walk_bounded(tmp.path(), "test", None);
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(|c| c.origin == "test"));
+    }
+
+    #[test]
+    fn walk_bounded_skips_dirs() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("sub")).unwrap();
+        // Only dirs, no files
+        let candidates = walk_bounded(tmp.path(), "test", None);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn walk_deep_workdir_excludes_git() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join(".git")).unwrap();
+        fs::write(tmp.path().join(".git").join("config"), "git data").unwrap();
+        fs::write(tmp.path().join("real.txt"), "real file").unwrap();
+
+        let candidates = walk_deep_workdir(tmp.path(), "workdir", None);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].path.ends_with("real.txt"));
+    }
+
+    #[test]
+    fn walk_deep_workdir_excludes_node_modules() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("node_modules")).unwrap();
+        fs::write(
+            tmp.path().join("node_modules").join("package.json"),
+            "{}",
+        )
+        .unwrap();
+        fs::write(tmp.path().join("index.js"), "code").unwrap();
+
+        let candidates = walk_deep_workdir(tmp.path(), "workdir", None);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].path.ends_with("index.js"));
+    }
+
+    #[test]
+    fn discover_file_surface_single_file() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("agents.md");
+        fs::write(&file, "# Agents").unwrap();
+
+        let candidates = discover_file_surface(&file);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].origin, "workdir");
+    }
+
+    #[test]
+    fn discover_file_surface_nonexistent() {
+        let candidates = discover_file_surface(Path::new("/nonexistent/file.txt"));
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn discover_file_surface_directory_returns_empty() {
+        let tmp = TempDir::new().unwrap();
+        let candidates = discover_file_surface(tmp.path());
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn discover_workdir_surfaces_nonexistent() {
+        let candidates =
+            discover_workdir_surfaces(Path::new("/nonexistent/path"), false, None);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn discover_workdir_surfaces_finds_files() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("test.md"), "hello").unwrap();
+
+        let candidates = discover_workdir_surfaces(tmp.path(), false, None);
+        assert_eq!(candidates.len(), 1);
+    }
+
+    #[test]
+    fn discover_workdir_deep_excludes_git() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join(".git")).unwrap();
+        fs::write(tmp.path().join(".git").join("HEAD"), "ref").unwrap();
+        fs::write(tmp.path().join("code.rs"), "fn main() {}").unwrap();
+
+        let candidates = discover_workdir_surfaces(tmp.path(), true, None);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].path.ends_with("code.rs"));
+    }
+
+    #[test]
+    fn host_roots_returns_existing_paths() {
+        let roots = host_roots();
+        for root in &roots {
+            assert!(root.exists(), "{:?} should exist", root);
+        }
+    }
+
+    #[test]
+    fn ai_cli_config_roots_returns_existing_paths() {
+        let roots = ai_cli_config_roots();
+        for root in &roots {
+            assert!(root.exists(), "{:?} should exist", root);
+        }
+    }
+}

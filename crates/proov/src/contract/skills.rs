@@ -221,3 +221,160 @@ fn find_skill_consumers(tool_name: &str, agents: &[Agent]) -> Vec<SkillConsumer>
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contract::types::AgentTool;
+    use crate::models::ArtifactReport;
+
+    fn make_agent(name: &str, tools: Vec<&str>) -> Agent {
+        Agent {
+            id: format!("agent-{name}"),
+            name: name.to_string(),
+            source_file_path: String::new(),
+            classification: "System".to_string(),
+            execution_model: "User-in-the-loop".to_string(),
+            trust_score: 80,
+            version: "unknown".to_string(),
+            author: "unknown".to_string(),
+            source_repo: "unknown".to_string(),
+            capabilities: Vec::new(),
+            tools: tools
+                .into_iter()
+                .map(|t| AgentTool {
+                    name: t.to_string(),
+                    tool_type: "skill".to_string(),
+                })
+                .collect(),
+            trust_breakdown: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn skill_description_known_tools() {
+        assert!(skill_description("shell").contains("shell commands"));
+        assert!(skill_description("bash").contains("shell commands"));
+        assert!(skill_description("python").contains("Python"));
+        assert!(skill_description("node").contains("Node.js"));
+        assert!(skill_description("filesystem").contains("filesystem"));
+        assert!(skill_description("browser").contains("browser"));
+        assert!(skill_description("api").contains("HTTP"));
+        assert!(skill_description("docker").contains("Docker"));
+    }
+
+    #[test]
+    fn skill_description_unknown_replaces_underscores() {
+        let desc = skill_description("my_custom_tool");
+        assert_eq!(desc, "Provides my custom tool functionality");
+    }
+
+    #[test]
+    fn infer_permissions_shell() {
+        let perms = infer_permissions("shell");
+        assert_eq!(perms.len(), 2);
+        assert!(perms.iter().any(|p| p.name == "Shell execution"));
+        assert!(perms.iter().any(|p| p.name == "Filesystem read/write"));
+    }
+
+    #[test]
+    fn infer_permissions_filesystem() {
+        let perms = infer_permissions("filesystem");
+        assert_eq!(perms.len(), 1);
+        assert_eq!(perms[0].name, "Filesystem read/write");
+    }
+
+    #[test]
+    fn infer_permissions_browser() {
+        let perms = infer_permissions("browser");
+        assert_eq!(perms.len(), 1);
+        assert_eq!(perms[0].name, "Network access");
+    }
+
+    #[test]
+    fn infer_permissions_docker() {
+        let perms = infer_permissions("docker");
+        assert_eq!(perms.len(), 2);
+        assert!(perms.iter().any(|p| p.name == "Shell execution"));
+        assert!(perms.iter().any(|p| p.name == "Network access"));
+    }
+
+    #[test]
+    fn infer_permissions_unknown_empty() {
+        let perms = infer_permissions("custom_tool");
+        assert!(perms.is_empty());
+    }
+
+    #[test]
+    fn find_skill_consumers_matches_agents() {
+        let agents = vec![
+            make_agent("coder", vec!["shell", "filesystem"]),
+            make_agent("researcher", vec!["browser", "api"]),
+        ];
+        let consumers = find_skill_consumers("shell", &agents);
+        assert_eq!(consumers.len(), 1);
+        assert_eq!(consumers[0].name, "coder");
+        assert_eq!(consumers[0].consumer_type, "Agent");
+    }
+
+    #[test]
+    fn find_skill_consumers_no_match() {
+        let agents = vec![make_agent("coder", vec!["shell"])];
+        let consumers = find_skill_consumers("browser", &agents);
+        assert!(consumers.is_empty());
+    }
+
+    #[test]
+    fn tool_to_skill_shell_type() {
+        let a = ArtifactReport::new("agents_md", 0.8);
+        let skill = tool_to_skill("shell", &a, &[]);
+        assert_eq!(skill.skill_type, "CLI Tool");
+        assert_eq!(skill.execution_environment, "Local Process");
+        assert!(skill.dependencies.binaries.contains(&"bash".to_string()));
+    }
+
+    #[test]
+    fn tool_to_skill_browser_type() {
+        let a = ArtifactReport::new("agents_md", 0.8);
+        let skill = tool_to_skill("browser", &a, &[]);
+        assert_eq!(skill.skill_type, "HTTP Integration");
+        assert_eq!(skill.execution_environment, "Remote API");
+    }
+
+    #[test]
+    fn tool_to_skill_trust_level_by_risk() {
+        let mut a = ArtifactReport::new("agents_md", 0.8);
+        a.risk_score = 80;
+        let skill = tool_to_skill("shell", &a, &[]);
+        assert_eq!(skill.trust_level, "Untrusted");
+
+        a.risk_score = 50;
+        let skill = tool_to_skill("shell", &a, &[]);
+        assert_eq!(skill.trust_level, "Conditional");
+
+        a.risk_score = 10;
+        let skill = tool_to_skill("shell", &a, &[]);
+        assert_eq!(skill.trust_level, "Trusted");
+    }
+
+    #[test]
+    fn build_skills_deduplicates() {
+        let mut a1 = ArtifactReport::new("agents_md", 0.8);
+        a1.metadata.insert(
+            "declared_tools".to_string(),
+            serde_json::json!(["shell", "browser"]),
+        );
+        let mut a2 = ArtifactReport::new("agents_md", 0.8);
+        a2.metadata.insert(
+            "declared_tools".to_string(),
+            serde_json::json!(["shell", "api"]),
+        );
+        let skills = build_skills(&[a1, a2], &[]);
+        let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"shell"));
+        assert!(names.contains(&"browser"));
+        assert!(names.contains(&"api"));
+        // "shell" should appear only once
+        assert_eq!(names.iter().filter(|n| **n == "shell").count(), 1);
+    }
+}

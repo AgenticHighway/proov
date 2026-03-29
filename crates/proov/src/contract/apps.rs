@@ -282,3 +282,165 @@ fn build_risk_summary(app_name: &str, a: &ArtifactReport, risk_level: &str) -> S
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ArtifactReport;
+
+    #[test]
+    fn risk_level_high() {
+        assert_eq!(risk_level(70), "High");
+        assert_eq!(risk_level(100), "High");
+    }
+
+    #[test]
+    fn risk_level_medium() {
+        assert_eq!(risk_level(40), "Medium");
+        assert_eq!(risk_level(69), "Medium");
+    }
+
+    #[test]
+    fn risk_level_low() {
+        assert_eq!(risk_level(0), "Low");
+        assert_eq!(risk_level(39), "Low");
+    }
+
+    #[test]
+    fn review_status_pass() {
+        assert_eq!(review_status_label("pass"), "Reviewed");
+    }
+
+    #[test]
+    fn review_status_fail() {
+        assert_eq!(review_status_label("fail"), "Flagged");
+    }
+
+    #[test]
+    fn review_status_unknown() {
+        assert_eq!(review_status_label("pending"), "Unreviewed");
+        assert_eq!(review_status_label("conditional_pass"), "Unreviewed");
+    }
+
+    #[test]
+    fn detect_framework_langchain() {
+        let mut a = ArtifactReport::new("container_config", 0.8);
+        a.signals = vec!["uses_langchain_framework".to_string()];
+        assert_eq!(detect_framework(&a), "LangGraph");
+    }
+
+    #[test]
+    fn detect_framework_crewai() {
+        let mut a = ArtifactReport::new("container_config", 0.8);
+        a.signals = vec!["uses_crewai".to_string()];
+        assert_eq!(detect_framework(&a), "CrewAI");
+    }
+
+    #[test]
+    fn detect_framework_custom_default() {
+        let a = ArtifactReport::new("container_config", 0.8);
+        assert_eq!(detect_framework(&a), "Custom");
+    }
+
+    #[test]
+    fn classify_endpoint_github() {
+        let (name, itype, _risk) = classify_endpoint("https://api.github.com/repos");
+        assert_eq!(name, "GitHub API");
+        assert_eq!(itype, "REST API");
+    }
+
+    #[test]
+    fn classify_endpoint_openai() {
+        let (name, _, _) = classify_endpoint("https://api.openai.com/v1/chat");
+        assert_eq!(name, "OpenAI API");
+    }
+
+    #[test]
+    fn classify_endpoint_anthropic() {
+        let (name, _, _) = classify_endpoint("https://api.anthropic.com/v1/messages");
+        assert_eq!(name, "Anthropic API");
+    }
+
+    #[test]
+    fn classify_endpoint_unknown() {
+        let (name, _, _) = classify_endpoint("https://example.com/api");
+        assert_eq!(name, "https://example.com/api");
+    }
+
+    #[test]
+    fn build_verification_checks_basic() {
+        let a = ArtifactReport::new("container_config", 0.8);
+        let checks = build_verification_checks(&a);
+        assert!(checks.contains(&"Container configuration present".to_string()));
+        assert!(checks.contains(&"Risk score computed".to_string()));
+    }
+
+    #[test]
+    fn build_verification_checks_pass() {
+        let mut a = ArtifactReport::new("container_config", 0.8);
+        a.verification_status = "pass".to_string();
+        let checks = build_verification_checks(&a);
+        assert!(checks.contains(&"Verification passed".to_string()));
+    }
+
+    #[test]
+    fn build_verification_checks_ai_proximity() {
+        let mut a = ArtifactReport::new("container_config", 0.8);
+        a.signals = vec!["ai_artifact_proximity".to_string()];
+        let checks = build_verification_checks(&a);
+        assert!(checks.contains(&"AI artifact proximity detected".to_string()));
+    }
+
+    #[test]
+    fn build_risk_tags_code_execution() {
+        let mut a = ArtifactReport::new("container_config", 0.8);
+        a.signals = vec!["keyword:shell".to_string()];
+        let tags = build_risk_tags(&a);
+        assert!(tags.contains(&"Autonomous Code Execution".to_string()));
+    }
+
+    #[test]
+    fn build_risk_tags_credential_exposure() {
+        let mut a = ArtifactReport::new("container_config", 0.8);
+        a.signals = vec!["credential_exposure_signal".to_string()];
+        let tags = build_risk_tags(&a);
+        assert!(tags.contains(&"Credential Exposure".to_string()));
+    }
+
+    #[test]
+    fn build_risk_tags_dangerous_instructions() {
+        let mut a = ArtifactReport::new("container_config", 0.8);
+        a.signals = vec!["dangerous_keyword:exfiltrate".to_string()];
+        let tags = build_risk_tags(&a);
+        assert!(tags.contains(&"Dangerous Instructions".to_string()));
+    }
+
+    #[test]
+    fn build_risk_summary_no_reasons() {
+        let a = ArtifactReport::new("container_config", 0.8);
+        let summary = build_risk_summary("my-app", &a, "Low");
+        assert!(summary.contains("Low-risk"));
+        assert!(summary.contains("my-app"));
+        assert!(summary.contains("No specific risk drivers"));
+    }
+
+    #[test]
+    fn build_risk_summary_with_reasons() {
+        let mut a = ArtifactReport::new("container_config", 0.8);
+        a.risk_reasons = vec!["shell access".to_string(), "network calls".to_string()];
+        let summary = build_risk_summary("my-app", &a, "High");
+        assert!(summary.contains("High-risk"));
+        assert!(summary.contains("shell access, network calls"));
+    }
+
+    #[test]
+    fn build_agentic_apps_skips_container_candidates() {
+        let mut a = ArtifactReport::new("container_candidate", 0.8);
+        a.metadata.insert(
+            "paths".to_string(),
+            serde_json::json!(["/tmp/Dockerfile"]),
+        );
+        let apps = build_agentic_apps(&[&a], &[]);
+        assert!(apps.is_empty());
+    }
+}
