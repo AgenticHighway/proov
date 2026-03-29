@@ -32,7 +32,10 @@ fn is_tty() -> bool {
 
 fn read_key() -> String {
     loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent {
+            code, modifiers, ..
+        })) = event::read()
+        {
             if modifiers.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
                 return "ctrl-c".to_string();
             }

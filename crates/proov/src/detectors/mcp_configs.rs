@@ -64,10 +64,7 @@ fn classify_candidate(candidate: &Candidate) -> Option<ArtifactReport> {
     let file_prims = gather_file_primitives(&candidate.path);
     metadata.extend(file_prims);
 
-    metadata.insert(
-        "paths".into(),
-        json!([candidate.path.to_string_lossy()]),
-    );
+    metadata.insert("paths".into(), json!([candidate.path.to_string_lossy()]));
 
     let confidence = match parse_mcp_json(&content) {
         Some(parsed) => {
@@ -200,7 +197,8 @@ mod tests {
         let val: Value = serde_json::from_str(
             r#"{"mcpServers": {"filesystem": {}, "github": {}}}
 "#,
-        ).unwrap();
+        )
+        .unwrap();
         let mut names = extract_server_names(&val);
         names.sort();
         assert_eq!(names, vec!["filesystem", "github"]);
@@ -214,9 +212,8 @@ mod tests {
 
     #[test]
     fn count_servers_counts_mcp_servers() {
-        let val: Value = serde_json::from_str(
-            r#"{"mcpServers": {"a": {}, "b": {}, "c": {}}}"#,
-        ).unwrap();
+        let val: Value =
+            serde_json::from_str(r#"{"mcpServers": {"a": {}, "b": {}, "c": {}}}"#).unwrap();
         assert_eq!(count_servers(&val), 3);
     }
 

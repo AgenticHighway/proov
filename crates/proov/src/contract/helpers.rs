@@ -19,20 +19,14 @@ pub fn first_path(a: &ArtifactReport) -> &str {
 ///      `/Users/will/bar/.cursorrules`      → `bar/.cursorrules`
 pub fn qualified_name(path: &str) -> String {
     let p = std::path::Path::new(path);
-    let file_name = p
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown");
+    let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
     let parent_name = p
         .parent()
         .and_then(|pp| pp.file_name())
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    let stem = p
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(file_name);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
 
     // For dotfiles, keep the full filename
     if file_name.starts_with('.') {
@@ -159,8 +153,7 @@ mod tests {
 
     fn make_artifact_with_path(path: &str) -> ArtifactReport {
         let mut a = ArtifactReport::new("test", 0.8);
-        a.metadata
-            .insert("paths".to_string(), json!([path]));
+        a.metadata.insert("paths".to_string(), json!([path]));
         a
     }
 
@@ -178,7 +171,10 @@ mod tests {
 
     #[test]
     fn qualified_name_regular_file() {
-        assert_eq!(qualified_name("/Users/will/project/agents.md"), "project/agents");
+        assert_eq!(
+            qualified_name("/Users/will/project/agents.md"),
+            "project/agents"
+        );
     }
 
     #[test]

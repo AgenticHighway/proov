@@ -35,7 +35,10 @@ fn is_tty() -> bool {
 
 fn read_key() -> String {
     loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent {
+            code, modifiers, ..
+        })) = event::read()
+        {
             if modifiers.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
                 return "ctrl-c".to_string();
             }
@@ -90,8 +93,16 @@ fn confirm(prompt: &str, default: bool) -> bool {
     terminal::enable_raw_mode().ok();
 
     loop {
-        let yes_style = if value { format!("{INV} Yes {RESET}") } else { " Yes ".to_string() };
-        let no_style = if !value { format!("{INV} No {RESET}") } else { " No ".to_string() };
+        let yes_style = if value {
+            format!("{INV} Yes {RESET}")
+        } else {
+            " Yes ".to_string()
+        };
+        let no_style = if !value {
+            format!("{INV} No {RESET}")
+        } else {
+            " No ".to_string()
+        };
         eprint!("\r\x1b[K  {prompt}  {yes_style}  {no_style}");
         let _ = io::stderr().flush();
 
@@ -186,7 +197,9 @@ fn graceful_exit() -> ! {
 fn print_banner() {
     eprintln!();
     eprintln!("  {DIM}┌──────────────────────────────────────────┐{RESET}");
-    eprintln!("  {DIM}│{RESET}  {BOLD}{CYAN}proov{RESET}  —  AI Execution Inventory        {DIM}│{RESET}");
+    eprintln!(
+        "  {DIM}│{RESET}  {BOLD}{CYAN}proov{RESET}  —  AI Execution Inventory        {DIM}│{RESET}"
+    );
     eprintln!("  {DIM}└──────────────────────────────────────────┘{RESET}");
     eprintln!();
 }
@@ -209,10 +222,7 @@ fn step_choose_mode() -> (String, Option<PathBuf>) {
         2 => ("root".to_string(), None),
         3 => {
             let dir = ask("Directory path", ".");
-            (
-                "workdir".to_string(),
-                Some(PathBuf::from(dir)),
-            )
+            ("workdir".to_string(), Some(PathBuf::from(dir)))
         }
         4 => {
             let path = ask("File path", "");
@@ -235,10 +245,7 @@ fn step_run_scan(mode: &str, workdir: Option<&PathBuf>) -> ScanReport {
         Some(&|detail: &str| {
             // Progress tick writes directly — ScanProgress is not accessible
             // from the closure without interior mutability, so we write inline.
-            eprint!(
-                "\r\x1b[K  {CYAN}⠿{RESET} Scanning  {}  ",
-                detail
-            );
+            eprint!("\r\x1b[K  {CYAN}⠿{RESET} Scanning  {}  ", detail);
             let _ = io::stderr().flush();
         }),
     );
@@ -283,7 +290,12 @@ fn print_severity_bars(report: &ScanReport) {
 // ── Output step ─────────────────────────────────────────────────────────
 
 fn step_choose_output(report: &ScanReport, scan_duration_ms: u64) {
-    let formats = &["Overview (default)", "Full detail", "Summary", "JSON (contract format)"];
+    let formats = &[
+        "Overview (default)",
+        "Full detail",
+        "Summary",
+        "JSON (contract format)",
+    ];
     let idx = pick("Output format", formats, 0);
 
     match idx {
@@ -292,8 +304,8 @@ fn step_choose_output(report: &ScanReport, scan_duration_ms: u64) {
         2 => print_summary(report, "scan"),
         3 => {
             let payload = build_contract_payload(report, scan_duration_ms);
-            let json = serde_json::to_string_pretty(&payload)
-                .expect("contract payload serialization");
+            let json =
+                serde_json::to_string_pretty(&payload).expect("contract payload serialization");
             println!("{json}");
         }
         _ => print_overview(report, "scan"),
@@ -306,8 +318,7 @@ fn offer_save(report: &ScanReport, scan_duration_ms: u64) {
     }
     let dest = ask("Output path", "proov-report.json");
     let payload = build_contract_payload(report, scan_duration_ms);
-    let json = serde_json::to_string_pretty(&payload)
-        .expect("contract payload serialization");
+    let json = serde_json::to_string_pretty(&payload).expect("contract payload serialization");
     match std::fs::write(&dest, &json) {
         Ok(()) => eprintln!("  {DIM}Saved to {dest}{RESET}"),
         Err(e) => eprintln!("  Error: {e}"),
@@ -320,8 +331,12 @@ fn print_vettd_hint() {
     eprintln!();
     eprintln!("  {DIM}┌──────────────────────────────────────────────────────────┐{RESET}");
     eprintln!("  {DIM}│{RESET}  {BOLD}Want deeper analysis?{RESET}  Sync your results to {CYAN}Vettd{RESET}       {DIM}│{RESET}");
-    eprintln!("  {DIM}│{RESET}  for verification scoring, trend tracking, and more.   {DIM}│{RESET}");
-    eprintln!("  {DIM}│{RESET}                                                        {DIM}│{RESET}");
+    eprintln!(
+        "  {DIM}│{RESET}  for verification scoring, trend tracking, and more.   {DIM}│{RESET}"
+    );
+    eprintln!(
+        "  {DIM}│{RESET}                                                        {DIM}│{RESET}"
+    );
     eprintln!("  {DIM}│{RESET}  Get your API key → {CYAN}https://vettd.agentichighway.ai{RESET}    {DIM}│{RESET}");
     eprintln!("  {DIM}│{RESET}  Then run:  {BOLD}proov setup{RESET}                                {DIM}│{RESET}");
     eprintln!("  {DIM}└──────────────────────────────────────────────────────────┘{RESET}");
@@ -380,8 +395,8 @@ fn post_scan_actions(report: &ScanReport, scan_duration_ms: u64) {
         };
         if confirm(&format!("Submit results to {label}?"), true) {
             let payload = build_contract_payload(report, scan_duration_ms);
-            let json = serde_json::to_string_pretty(&payload)
-                .expect("contract payload serialization");
+            let json =
+                serde_json::to_string_pretty(&payload).expect("contract payload serialization");
             eprintln!("  {DIM}Submitting…{RESET}");
             match submit_contract_payload(&json, &auth) {
                 Ok(()) => {}
@@ -393,8 +408,7 @@ fn post_scan_actions(report: &ScanReport, scan_duration_ms: u64) {
         let ts = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%SZ");
         let dest = format!("proov-{ts}.json");
         let payload = build_contract_payload(report, scan_duration_ms);
-        let json = serde_json::to_string_pretty(&payload)
-            .expect("contract payload serialization");
+        let json = serde_json::to_string_pretty(&payload).expect("contract payload serialization");
         match std::fs::write(&dest, &json) {
             Ok(()) => {
                 eprintln!("  {DIM}Results saved to {dest}{RESET}");

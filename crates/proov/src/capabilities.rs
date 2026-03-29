@@ -51,7 +51,10 @@ mod tests {
             "keyword:shell".into(), // duplicate
         ];
         let caps = derive_capabilities(&a);
-        assert_eq!(caps, vec!["browser_access", "external_api_calls", "shell_execution"]);
+        assert_eq!(
+            caps,
+            vec!["browser_access", "external_api_calls", "shell_execution"]
+        );
     }
 
     #[test]

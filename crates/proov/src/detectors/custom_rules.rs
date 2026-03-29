@@ -65,11 +65,7 @@ impl Detector for CustomRulesDetector {
     }
 }
 
-fn apply_rule(
-    candidate: &Candidate,
-    rule: &DetectionRule,
-    deep: bool,
-) -> Option<ArtifactReport> {
+fn apply_rule(candidate: &Candidate, rule: &DetectionRule, deep: bool) -> Option<ArtifactReport> {
     let file_name = candidate.path.file_name()?.to_str()?;
 
     if !matches_rule(file_name, rule) {
@@ -85,10 +81,7 @@ fn apply_rule(
     metadata.extend(file_prims);
 
     signals.push(format!("filename_match:{file_name}"));
-    metadata.insert(
-        "paths".into(),
-        json!([candidate.path.to_string_lossy()]),
-    );
+    metadata.insert("paths".into(), json!([candidate.path.to_string_lossy()]));
     metadata.insert("rule_name".into(), json!(rule.detector.name));
 
     // Content analysis (if allowed and readable)

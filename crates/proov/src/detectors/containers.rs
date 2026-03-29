@@ -90,10 +90,7 @@ fn build_ai_dir_set(candidates: &[Candidate]) -> HashSet<PathBuf> {
     dirs
 }
 
-fn classify_candidate(
-    candidate: &Candidate,
-    ai_dirs: &HashSet<PathBuf>,
-) -> Option<ArtifactReport> {
+fn classify_candidate(candidate: &Candidate, ai_dirs: &HashSet<PathBuf>) -> Option<ArtifactReport> {
     let name = candidate.path.file_name()?.to_str()?;
     if !CONTAINER_FILENAMES.contains(&name) {
         return None;
@@ -132,10 +129,7 @@ fn classify_candidate(
         ("container_candidate", 0.4)
     };
 
-    metadata.insert(
-        "paths".into(),
-        json!([candidate.path.to_string_lossy()]),
-    );
+    metadata.insert("paths".into(), json!([candidate.path.to_string_lossy()]));
 
     let mut report = ArtifactReport::new(artifact_type, confidence);
     report.signals = signals;

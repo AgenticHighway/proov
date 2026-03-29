@@ -259,10 +259,8 @@ mod tests {
     #[test]
     fn prompt_classification_user_for_other() {
         let mut a = ArtifactReport::new("prompt_config", 0.8);
-        a.metadata.insert(
-            "paths".to_string(),
-            serde_json::json!(["/tmp/config.md"]),
-        );
+        a.metadata
+            .insert("paths".to_string(), serde_json::json!(["/tmp/config.md"]));
         let prompt = artifact_to_prompt(&a);
         assert_eq!(prompt.classification, "User Prompt");
     }
@@ -271,10 +269,8 @@ mod tests {
     fn prompt_risk_score_clamped() {
         let mut a = ArtifactReport::new("prompt_config", 0.8);
         a.risk_score = 150;
-        a.metadata.insert(
-            "paths".to_string(),
-            serde_json::json!(["/tmp/test.md"]),
-        );
+        a.metadata
+            .insert("paths".to_string(), serde_json::json!(["/tmp/test.md"]));
         let prompt = artifact_to_prompt(&a);
         assert_eq!(prompt.risk_score, 100);
     }

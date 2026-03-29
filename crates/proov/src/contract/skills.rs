@@ -149,14 +149,10 @@ fn skill_description(tool_name: &str) -> String {
             "Executes Python scripts via local interpreter with unrestricted filesystem access"
                 .to_string()
         }
-        "node" => {
-            "Executes Node.js scripts via local runtime with unrestricted filesystem access"
-                .to_string()
-        }
+        "node" => "Executes Node.js scripts via local runtime with unrestricted filesystem access"
+            .to_string(),
         "filesystem" => "Reads and writes files on the local filesystem".to_string(),
-        "browser" => {
-            "Controls a browser instance for web navigation and interaction".to_string()
-        }
+        "browser" => "Controls a browser instance for web navigation and interaction".to_string(),
         "api" => "Makes HTTP requests to external API services".to_string(),
         "docker" => "Manages Docker containers and images via the Docker CLI".to_string(),
         other => format!("Provides {} functionality", other.replace('_', " ")),

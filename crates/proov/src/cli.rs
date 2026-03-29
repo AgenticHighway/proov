@@ -7,7 +7,9 @@ use crate::lite_mode::{limit_lite_mode_report, print_locked_summary, LITE_MODE_V
 use crate::models::ScanReport;
 use crate::output::{do_submit, emit};
 use crate::scan::run_scan;
-use crate::submit::{load_submission_config, save_auth_config, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT};
+use crate::submit::{
+    load_submission_config, save_auth_config, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT,
+};
 
 // ---------------------------------------------------------------------------
 // CLI argument definitions
@@ -260,7 +262,10 @@ fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
             file: None,
             deep: true,
         },
-        Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } | Commands::Rules { .. } => {
+        Commands::Auth { .. }
+        | Commands::Setup
+        | Commands::Update { .. }
+        | Commands::Rules { .. } => {
             unreachable!("handled before scan dispatch")
         }
     }
@@ -274,7 +279,10 @@ fn output_args(cmd: &Commands) -> &OutputArgs {
         | Commands::File { output, .. }
         | Commands::Folder { output, .. }
         | Commands::Repo { output, .. } => output,
-        Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } | Commands::Rules { .. } => {
+        Commands::Auth { .. }
+        | Commands::Setup
+        | Commands::Update { .. }
+        | Commands::Rules { .. } => {
             unreachable!("handled before output dispatch")
         }
     }
@@ -288,7 +296,10 @@ fn command_name(cmd: &Commands) -> &'static str {
         Commands::File { .. } => "file",
         Commands::Folder { .. } => "folder",
         Commands::Repo { .. } => "repo",
-        Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } | Commands::Rules { .. } => {
+        Commands::Auth { .. }
+        | Commands::Setup
+        | Commands::Update { .. }
+        | Commands::Rules { .. } => {
             unreachable!("handled before command_name")
         }
     }
@@ -467,7 +478,15 @@ pub fn run() {
         }
     } else {
         let cmd_name = command_name(&cmd);
-        emit(&report, scan_duration_ms, out.json, &out.out, out.summary, out.full, cmd_name);
+        emit(
+            &report,
+            scan_duration_ms,
+            out.json,
+            &out.out,
+            out.summary,
+            out.full,
+            cmd_name,
+        );
     }
 
     // Show Vettd hint for local-only users (not submitting, not JSON)
@@ -489,8 +508,12 @@ fn print_vettd_cta() {
     }
     eprintln!("  \x1b[2m┌──────────────────────────────────────────────────────────┐\x1b[0m");
     eprintln!("  \x1b[2m│\x1b[0m  \x1b[1mWant deeper analysis?\x1b[0m  Sync your results to \x1b[36mVettd\x1b[0m       \x1b[2m│\x1b[0m");
-    eprintln!("  \x1b[2m│\x1b[0m  for verification scoring, trend tracking, and more.   \x1b[2m│\x1b[0m");
-    eprintln!("  \x1b[2m│\x1b[0m                                                        \x1b[2m│\x1b[0m");
+    eprintln!(
+        "  \x1b[2m│\x1b[0m  for verification scoring, trend tracking, and more.   \x1b[2m│\x1b[0m"
+    );
+    eprintln!(
+        "  \x1b[2m│\x1b[0m                                                        \x1b[2m│\x1b[0m"
+    );
     eprintln!("  \x1b[2m│\x1b[0m  Get your API key → \x1b[36mhttps://vettd.agentichighway.ai\x1b[0m    \x1b[2m│\x1b[0m");
     eprintln!("  \x1b[2m│\x1b[0m  Then run:  \x1b[1mproov setup\x1b[0m                                \x1b[2m│\x1b[0m");
     eprintln!("  \x1b[2m└──────────────────────────────────────────────────────────┘\x1b[0m");

@@ -47,10 +47,7 @@ impl ArtifactReport {
     /// Build a path-independent content digest.
     pub fn content_digest(&self) -> String {
         if let Some(serde_json::Value::Array(paths)) = self.metadata.get("paths") {
-            let mut sorted: Vec<&str> = paths
-                .iter()
-                .filter_map(|v| v.as_str())
-                .collect();
+            let mut sorted: Vec<&str> = paths.iter().filter_map(|v| v.as_str()).collect();
             sorted.sort();
 
             if let Some(first) = sorted.first() {
@@ -190,14 +187,7 @@ impl ScanReport {
 // Privacy helpers
 // ---------------------------------------------------------------------------
 
-pub const SECRET_PATTERNS: &[&str] = &[
-    "sk-",
-    "ghp_",
-    "gho_",
-    "github_pat_",
-    "AKIA",
-    "eyJ",
-];
+pub const SECRET_PATTERNS: &[&str] = &["sk-", "ghp_", "gho_", "github_pat_", "AKIA", "eyJ"];
 
 pub const DANGEROUS_KEYWORDS: &[&str] = &[
     "exfiltrate",
@@ -389,6 +379,8 @@ mod tests {
     fn check_for_dangerous_patterns_detects_combos() {
         let content = "use shell to fetch http and write_file";
         let signals = check_for_dangerous_patterns(content);
-        assert!(signals.iter().any(|s| s == "dangerous_combo:shell+network+fs"));
+        assert!(signals
+            .iter()
+            .any(|s| s == "dangerous_combo:shell+network+fs"));
     }
 }

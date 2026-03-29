@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::models::ArtifactReport;
+use std::collections::HashMap;
 
 const DECLARED_DISCOUNT: f64 = 0.5;
 
@@ -166,10 +166,8 @@ mod tests {
     #[test]
     fn test_capability_risk_with_discount() {
         let mut a = make_artifact("cursor_rules", vec!["keyword:shell"]);
-        a.metadata.insert(
-            "declared_tools".to_string(),
-            json!(["shell"]),
-        );
+        a.metadata
+            .insert("declared_tools".to_string(), json!(["shell"]));
         let score = score_artifact(&mut a);
         assert_eq!(score, 17); // 10 + 7 (15*0.5 truncated)
     }
@@ -197,23 +195,29 @@ mod tests {
 
     #[test]
     fn test_cap_at_100() {
-        let mut a = make_artifact("mcp_config", vec![
-            "dangerous_keyword:steal",
-            "dangerous_keyword:exfiltrate",
-            "dangerous_combo:shell+network+fs",
-            "keyword:shell",
-        ]);
+        let mut a = make_artifact(
+            "mcp_config",
+            vec![
+                "dangerous_keyword:steal",
+                "dangerous_keyword:exfiltrate",
+                "dangerous_combo:shell+network+fs",
+                "keyword:shell",
+            ],
+        );
         let score = score_artifact(&mut a);
         assert_eq!(score, 100);
     }
 
     #[test]
     fn test_risk_reasons_top_2() {
-        let mut a = make_artifact("agents_md", vec![
-            "keyword:instructions",
-            "keyword:shell",
-            "dangerous_keyword:steal",
-        ]);
+        let mut a = make_artifact(
+            "agents_md",
+            vec![
+                "keyword:instructions",
+                "keyword:shell",
+                "dangerous_keyword:steal",
+            ],
+        );
         score_artifact(&mut a);
         assert_eq!(a.risk_reasons.len(), 2);
         assert!(a.risk_reasons[0].contains("steal"));

@@ -18,8 +18,7 @@ use std::sync::LazyLock;
 
 /// HTTP/HTTPS URL pattern for MCP config scanning.
 static HTTP_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r#"https?://[^\s"'\\,\]}>]+"#)
-        .expect("HTTP_URL_RE is a valid regex pattern")
+    regex::Regex::new(r#"https?://[^\s"'\\,\]}>]+"#).expect("HTTP_URL_RE is a valid regex pattern")
 });
 
 /// HTTP/HTTPS URL pattern for log file scanning (excludes control characters).
@@ -30,8 +29,7 @@ static HTTP_URL_LOG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 /// WebSocket URL pattern for MCP config scanning.
 static WS_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r#"wss?://[^\s"'\\,\]}>]+"#)
-        .expect("WS_URL_RE is a valid regex pattern")
+    regex::Regex::new(r#"wss?://[^\s"'\\,\]}>]+"#).expect("WS_URL_RE is a valid regex pattern")
 });
 
 /// WebSocket URL pattern for log file scanning.
@@ -42,8 +40,7 @@ static WS_URL_LOG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 /// `${VAR_NAME}` interpolation pattern in MCP configs.
 static ENV_VAR_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}")
-        .expect("ENV_VAR_RE is a valid regex pattern")
+    regex::Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").expect("ENV_VAR_RE is a valid regex pattern")
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -142,10 +139,7 @@ fn read_macos_firewall() -> Option<HostNetworkInfo> {
     let stealth = stealth_str.contains("enabled");
 
     // App rules
-    let apps_out = Command::new(FIREWALL_BIN)
-        .arg("--listapps")
-        .output()
-        .ok()?;
+    let apps_out = Command::new(FIREWALL_BIN).arg("--listapps").output().ok()?;
     let apps_str = String::from_utf8_lossy(&apps_out.stdout);
     let rules = parse_firewall_apps(&apps_str);
 
@@ -323,10 +317,7 @@ fn classify_url(url: &str) -> &'static str {
     }
 }
 
-fn known_package_profile(
-    name: &str,
-    server_val: &serde_json::Value,
-) -> Option<NetworkEvidence> {
+fn known_package_profile(name: &str, server_val: &serde_json::Value) -> Option<NetworkEvidence> {
     let cmd = server_val
         .get("command")
         .and_then(|v| v.as_str())
@@ -363,8 +354,7 @@ fn known_package_profile(
             "next-devtools-mcp",
             "Connects to local Next.js dev server; may proxy API calls to external services",
         )
-    } else if full.contains("filesystem") || full.contains("fs-mcp") || full.contains("fs-server")
-    {
+    } else if full.contains("filesystem") || full.contains("fs-mcp") || full.contains("fs-server") {
         (
             "filesystem",
             "Local filesystem access only; no outbound network connections",
@@ -491,10 +481,7 @@ pub fn scan_mcp_logs() -> Vec<NetworkEvidence> {
             .filter_map(|e| e.ok())
             .filter(|e| {
                 let p = e.path();
-                let name = p
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 let is_log = name.ends_with(".log");
                 let is_relevant = name.to_lowercase().contains("mcp")
                     || name.to_lowercase().contains("copilot")
@@ -595,9 +582,7 @@ fn read_file_tail(path: &Path, max_bytes: usize) -> Option<String> {
 /// The server should use the `networkEvidence` array for deeper analysis.
 pub fn classify_from_evidence(transport: &str, evidence: &[NetworkEvidence]) -> String {
     // If any outbound-url evidence exists → Internet Exposed
-    let has_outbound = evidence
-        .iter()
-        .any(|e| e.category == "outbound-url");
+    let has_outbound = evidence.iter().any(|e| e.category == "outbound-url");
     if has_outbound {
         return "Internet Exposed".to_string();
     }
@@ -709,12 +694,16 @@ mod tests {
         let has_transport = evidence.iter().any(|e| e.category == "transport");
         let has_url = evidence.iter().any(|e| e.category == "outbound-url");
         assert!(has_transport, "should have transport evidence");
-        assert!(has_url, "should have outbound-url evidence for https endpoint");
+        assert!(
+            has_url,
+            "should have outbound-url evidence for https endpoint"
+        );
     }
 
     #[test]
     fn server_evidence_detects_credential_env_var() {
-        let val = serde_json::json!({"type": "stdio", "command": "npx", "env": {"API_KEY": "secret"}});
+        let val =
+            serde_json::json!({"type": "stdio", "command": "npx", "env": {"API_KEY": "secret"}});
         let evidence = gather_server_evidence("test", &val, "stdio");
         let has_cred = evidence.iter().any(|e| e.category == "credential-in-env");
         assert!(has_cred, "should detect credential in env block");

@@ -155,7 +155,10 @@ pub fn append_submission_audit(audit_path: &Path, event: &Value) {
             .append(true)
             .open(audit_path)
             .unwrap_or_else(|e| {
-                eprintln!("Warning: cannot open audit log {}: {e}", audit_path.display());
+                eprintln!(
+                    "Warning: cannot open audit log {}: {e}",
+                    audit_path.display()
+                );
                 // Fall back to /dev/null so caller doesn't panic.
                 fs::OpenOptions::new()
                     .write(true)
@@ -191,8 +194,8 @@ pub fn load_auth_config() -> Option<AuthConfig> {
 
 /// Save the global auth config to `~/.config/ahscan/config.json`.
 pub fn save_auth_config(config: &AuthConfig) -> Result<(), String> {
-    let path = auth_config_path()
-        .ok_or_else(|| "Could not determine config directory".to_string())?;
+    let path =
+        auth_config_path().ok_or_else(|| "Could not determine config directory".to_string())?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create config directory: {e}"))?;
@@ -221,10 +224,7 @@ fn is_retryable(status: u16) -> bool {
 ///
 /// Uses the global `AuthConfig` for the endpoint and bearer token.
 /// Retries transient failures with exponential backoff.
-pub fn submit_contract_payload(
-    payload_json: &str,
-    auth: &AuthConfig,
-) -> Result<(), String> {
+pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<(), String> {
     let mut last_err = String::new();
 
     for (attempt, &backoff) in BACKOFF_SECONDS.iter().enumerate().take(MAX_ATTEMPTS) {
@@ -244,7 +244,8 @@ pub fn submit_contract_payload(
                 match status {
                     201 => {
                         let body: Value = response.into_json().unwrap_or(json!({}));
-                        let scan_id = body.get("scanId")
+                        let scan_id = body
+                            .get("scanId")
                             .or_else(|| body.get("scan_id"))
                             .or_else(|| body.get("id"))
                             .and_then(|v| v.as_str())
@@ -324,17 +325,11 @@ pub fn submit_contract_payload(
 // ---------------------------------------------------------------------------
 
 /// Submit the pre-built payload to the configured ingest endpoint.
-pub fn submit_payload(
-    payload: &Value,
-    config: &SubmissionConfig,
-) -> Result<Value, String> {
+pub fn submit_payload(payload: &Value, config: &SubmissionConfig) -> Result<Value, String> {
     ensure_endpoint_allowed(&config.endpoint, config.allow_public_endpoint)?;
 
     let _ = payload;
-    Err(
-        "Legacy submission path — use --submit with auth config instead"
-            .into(),
-    )
+    Err("Legacy submission path — use --submit with auth config instead".into())
 }
 
 // ---------------------------------------------------------------------------
@@ -352,9 +347,8 @@ pub fn prepare_and_submit(
 ) -> (Value, Result<Value, String>) {
     let scanner_uuid = resolve_scanner_uuid(config.scanner_uuid.as_deref())
         .unwrap_or_else(|_| "unknown".to_string());
-    let scanner_account_uuid =
-        resolve_scanner_account_uuid(config.scanner_account_uuid.as_deref())
-            .unwrap_or_else(|_| "unknown".to_string());
+    let scanner_account_uuid = resolve_scanner_account_uuid(config.scanner_account_uuid.as_deref())
+        .unwrap_or_else(|_| "unknown".to_string());
 
     let payload = build_ingest_payload(
         report,
@@ -435,10 +429,7 @@ mod tests {
 
     #[test]
     fn append_audit_jsonl() {
-        let dir = std::env::temp_dir().join(format!(
-            "ah_audit_test_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("ah_audit_test_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("audit.jsonl");
 
@@ -454,10 +445,7 @@ mod tests {
 
     #[test]
     fn append_audit_json_array() {
-        let dir = std::env::temp_dir().join(format!(
-            "ah_audit_test_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("ah_audit_test_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("audit.json");
 

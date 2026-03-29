@@ -4,9 +4,7 @@ use crate::capabilities::derive_capabilities;
 use crate::models::ArtifactReport;
 
 use super::helpers::{first_path, make_id, qualified_name};
-use super::types::{
-    Agent, AgenticApp, AppAgent, Integration, WorkflowStep,
-};
+use super::types::{Agent, AgenticApp, AppAgent, Integration, WorkflowStep};
 
 pub fn build_agentic_apps(
     container_artifacts: &[&ArtifactReport],
@@ -120,17 +118,15 @@ fn build_workflow(local_agents: &[&Agent]) -> Vec<WorkflowStep> {
         .collect()
 }
 
-fn build_app_description(
-    a: &ArtifactReport,
-    framework: &str,
-    local_agents: &[&Agent],
-) -> String {
+fn build_app_description(a: &ArtifactReport, framework: &str, local_agents: &[&Agent]) -> String {
     let agent_count = local_agents.len();
     let has_ai_proximity = a.signals.iter().any(|s| s == "ai_artifact_proximity");
 
     if agent_count > 0 && has_ai_proximity {
-        let unique_classes: std::collections::BTreeSet<&str> =
-            local_agents.iter().map(|ag| ag.classification.as_str()).collect();
+        let unique_classes: std::collections::BTreeSet<&str> = local_agents
+            .iter()
+            .map(|ag| ag.classification.as_str())
+            .collect();
         format!(
             "Containerized {framework} application with {agent_count} agent(s) performing {} tasks",
             unique_classes
@@ -212,11 +208,7 @@ fn classify_endpoint(ep: &str) -> (String, String, String) {
             "Medium".to_string(),
         )
     } else {
-        (
-            ep.to_string(),
-            "REST API".to_string(),
-            "Medium".to_string(),
-        )
+        (ep.to_string(), "REST API".to_string(), "Medium".to_string())
     }
 }
 
@@ -246,10 +238,7 @@ fn build_risk_tags(a: &ArtifactReport) -> Vec<String> {
     {
         tags.push("Autonomous Code Execution".to_string());
     }
-    if a.signals
-        .iter()
-        .any(|s| s == "credential_exposure_signal")
-    {
+    if a.signals.iter().any(|s| s == "credential_exposure_signal") {
         tags.push("Credential Exposure".to_string());
     }
     if caps
@@ -436,10 +425,8 @@ mod tests {
     #[test]
     fn build_agentic_apps_skips_container_candidates() {
         let mut a = ArtifactReport::new("container_candidate", 0.8);
-        a.metadata.insert(
-            "paths".to_string(),
-            serde_json::json!(["/tmp/Dockerfile"]),
-        );
+        a.metadata
+            .insert("paths".to_string(), serde_json::json!(["/tmp/Dockerfile"]));
         let apps = build_agentic_apps(&[&a], &[]);
         assert!(apps.is_empty());
     }

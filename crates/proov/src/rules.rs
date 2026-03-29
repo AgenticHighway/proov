@@ -21,7 +21,10 @@ pub fn cmd_list() {
     };
 
     if !dir.exists() {
-        eprintln!("No rules directory found ({}). No custom rules installed.", dir.display());
+        eprintln!(
+            "No rules directory found ({}). No custom rules installed.",
+            dir.display()
+        );
         return;
     }
 
@@ -120,8 +123,7 @@ pub fn cmd_validate(source: &Path) {
 /// Validate and copy `source` into `dest_dir`. Returns the installed path.
 pub(crate) fn install_rule(source: &Path, dest_dir: &Path) -> Result<PathBuf, String> {
     // Validate before touching the dest directory
-    let rule = load_rule_file_pub(source)
-        .map_err(|e| format!("rule validation failed — {e}"))?;
+    let rule = load_rule_file_pub(source).map_err(|e| format!("rule validation failed — {e}"))?;
     eprintln!("Rule '{}' validated OK.", rule.detector.name);
 
     let dest = dest_dir.join(source.file_name().ok_or("source has no filename")?);
@@ -162,8 +164,14 @@ pub(crate) fn toml_entries(dir: &Path) -> Vec<PathBuf> {
 pub(crate) fn find_rule_file(dir: &Path, name: &str) -> Option<PathBuf> {
     let stem = name.trim_end_matches(".toml");
     for entry in toml_entries(dir) {
-        let file_stem = entry.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
-        let file_name = entry.file_name().and_then(|s| s.to_str()).unwrap_or_default();
+        let file_stem = entry
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        let file_name = entry
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
         if file_stem == stem || file_name == name {
             return Some(entry);
         }
@@ -224,8 +232,11 @@ mod tests {
 
     impl TempDir {
         fn new(label: &str) -> Self {
-            let dir = std::env::temp_dir()
-                .join(format!("ah_rules_test_{}_{}", label, uuid::Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!(
+                "ah_rules_test_{}_{}",
+                label,
+                uuid::Uuid::new_v4()
+            ));
             fs::create_dir_all(&dir).expect("create temp dir");
             TempDir(dir)
         }
@@ -530,7 +541,9 @@ confidence = 0.5
         let path = write_file(dir.path(), "nopat.toml", NO_MATCH_TOML);
         let result = load_rule_file_pub(&path);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("match.filenames or match.suffixes"));
+        assert!(result
+            .unwrap_err()
+            .contains("match.filenames or match.suffixes"));
     }
 
     #[test]
@@ -551,7 +564,11 @@ confidence = 0.5
         let path = std::path::Path::new("examples/rules/internal-tool.toml");
         if path.exists() {
             let result = load_rule_file_pub(path);
-            assert!(result.is_ok(), "internal-tool.toml is invalid: {:?}", result);
+            assert!(
+                result.is_ok(),
+                "internal-tool.toml is invalid: {:?}",
+                result
+            );
             let rule = result.unwrap();
             assert_eq!(rule.detector.artifact_type, "internal_tool_config");
         }

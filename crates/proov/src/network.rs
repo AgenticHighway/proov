@@ -63,7 +63,9 @@ pub fn ensure_endpoint_allowed(endpoint: &str, allow_public: bool) -> Result<(),
     match scheme {
         "http" | "https" => {}
         other => {
-            return Err(format!("Unsupported scheme '{other}' in endpoint: {endpoint}"));
+            return Err(format!(
+                "Unsupported scheme '{other}' in endpoint: {endpoint}"
+            ));
         }
     }
 

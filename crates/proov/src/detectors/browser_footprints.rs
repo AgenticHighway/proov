@@ -31,16 +31,10 @@ fn scan_profile_root(root: &std::path::Path) -> Option<ArtifactReport> {
     }
 
     let mut metadata = serde_json::Map::new();
-    metadata.insert(
-        "paths".into(),
-        json!([extensions_dir.to_string_lossy()]),
-    );
+    metadata.insert("paths".into(), json!([extensions_dir.to_string_lossy()]));
     metadata.insert("extension_count".into(), json!(count));
     metadata.insert("extension_ids".into(), json!(ids));
-    metadata.insert(
-        "profile_root".into(),
-        json!(root.to_string_lossy()),
-    );
+    metadata.insert("profile_root".into(), json!(root.to_string_lossy()));
 
     let mut report = ArtifactReport::new("browser_footprint", 0.6);
     report.metadata = metadata;
