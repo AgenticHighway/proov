@@ -31,13 +31,14 @@ pub fn severity(score: i32) -> (&'static str, &'static str) {
 
 // ── Counting helpers (pure logic) ───────────────────────────────────────
 
-fn count_by<F>(artifacts: &[ArtifactReport], key_fn: F) -> Vec<(String, usize)>
+fn count_by<T, F>(artifacts: &[T], key_fn: F) -> Vec<(String, usize)>
 where
+    T: std::borrow::Borrow<ArtifactReport>,
     F: Fn(&ArtifactReport) -> &str,
 {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for a in artifacts {
-        *counts.entry(key_fn(a).to_string()).or_default() += 1;
+        *counts.entry(key_fn(a.borrow()).to_string()).or_default() += 1;
     }
     let mut pairs: Vec<_> = counts.into_iter().collect();
     pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
@@ -110,22 +111,7 @@ pub fn print_overview(report: &ScanReport, cmd_name: &str) {
         return;
     }
 
-    // ── Section 1: What was found ───────────────────────────────────
-    println!();
-    println!(
-        "  {BOLD}INVENTORY{RESET}{DIM}{:>width$} artifact(s){RESET}",
-        report.artifacts.len(),
-        width = w - 21
-    );
-    println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
-
-    let type_counts = count_by(&report.artifacts, |a| &a.artifact_type);
-    for (atype, count) in &type_counts {
-        let label = pretty_type(atype);
-        println!("  {BOLD}{count:>4}{RESET}  {label}");
-    }
-
-    // ── Section 2: What is risky and why ────────────────────────────
+    // ── Posture headline ────────────────────────────────────────────
     let fail_count = report
         .artifacts
         .iter()
@@ -145,20 +131,22 @@ pub fn print_overview(report: &ScanReport, cmd_name: &str) {
     println!();
     let mut status_parts: Vec<String> = Vec::new();
     if fail_count > 0 {
-        status_parts.push(format!("\x1b[31m{fail_count} fail\x1b[0m"));
+        status_parts.push(format!("\x1b[31m{fail_count} blocked\x1b[0m"));
     }
     if review_count > 0 {
         status_parts.push(format!("\x1b[33m{review_count} review\x1b[0m"));
     }
     if pass_count > 0 {
-        status_parts.push(format!("\x1b[32m{pass_count} pass\x1b[0m"));
+        status_parts.push(format!("\x1b[32m{pass_count} clear\x1b[0m"));
     }
     println!(
-        "  {BOLD}RISK{RESET}  {}",
-        status_parts.join(&format!(" {DIM}·{RESET} "))
+        "  {BOLD}RISK{RESET}  {}  {DIM}({} artifact(s)){RESET}",
+        status_parts.join(&format!(" {DIM}·{RESET} ")),
+        report.artifacts.len()
     );
     println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
 
+    // ── Top 3 riskiest findings ─────────────────────────────────────
     let mut sorted: Vec<&ArtifactReport> = report.artifacts.iter().collect();
     sorted.sort_by(|a, b| {
         let rank = |s: &str| match s {
@@ -171,42 +159,24 @@ pub fn print_overview(report: &ScanReport, cmd_name: &str) {
             .then(b.risk_score.cmp(&a.risk_score))
     });
 
-    // Show all fail + conditional_pass, then up to a few pass items
-    let actionable: Vec<&&ArtifactReport> = sorted
-        .iter()
-        .filter(|a| a.verification_status != "pass")
-        .collect();
-    let passing: Vec<&&ArtifactReport> = sorted
-        .iter()
-        .filter(|a| a.verification_status == "pass")
-        .collect();
+    const TOP_N: usize = 3;
 
-    const MAX_PASS_SHOWN: usize = 3;
-
-    if actionable.is_empty() && passing.is_empty() {
-        println!("  {DIM}No artifacts to display.{RESET}");
-    }
-
-    for a in &actionable {
+    for a in sorted.iter().take(TOP_N) {
         print_risk_card(a);
     }
 
-    if !passing.is_empty() {
-        if !actionable.is_empty() {
-            println!();
-        }
-        for a in passing.iter().take(MAX_PASS_SHOWN) {
-            print_pass_line(a);
-        }
-        if passing.len() > MAX_PASS_SHOWN {
-            println!(
-                "  {DIM}  … and {} more passing artifact(s){RESET}",
-                passing.len() - MAX_PASS_SHOWN
-            );
-        }
+    // ── Remaining artifacts grouped by directory ────────────────────
+    let remaining = &sorted[TOP_N.min(sorted.len())..];
+    if !remaining.is_empty() {
+        println!();
+        println!(
+            "  {DIM}… and {} more:{RESET}",
+            remaining.len()
+        );
+        print_directory_summary(remaining);
     }
 
-    // ── Section 3: Save & share ─────────────────────────────────────
+    // ── Save & share ────────────────────────────────────────────────
     println!();
     println!("  {BOLD}SAVE & SHARE{RESET}");
     println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
@@ -225,10 +195,10 @@ pub fn print_overview(report: &ScanReport, cmd_name: &str) {
 fn print_risk_card(a: &ArtifactReport) {
     let loc = shorten_path(artifact_location(a));
     let (icon, color) = status_icon(&a.verification_status);
-    let label = if a.verification_status == "fail" {
-        "FAIL"
-    } else {
-        "REVIEW"
+    let label = match a.verification_status.as_str() {
+        "fail" => "BLOCKED",
+        "conditional_pass" => "REVIEW",
+        _ => "PASS",
     };
     let kind = pretty_type(&a.artifact_type);
 
@@ -242,25 +212,58 @@ fn print_risk_card(a: &ArtifactReport) {
 
     let reasons = top_risk_reasons(a);
     if !reasons.is_empty() {
-        println!("    Reason: {}", reasons.join(", "));
+        println!("    {}", reasons.join(", "));
     }
 
     let caps = derive_capabilities(a);
     if !caps.is_empty() {
         println!(
-            "    Capabilities: {CYAN}{}{RESET}",
+            "    {CYAN}{}{RESET}",
             caps.join(", ")
         );
     }
 }
 
-fn print_pass_line(a: &ArtifactReport) {
-    let loc = shorten_path(artifact_location(a));
-    let (icon, _color) = status_icon(&a.verification_status);
-    let kind = pretty_type(&a.artifact_type);
-    println!(
-        "  {icon} {DIM}PASS{RESET}  {kind:<24} {DIM}{loc}{RESET}"
-    );
+/// Group remaining artifacts by parent directory and print a compact summary.
+fn print_directory_summary(artifacts: &[&ArtifactReport]) {
+    let mut by_dir: Vec<(String, Vec<&ArtifactReport>)> = Vec::new();
+    let mut dir_index: HashMap<String, usize> = HashMap::new();
+
+    for a in artifacts {
+        let loc = artifact_location(a);
+        let dir = std::path::Path::new(loc)
+            .parent()
+            .map(|p| shorten_path(&p.to_string_lossy()))
+            .unwrap_or_else(|| shorten_path(loc));
+
+        if let Some(&idx) = dir_index.get(&dir) {
+            by_dir[idx].1.push(a);
+        } else {
+            dir_index.insert(dir.clone(), by_dir.len());
+            by_dir.push((dir, vec![a]));
+        }
+    }
+
+    // Sort by count descending
+    by_dir.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+
+    for (dir, members) in &by_dir {
+        let type_counts = count_by(members, |a| &a.artifact_type);
+        let parts: Vec<String> = type_counts
+            .iter()
+            .map(|(t, c)| {
+                if *c == 1 {
+                    pretty_type(t).to_string()
+                } else {
+                    format!("{c} {}", pretty_type(t))
+                }
+            })
+            .collect();
+        println!(
+            "     {DIM}{dir}/{RESET}  {parts}",
+            parts = parts.join(", ")
+        );
+    }
 }
 
 // ── print_human ─────────────────────────────────────────────────────────
