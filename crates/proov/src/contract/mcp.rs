@@ -163,3 +163,110 @@ fn extract_mcp_tools(server_val: &serde_json::Value, server_name: &str) -> Vec<M
 
     tools
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn infer_auth_api_key_from_env_pattern() {
+        let val = json!({"command": "node", "env": {"TOKEN": "${SECRET}"}});
+        assert_eq!(infer_auth(&val), "API Key");
+    }
+
+    #[test]
+    fn infer_auth_api_key_from_keyword() {
+        let val = json!({"command": "node", "api_key": "xxx"});
+        assert_eq!(infer_auth(&val), "API Key");
+    }
+
+    #[test]
+    fn infer_auth_none_when_no_creds() {
+        let val = json!({"command": "node", "args": ["server.js"]});
+        assert_eq!(infer_auth(&val), "None");
+    }
+
+    #[test]
+    fn build_command_string_no_args() {
+        let val = json!({"command": "npx"});
+        assert_eq!(build_command_string(&val), "npx");
+    }
+
+    #[test]
+    fn build_command_string_with_args() {
+        let val = json!({"command": "npx", "args": ["-y", "@modelcontextprotocol/server"]});
+        assert_eq!(
+            build_command_string(&val),
+            "npx -y @modelcontextprotocol/server"
+        );
+    }
+
+    #[test]
+    fn build_command_string_empty() {
+        let val = json!({});
+        assert_eq!(build_command_string(&val), "");
+    }
+
+    #[test]
+    fn extract_mcp_tools_explicit() {
+        let val = json!({
+            "tools": [
+                {"name": "read_file", "description": "Read a file"},
+                {"name": "write_file", "description": "Write a file"}
+            ]
+        });
+        let tools = extract_mcp_tools(&val, "test-server");
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name, "read_file");
+        assert_eq!(tools[1].name, "write_file");
+    }
+
+    #[test]
+    fn extract_mcp_tools_inferred_shell() {
+        let val = json!({"command": "bash", "args": ["-c", "server"]});
+        let tools = extract_mcp_tools(&val, "shell-server");
+        assert!(tools.iter().any(|t| t.name == "run_shell_command"));
+        assert!(tools.iter().any(|t| t.risk == "High"));
+    }
+
+    #[test]
+    fn extract_mcp_tools_inferred_filesystem() {
+        let val = json!({"command": "filesystem-server"});
+        let tools = extract_mcp_tools(&val, "test");
+        assert!(tools.iter().any(|t| t.name == "read_file"));
+        assert!(tools.iter().any(|t| t.name == "write_file"));
+    }
+
+    #[test]
+    fn extract_mcp_tools_inferred_filesystem_from_name() {
+        let val = json!({"command": "npx"});
+        let tools = extract_mcp_tools(&val, "filesystem");
+        assert!(tools.iter().any(|t| t.name == "read_file"));
+    }
+
+    #[test]
+    fn extract_mcp_tools_empty_when_no_match() {
+        let val = json!({"command": "node", "args": ["index.js"]});
+        let tools = extract_mcp_tools(&val, "custom-server");
+        assert!(tools.is_empty());
+    }
+
+    #[test]
+    fn mcp_server_map_finds_mcp_servers_key() {
+        let val = json!({"mcpServers": {"test": {}}});
+        assert!(mcp_server_map(&val).is_some());
+    }
+
+    #[test]
+    fn mcp_server_map_finds_servers_key() {
+        let val = json!({"servers": {"test": {}}});
+        assert!(mcp_server_map(&val).is_some());
+    }
+
+    #[test]
+    fn mcp_server_map_none_when_missing() {
+        let val = json!({"other": "data"});
+        assert!(mcp_server_map(&val).is_none());
+    }
+}

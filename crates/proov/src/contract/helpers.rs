@@ -152,6 +152,141 @@ pub fn humanize_capability(cap: &str) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_artifact_with_path(path: &str) -> ArtifactReport {
+        let mut a = ArtifactReport::new("test", 0.8);
+        a.metadata
+            .insert("paths".to_string(), json!([path]));
+        a
+    }
+
+    #[test]
+    fn first_path_returns_first_element() {
+        let a = make_artifact_with_path("/tmp/foo.md");
+        assert_eq!(first_path(&a), "/tmp/foo.md");
+    }
+
+    #[test]
+    fn first_path_returns_unknown_when_missing() {
+        let a = ArtifactReport::new("test", 0.8);
+        assert_eq!(first_path(&a), "unknown");
+    }
+
+    #[test]
+    fn qualified_name_regular_file() {
+        assert_eq!(qualified_name("/Users/will/project/agents.md"), "project/agents");
+    }
+
+    #[test]
+    fn qualified_name_dotfile() {
+        assert_eq!(
+            qualified_name("/Users/will/bar/.cursorrules"),
+            "bar/.cursorrules"
+        );
+    }
+
+    #[test]
+    fn make_id_with_hash() {
+        let id = make_id("/some/path.md", "abcdef123456789");
+        assert_eq!(id, "/some/path.md:abcdef123456");
+    }
+
+    #[test]
+    fn make_id_without_hash_falls_back_to_short_hash() {
+        let id = make_id("/some/path.md", "");
+        assert!(id.starts_with("/some/path.md:"));
+        assert_eq!(id.len(), "/some/path.md:".len() + 12);
+    }
+
+    #[test]
+    fn short_hash_is_deterministic() {
+        let h1 = short_hash("hello");
+        let h2 = short_hash("hello");
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 12);
+    }
+
+    #[test]
+    fn short_hash_differs_for_different_inputs() {
+        assert_ne!(short_hash("hello"), short_hash("world"));
+    }
+
+    #[test]
+    fn is_same_tool_scope_vscode() {
+        assert!(is_same_tool_scope(
+            "/home/user/.vscode/extensions",
+            "/home/user/.vscode/settings"
+        ));
+    }
+
+    #[test]
+    fn is_same_tool_scope_different_scopes() {
+        assert!(!is_same_tool_scope(
+            "/home/user/.vscode/extensions",
+            "/home/user/project/src"
+        ));
+    }
+
+    #[test]
+    fn is_same_tool_scope_cursor() {
+        assert!(is_same_tool_scope(
+            "/home/user/.cursor/rules",
+            "/home/user/.cursor/config"
+        ));
+    }
+
+    #[test]
+    fn declared_tools_extracts_from_metadata() {
+        let mut a = ArtifactReport::new("test", 0.8);
+        a.metadata.insert(
+            "declared_tools".to_string(),
+            json!(["shell", "browser", "api"]),
+        );
+        assert_eq!(declared_tools(&a), vec!["shell", "browser", "api"]);
+    }
+
+    #[test]
+    fn declared_tools_empty_when_missing() {
+        let a = ArtifactReport::new("test", 0.8);
+        assert!(declared_tools(&a).is_empty());
+    }
+
+    #[test]
+    fn capability_level_danger() {
+        assert_eq!(capability_level("shell_execution"), "danger");
+        assert_eq!(capability_level("code_execution"), "danger");
+        assert_eq!(capability_level("container_runtime"), "danger");
+    }
+
+    #[test]
+    fn capability_level_warn() {
+        assert_eq!(capability_level("network_access"), "warn");
+        assert_eq!(capability_level("external_api_calls"), "warn");
+        assert_eq!(capability_level("secret_references"), "warn");
+    }
+
+    #[test]
+    fn capability_level_info_default() {
+        assert_eq!(capability_level("filesystem_access"), "info");
+        assert_eq!(capability_level("unknown_thing"), "info");
+    }
+
+    #[test]
+    fn humanize_capability_known() {
+        assert_eq!(humanize_capability("shell_execution"), "Shell execution");
+        assert_eq!(humanize_capability("browser_access"), "Browser access");
+    }
+
+    #[test]
+    fn humanize_capability_unknown_replaces_underscores() {
+        assert_eq!(humanize_capability("my_custom_thing"), "my custom thing");
+    }
+}
+
 const MAX_READ_BYTES: usize = 8192;
 
 pub fn read_artifact_head(a: &ArtifactReport) -> Option<String> {

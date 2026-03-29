@@ -116,3 +116,92 @@ fn build_mcp_with_links(
     }
     servers
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ArtifactReport, ScanReport};
+
+    fn make_artifact(atype: &str) -> ArtifactReport {
+        ArtifactReport::new(atype, 0.8)
+    }
+
+    fn make_report(artifacts: Vec<ArtifactReport>) -> ScanReport {
+        ScanReport {
+            scanned_path: "/tmp/test".to_string(),
+            run_id: "test-run".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            artifacts,
+        }
+    }
+
+    #[test]
+    fn partition_prompt_config() {
+        let report = make_report(vec![make_artifact("prompt_config")]);
+        let (prompts, mcps, containers, agents) = partition_artifacts(&report);
+        assert_eq!(prompts.len(), 1);
+        assert!(mcps.is_empty());
+        assert!(containers.is_empty());
+        assert!(agents.is_empty());
+    }
+
+    #[test]
+    fn partition_cursor_rules_as_prompt() {
+        let report = make_report(vec![make_artifact("cursor_rules")]);
+        let (prompts, _, _, agents) = partition_artifacts(&report);
+        assert_eq!(prompts.len(), 1);
+        assert!(agents.is_empty());
+    }
+
+    #[test]
+    fn partition_agents_md_goes_to_both() {
+        let report = make_report(vec![make_artifact("agents_md")]);
+        let (prompts, _, _, agents) = partition_artifacts(&report);
+        assert_eq!(prompts.len(), 1);
+        assert_eq!(agents.len(), 1);
+    }
+
+    #[test]
+    fn partition_mcp_config() {
+        let report = make_report(vec![make_artifact("mcp_config")]);
+        let (prompts, mcps, _, _) = partition_artifacts(&report);
+        assert!(prompts.is_empty());
+        assert_eq!(mcps.len(), 1);
+    }
+
+    #[test]
+    fn partition_container_types() {
+        let report = make_report(vec![
+            make_artifact("container_config"),
+            make_artifact("container_candidate"),
+        ]);
+        let (_, _, containers, _) = partition_artifacts(&report);
+        assert_eq!(containers.len(), 2);
+    }
+
+    #[test]
+    fn partition_unknown_type_ignored() {
+        let report = make_report(vec![make_artifact("unknown_type")]);
+        let (prompts, mcps, containers, agents) = partition_artifacts(&report);
+        assert!(prompts.is_empty());
+        assert!(mcps.is_empty());
+        assert!(containers.is_empty());
+        assert!(agents.is_empty());
+    }
+
+    #[test]
+    fn partition_mixed_artifacts() {
+        let report = make_report(vec![
+            make_artifact("prompt_config"),
+            make_artifact("agents_md"),
+            make_artifact("mcp_config"),
+            make_artifact("container_config"),
+            make_artifact("browser_footprint"),
+        ]);
+        let (prompts, mcps, containers, agents) = partition_artifacts(&report);
+        assert_eq!(prompts.len(), 2); // prompt_config + agents_md
+        assert_eq!(mcps.len(), 1);
+        assert_eq!(containers.len(), 1);
+        assert_eq!(agents.len(), 1);
+    }
+}

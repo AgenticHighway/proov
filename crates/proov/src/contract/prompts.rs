@@ -169,3 +169,113 @@ fn build_injection_surfaces(a: &ArtifactReport) -> Vec<InjectionSurface> {
     }
     surfaces
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ArtifactReport;
+
+    #[test]
+    fn secret_refs_credential_signal() {
+        let mut a = ArtifactReport::new("prompt_config", 0.8);
+        a.signals = vec!["credential_exposure_signal".to_string()];
+        let refs = build_secret_refs(&a);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].tone, "danger");
+        assert!(refs[0].label.contains("Credential"));
+    }
+
+    #[test]
+    fn secret_refs_empty_for_no_signals() {
+        let a = ArtifactReport::new("prompt_config", 0.8);
+        let refs = build_secret_refs(&a);
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn injection_surfaces_dangerous_keyword() {
+        let mut a = ArtifactReport::new("prompt_config", 0.8);
+        a.signals = vec!["dangerous_keyword:exfiltrate".to_string()];
+        let surfaces = build_injection_surfaces(&a);
+        assert_eq!(surfaces.len(), 1);
+        assert_eq!(surfaces[0].severity, "high");
+        assert!(surfaces[0].text.contains("exfiltrate"));
+    }
+
+    #[test]
+    fn injection_surfaces_dangerous_combo() {
+        let mut a = ArtifactReport::new("prompt_config", 0.8);
+        a.signals = vec!["dangerous_combo:shell+network+fs".to_string()];
+        let surfaces = build_injection_surfaces(&a);
+        assert_eq!(surfaces.len(), 1);
+        assert!(surfaces[0].text.contains("shell + network + filesystem"));
+    }
+
+    #[test]
+    fn injection_surfaces_multiple_signals() {
+        let mut a = ArtifactReport::new("prompt_config", 0.8);
+        a.signals = vec![
+            "dangerous_keyword:rm".to_string(),
+            "dangerous_keyword:steal".to_string(),
+            "dangerous_combo:shell+network+fs".to_string(),
+        ];
+        let surfaces = build_injection_surfaces(&a);
+        assert_eq!(surfaces.len(), 3);
+    }
+
+    #[test]
+    fn injection_surfaces_empty_for_safe() {
+        let mut a = ArtifactReport::new("prompt_config", 0.8);
+        a.signals = vec!["keyword:shell".to_string()];
+        let surfaces = build_injection_surfaces(&a);
+        assert!(surfaces.is_empty());
+    }
+
+    #[test]
+    fn resolve_tokens_from_metadata() {
+        let mut a = ArtifactReport::new("prompt_config", 0.8);
+        a.metadata
+            .insert("file_size_bytes".to_string(), serde_json::json!(4000));
+        assert_eq!(resolve_tokens(&a, "/nonexistent"), 1000);
+    }
+
+    #[test]
+    fn resolve_tokens_zero_when_no_metadata_and_missing_file() {
+        let a = ArtifactReport::new("prompt_config", 0.8);
+        assert_eq!(resolve_tokens(&a, "/definitely/not/a/real/file"), 0);
+    }
+
+    #[test]
+    fn prompt_classification_system_for_cursor_rules() {
+        let mut a = ArtifactReport::new("cursor_rules", 0.9);
+        a.metadata.insert(
+            "paths".to_string(),
+            serde_json::json!(["/tmp/.cursorrules"]),
+        );
+        let prompt = artifact_to_prompt(&a);
+        assert_eq!(prompt.classification, "System Prompt");
+    }
+
+    #[test]
+    fn prompt_classification_user_for_other() {
+        let mut a = ArtifactReport::new("prompt_config", 0.8);
+        a.metadata.insert(
+            "paths".to_string(),
+            serde_json::json!(["/tmp/config.md"]),
+        );
+        let prompt = artifact_to_prompt(&a);
+        assert_eq!(prompt.classification, "User Prompt");
+    }
+
+    #[test]
+    fn prompt_risk_score_clamped() {
+        let mut a = ArtifactReport::new("prompt_config", 0.8);
+        a.risk_score = 150;
+        a.metadata.insert(
+            "paths".to_string(),
+            serde_json::json!(["/tmp/test.md"]),
+        );
+        let prompt = artifact_to_prompt(&a);
+        assert_eq!(prompt.risk_score, 100);
+    }
+}
