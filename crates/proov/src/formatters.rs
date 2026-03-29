@@ -131,7 +131,7 @@ pub fn print_overview(report: &ScanReport, cmd_name: &str) {
     println!();
     let mut status_parts: Vec<String> = Vec::new();
     if fail_count > 0 {
-        status_parts.push(format!("\x1b[31m{fail_count} blocked\x1b[0m"));
+        status_parts.push(format!("\x1b[31m{fail_count} flagged\x1b[0m"));
     }
     if review_count > 0 {
         status_parts.push(format!("\x1b[33m{review_count} review\x1b[0m"));
@@ -196,7 +196,7 @@ fn print_risk_card(a: &ArtifactReport) {
     let loc = shorten_path(artifact_location(a));
     let (icon, color) = status_icon(&a.verification_status);
     let label = match a.verification_status.as_str() {
-        "fail" => "BLOCKED",
+        "fail" => "FLAGGED",
         "conditional_pass" => "REVIEW",
         _ => "PASS",
     };
@@ -441,7 +441,7 @@ pub fn print_summary(report: &ScanReport, _cmd_name: &str) {
     println!();
     let mut parts: Vec<String> = Vec::new();
     if fail_n > 0 {
-        parts.push(format!("\x1b[31m{fail_n} blocked\x1b[0m"));
+        parts.push(format!("\x1b[31m{fail_n} flagged\x1b[0m"));
     }
     if review_n > 0 {
         parts.push(format!("\x1b[33m{review_n} need review\x1b[0m"));
@@ -454,7 +454,7 @@ pub fn print_summary(report: &ScanReport, _cmd_name: &str) {
         parts.join(&format!("  {DIM}·{RESET}  "))
     );
 
-    // ── Blocked items (listed individually — usually few) ───────────
+    // ── Flagged items (listed individually — usually few) ───────────
     let mut sorted: Vec<&ArtifactReport> = eligible.to_vec();
     sorted.sort_by(|a, b| {
         let rank = |s: &str| match s {
@@ -467,18 +467,18 @@ pub fn print_summary(report: &ScanReport, _cmd_name: &str) {
             .then(b.risk_score.cmp(&a.risk_score))
     });
 
-    let blocked: Vec<&&ArtifactReport> = sorted
+    let flagged: Vec<&&ArtifactReport> = sorted
         .iter()
         .filter(|a| a.verification_status == "fail")
         .collect();
 
-    if !blocked.is_empty() {
+    if !flagged.is_empty() {
         println!();
         println!(
-            "  \x1b[31m{BOLD}BLOCKED{RESET} {DIM}── investigate before use{RESET}"
+            "  \x1b[31m{BOLD}FLAGGED{RESET} {DIM}── investigate before use{RESET}"
         );
         println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
-        for a in &blocked {
+        for a in &flagged {
             print_summary_card(a);
         }
     }
