@@ -7,9 +7,7 @@ use crate::lite_mode::{limit_lite_mode_report, print_locked_summary, LITE_MODE_V
 use crate::models::ScanReport;
 use crate::output::{do_submit, emit};
 use crate::scan::run_scan;
-use crate::submit::{
-    load_submission_config, save_auth_config, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT,
-};
+use crate::submit::{save_auth_config, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT};
 
 // ---------------------------------------------------------------------------
 // CLI argument definitions
@@ -424,7 +422,6 @@ pub fn run() {
     }
 
     let access = load_access_config();
-    let _submission = load_submission_config(None);
 
     let params = resolve_scan_params(&cmd);
     let out = output_args(&cmd);
