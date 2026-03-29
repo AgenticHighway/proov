@@ -186,7 +186,7 @@ fn graceful_exit() -> ! {
 fn print_banner() {
     eprintln!();
     eprintln!("  {DIM}┌──────────────────────────────────────────┐{RESET}");
-    eprintln!("  {DIM}│{RESET}  {BOLD}{CYAN}proov{RESET}  —  AI Execution Inventory         {DIM}│{RESET}");
+    eprintln!("  {DIM}│{RESET}  {BOLD}{CYAN}proov{RESET}  —  AI Execution Inventory        {DIM}│{RESET}");
     eprintln!("  {DIM}└──────────────────────────────────────────┘{RESET}");
     eprintln!();
 }
