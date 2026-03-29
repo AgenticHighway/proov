@@ -93,7 +93,7 @@ fn status_icon(status: &str) -> (&'static str, &'static str) {
 
 // ── print_overview ──────────────────────────────────────────────────────
 
-pub fn print_overview(report: &ScanReport) {
+pub fn print_overview(report: &ScanReport, cmd_name: &str) {
     let w = 58;
     let line = format!("{DIM}{}{RESET}", "─".repeat(w));
 
@@ -211,13 +211,13 @@ pub fn print_overview(report: &ScanReport) {
     println!("  {BOLD}SAVE & SHARE{RESET}");
     println!("  {DIM}{}{RESET}", "─".repeat(w - 2));
     println!(
-        "  {DIM}proov scan --json{RESET}          {DIM}→{RESET} JSON to stdout"
+        "  {DIM}proov {cmd_name} --json{RESET}          {DIM}→{RESET} JSON to stdout"
     );
     println!(
-        "  {DIM}proov scan --out{RESET}           {DIM}→{RESET} write proov-report.json"
+        "  {DIM}proov {cmd_name} --out{RESET}           {DIM}→{RESET} write proov-report.json"
     );
     println!(
-        "  {DIM}proov scan --submit{RESET}        {DIM}→{RESET} send to Vettd"
+        "  {DIM}proov {cmd_name} --submit{RESET}        {DIM}→{RESET} send to Vettd"
     );
     println!();
 }
@@ -265,7 +265,7 @@ fn print_pass_line(a: &ArtifactReport) {
 
 // ── print_human ─────────────────────────────────────────────────────────
 
-pub fn print_human(report: &ScanReport) {
+pub fn print_human(report: &ScanReport, _cmd_name: &str) {
     let w = 58;
     let line = format!("{DIM}{}{RESET}", "─".repeat(w));
 
@@ -411,7 +411,7 @@ fn humanize_reason(raw: &str) -> &str {
 
 // ── print_summary ───────────────────────────────────────────────────────
 
-pub fn print_summary(report: &ScanReport) {
+pub fn print_summary(report: &ScanReport, _cmd_name: &str) {
     let w = 58;
     let line = format!("{DIM}{}{RESET}", "─".repeat(w));
 

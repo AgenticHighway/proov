@@ -287,16 +287,16 @@ fn step_choose_output(report: &ScanReport, scan_duration_ms: u64) {
     let idx = pick("Output format", formats, 0);
 
     match idx {
-        0 => print_overview(report),
-        1 => print_human(report),
-        2 => print_summary(report),
+        0 => print_overview(report, "scan"),
+        1 => print_human(report, "scan"),
+        2 => print_summary(report, "scan"),
         3 => {
             let payload = build_contract_payload(report, scan_duration_ms);
             let json = serde_json::to_string_pretty(&payload)
                 .expect("contract payload serialization");
             println!("{json}");
         }
-        _ => print_overview(report),
+        _ => print_overview(report, "scan"),
     }
 }
 

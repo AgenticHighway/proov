@@ -280,6 +280,20 @@ fn output_args(cmd: &Commands) -> &OutputArgs {
     }
 }
 
+fn command_name(cmd: &Commands) -> &'static str {
+    match cmd {
+        Commands::Scan { .. } => "scan",
+        Commands::Quick { .. } => "quick",
+        Commands::Full { .. } => "full",
+        Commands::File { .. } => "file",
+        Commands::Folder { .. } => "folder",
+        Commands::Repo { .. } => "repo",
+        Commands::Auth { .. } | Commands::Setup | Commands::Update { .. } | Commands::Rules { .. } => {
+            unreachable!("handled before command_name")
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Access gate
 // ---------------------------------------------------------------------------
@@ -452,7 +466,8 @@ pub fn run() {
             do_submit(&json, &out.submit, out.api_key.as_deref());
         }
     } else {
-        emit(&report, scan_duration_ms, out.json, &out.out, out.summary, out.full);
+        let cmd_name = command_name(&cmd);
+        emit(&report, scan_duration_ms, out.json, &out.out, out.summary, out.full, cmd_name);
     }
 
     // Show Vettd hint for local-only users (not submitting, not JSON)
