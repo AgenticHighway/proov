@@ -18,6 +18,7 @@ pub fn emit(
     out: &Option<Option<PathBuf>>,
     summary: bool,
     full: bool,
+    cmd_name: &str,
 ) {
     if json_output {
         let payload = build_contract_payload(report, scan_duration_ms);
@@ -26,11 +27,11 @@ pub fn emit(
             Err(e) => eprintln!("Error serializing contract payload: {e}"),
         }
     } else if summary {
-        print_summary(report);
+        print_summary(report, cmd_name);
     } else if full {
-        print_human(report);
+        print_human(report, cmd_name);
     } else {
-        print_overview(report);
+        print_overview(report, cmd_name);
     }
 
     if let Some(maybe_path) = out {
