@@ -5,6 +5,7 @@
 mod capabilities;
 mod cli;
 mod contract;
+mod contract_sync;
 mod detectors;
 mod discovery;
 mod formatters;

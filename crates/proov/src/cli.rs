@@ -1,8 +1,10 @@
 use clap::{Parser, Subcommand};
 use std::fs;
+use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 
 use crate::contract::build_contract_payload;
+use crate::contract_sync;
 use crate::lite_mode::{limit_lite_mode_report, print_locked_summary, LITE_MODE_VISIBLE_RESULTS};
 use crate::models::ScanReport;
 use crate::output::{do_submit, emit};
@@ -135,6 +137,21 @@ pub struct OutputArgs {
     pub api_key: Option<String>,
 }
 
+impl Default for OutputArgs {
+    fn default() -> Self {
+        Self {
+            full: false,
+            json: false,
+            summary: false,
+            out: None,
+            min_severity: "info".to_string(),
+            contract: false,
+            submit: None,
+            api_key: None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Access configuration
 // ---------------------------------------------------------------------------
@@ -196,6 +213,16 @@ fn load_access_config() -> AccessConfig {
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
+
+/// Resolve the ingest endpoint from the `--submit` flag or saved config.
+fn resolve_ingest_endpoint(submit_flag: &Option<Option<String>>) -> String {
+    match submit_flag {
+        Some(Some(url)) => url.clone(),
+        _ => crate::submit::load_auth_config()
+            .map(|c| c.endpoint)
+            .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string()),
+    }
+}
 
 fn min_severity_score(level: &str) -> i32 {
     match level {
@@ -329,10 +356,7 @@ pub fn run() {
 
     let cmd = match cli.command {
         Some(c) => c,
-        None => {
-            crate::wizard::run_wizard();
-            return;
-        }
+        None => crate::wizard::pick_command(),
     };
 
     // Handle rules subcommand
@@ -427,9 +451,63 @@ pub fn run() {
     let out = output_args(&cmd);
     let min_score = min_severity_score(&out.min_severity);
 
+    // Pre-scan contract version check — catch stale builds before doing work
+    let ingest_endpoint = resolve_ingest_endpoint(&out.submit);
+    match contract_sync::sync_contract(&ingest_endpoint) {
+        Ok(result) => {
+            if result.was_updated {
+                eprintln!("  \x1b[2mContract cache updated to v{}\x1b[0m", result.remote_version);
+            }
+            if !result.compiled_matches {
+                eprintln!();
+                eprintln!(
+                    "  \x1b[33mContract mismatch:\x1b[0m server expects v{}, \
+                     this build produces v{}.",
+                    result.remote_version,
+                    contract_sync::COMPILED_CONTRACT_VERSION
+                );
+                eprintln!(
+                    "  Run \x1b[1mproov update\x1b[0m to get a compatible version."
+                );
+                eprintln!();
+                std::process::exit(1);
+            }
+        }
+        Err(contract_sync::SyncError::Unreachable(_)) => {}
+        Err(contract_sync::SyncError::ServerError(_)) => {}
+    }
+
+    let interactive = is_interactive();
     let scan_start = std::time::Instant::now();
-    let mut report = run_scan(params.mode, params.workdir, params.file, params.deep, None);
+    let progress = if interactive {
+        Some(crate::progress::ScanProgress::new(false))
+    } else {
+        None
+    };
+    // Wrap progress in a cell so the closure can borrow it
+    let progress_cell = std::cell::RefCell::new(progress);
+    let tick_fn = |detail: &str| {
+        if let Some(ref mut p) = *progress_cell.borrow_mut() {
+            p.tick(detail);
+        }
+    };
+    if let Some(ref mut p) = *progress_cell.borrow_mut() {
+        p.phase("Scanning");
+    }
+    let mut report = run_scan(
+        params.mode,
+        params.workdir,
+        params.file,
+        params.deep,
+        if interactive { Some(&tick_fn) } else { None },
+    );
     let scan_duration_ms = scan_start.elapsed().as_millis() as u64;
+    if let Some(ref mut p) = *progress_cell.borrow_mut() {
+        p.done(Some(&format!(
+            "Found {} artifact(s)",
+            report.artifacts.len()
+        )));
+    }
 
     report = apply_access_gate(report, &access);
     filter_by_severity(&mut report, min_score);
@@ -486,35 +564,107 @@ pub fn run() {
         );
     }
 
-    // Show Vettd hint for local-only users (not submitting, not JSON)
-    if !wants_submit && !out.json {
-        print_vettd_cta();
+    // Offer interactive submission for local-only scans (not --submit, not --json)
+    if !wants_submit && !out.json && !out.contract && is_interactive() {
+        prompt_submit(&report, scan_duration_ms);
     }
 
     // Passive update check after scan completes
     crate::updater::passive_update_check();
 }
 
-fn print_vettd_cta() {
-    use crate::submit::load_auth_config;
-    let has_key = load_auth_config()
-        .map(|a| !a.api_key.is_empty())
-        .unwrap_or(false);
-    if has_key {
+// ---------------------------------------------------------------------------
+// Interactive submit prompt
+// ---------------------------------------------------------------------------
+
+const VETTD_SETTINGS_URL: &str = "https://vettd.agentichighway.ai/settings";
+
+fn is_interactive() -> bool {
+    io::stdin().is_terminal()
+}
+
+/// After a scan, ask the user if they want to submit results to Vettd.
+fn prompt_submit(report: &ScanReport, scan_duration_ms: u64) {
+    if !crate::wizard::confirm("Submit results to Vettd?", false) {
         return;
     }
-    eprintln!("  \x1b[2m┌──────────────────────────────────────────────────────────┐\x1b[0m");
-    eprintln!("  \x1b[2m│\x1b[0m  \x1b[1mWant deeper analysis?\x1b[0m  Sync your results to \x1b[36mVettd\x1b[0m       \x1b[2m│\x1b[0m");
-    eprintln!(
-        "  \x1b[2m│\x1b[0m  for verification scoring, trend tracking, and more.   \x1b[2m│\x1b[0m"
-    );
-    eprintln!(
-        "  \x1b[2m│\x1b[0m                                                        \x1b[2m│\x1b[0m"
-    );
-    eprintln!("  \x1b[2m│\x1b[0m  Get your API key → \x1b[36mhttps://vettd.agentichighway.ai\x1b[0m    \x1b[2m│\x1b[0m");
-    eprintln!("  \x1b[2m│\x1b[0m  Then run:  \x1b[1mproov setup\x1b[0m                                \x1b[2m│\x1b[0m");
-    eprintln!("  \x1b[2m└──────────────────────────────────────────────────────────┘\x1b[0m");
+
+    // Resolve or collect API key
+    let saved = crate::submit::load_auth_config();
+    let api_key = match saved.as_ref().filter(|a| !a.api_key.is_empty()) {
+        Some(auth) => {
+            eprintln!("  Using saved API key.");
+            auth.api_key.clone()
+        }
+        None => collect_api_key(),
+    };
+
+    if api_key.is_empty() {
+        eprintln!("  No API key provided — submission cancelled.");
+        return;
+    }
+
+    let endpoint = saved
+        .map(|a| a.endpoint)
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string());
+
+    // Build and submit
+    let payload = build_contract_payload(report, scan_duration_ms);
+    let json = match serde_json::to_string_pretty(&payload) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("  Error serializing payload: {e}");
+            return;
+        }
+    };
+
+    let auth = AuthConfig {
+        endpoint: endpoint.clone(),
+        api_key: api_key.clone(),
+    };
+
+    eprintln!("  Submitting to {}...", auth.endpoint);
+    match crate::submit::submit_contract_payload(&json, &auth) {
+        Ok(()) => {
+            let _ = crate::submit::save_auth_config(&auth);
+        }
+        Err(e) => {
+            eprintln!("  Submission failed: {e}");
+            eprintln!("  You can retry later with: \x1b[1mproov scan --submit\x1b[0m");
+        }
+    }
+}
+
+/// Guide the user through obtaining and entering an API key.
+fn collect_api_key() -> String {
     eprintln!();
+    eprintln!(
+        "  You can get an API key from \x1b[36m{VETTD_SETTINGS_URL}\x1b[0m"
+    );
+
+    // Quick reachability check
+    match ureq::get(VETTD_SETTINGS_URL)
+        .timeout(std::time::Duration::from_secs(5))
+        .call()
+    {
+        Ok(_) => {
+            eprintln!("  \x1b[32m✓\x1b[0m Vettd is reachable.");
+        }
+        Err(_) => {
+            eprintln!(
+                "  \x1b[33m!\x1b[0m Could not reach Vettd — check your connection and try again later."
+            );
+            return String::new();
+        }
+    }
+
+    eprintln!();
+    let key = crate::wizard::ask("Paste your API key", "");
+    if key.is_empty() {
+        return String::new();
+    }
+    key
 }
 
 #[cfg(test)]
