@@ -190,10 +190,18 @@ pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<
                         } else {
                             backoff
                         };
-                        last_err = format!("Server returned {s}");
-                        eprintln!("  {last_err}, retrying in {wait}s...");
-                        thread::sleep(Duration::from_secs(wait));
-                        continue;
+                        let body = response.into_string().unwrap_or_default();
+                        let detail = if body.trim().is_empty() {
+                            "no details provided".to_string()
+                        } else {
+                            body
+                        };
+                        last_err = format!("Server returned {s}: {detail}");
+                        if attempt < MAX_ATTEMPTS - 1 {
+                            eprintln!("  Server returned {s}, retrying in {wait}s...");
+                            thread::sleep(Duration::from_secs(wait));
+                            continue;
+                        }
                     }
                     _ => {
                         let body = response.into_string().unwrap_or_default();
