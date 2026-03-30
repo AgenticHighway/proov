@@ -113,7 +113,7 @@ const MAX_ATTEMPTS: usize = 3;
 
 /// HTTP status codes considered transient (retryable).
 fn is_retryable(status: u16) -> bool {
-    matches!(status, 429 | 502 | 503 | 504)
+    matches!(status, 429 | 500 | 502 | 503 | 504)
 }
 
 /// Submit the contract payload to the ingest endpoint.
@@ -197,7 +197,12 @@ pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<
                     }
                     _ => {
                         let body = response.into_string().unwrap_or_default();
-                        return Err(format!("Server error ({status}): {body}"));
+                        let detail = if body.trim().is_empty() {
+                            "no details provided".to_string()
+                        } else {
+                            body
+                        };
+                        return Err(format!("Server error ({status}): {detail}"));
                     }
                 }
             }
