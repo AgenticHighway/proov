@@ -179,8 +179,7 @@ pub fn sync_contract(ingest_endpoint: &str) -> Result<SyncResult, SyncError> {
     // Step 2: fetch full schema if stale
     let was_updated = if is_stale {
         let (_header_version, schema_json) = fetch_remote_contract(&contract_url)?;
-        write_local_cache(&remote_version, &schema_json)
-            .map_err(SyncError::ServerError)?;
+        write_local_cache(&remote_version, &schema_json).map_err(SyncError::ServerError)?;
         true
     } else {
         false
@@ -239,7 +238,10 @@ mod tests {
     #[test]
     #[allow(clippy::const_is_empty)] // intentional: guard against blanking the const
     fn compiled_version_is_set() {
-        assert!(!COMPILED_CONTRACT_VERSION.is_empty(), "COMPILED_CONTRACT_VERSION must not be empty");
+        assert!(
+            !COMPILED_CONTRACT_VERSION.is_empty(),
+            "COMPILED_CONTRACT_VERSION must not be empty"
+        );
     }
 
     #[test]

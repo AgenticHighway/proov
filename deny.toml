@@ -26,11 +26,19 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
+    "MPL-2.0",                # option-ext (dirs dependency)
+    "CDLA-Permissive-2.0",    # webpki-roots (Mozilla CA bundle)
     "Unicode-3.0",
     "Unicode-DFS-2016",
     "Zlib",
 ]
+# proov itself is proprietary / unlicensed — exempt it from checks
+exceptions = [
+    { allow = ["LicenseRef-Proprietary"], crate = "proov" },
+]
 confidence-threshold = 0.8
+# Treat unlicensed workspace crates as private rather than erroring
+private = { ignore = true }
 
 [bans]
 # Warn on multiple versions of the same crate (increases binary size)
