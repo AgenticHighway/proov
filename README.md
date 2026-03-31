@@ -8,6 +8,16 @@ proov is a Rust CLI tool that scans your system for AI-related configuration fil
 
 The scanner runs fully offline by default. It walks your filesystem, identifies AI execution artifacts, scores them for risk, and outputs results locally. Optionally, you can submit findings to [AgenticHighway](https://agentichighway.com) for centralized verification and dashboard review.
 
+## System requirements
+
+| Requirement | Detail                                                               |
+| ----------- | -------------------------------------------------------------------- |
+| **OS**      | macOS (ARM64, x86_64), Linux (ARM64, x86_64), Windows (x86_64)       |
+| **Runtime** | None — proov is a single static binary with no dependencies          |
+| **Build**   | Rust 1.85.1+ (pinned via `rust-toolchain.toml`)                      |
+| **Network** | Optional — only needed for `--submit` and `proov update`             |
+| **Disk**    | ~15 MB for the binary; scans are read-only and produce no temp files |
+
 ## Install
 
 ### From a release binary
@@ -154,32 +164,50 @@ The scanner checks S3 for the latest release, verifies SHA-256 checksums, and re
 ```
 proov/
 ├── crates/
-│   └── proov/            # CLI binary (scanning, detection, submission)
-├── rules/                # Built-in TOML detection rules (compiled into binary)
+│   └── proov/                    # CLI binary (scanning, detection, submission)
+│       └── src/
+│           ├── detectors/         # Built-in artifact detectors
+│           └── contract/          # AH contract format builders
+├── rules/                        # Built-in TOML detection rules (compiled into binary)
 ├── examples/
-│   └── rules/            # Example custom detection rules (.toml)
+│   └── rules/                    # Example custom detection rules (.toml)
 ├── scripts/
-│   ├── test-scanner.sh   # Automated test suite
-│   └── test-submit.sh    # Manual submission test
+│   ├── test-scanner.sh           # Automated test suite
+│   └── test-submit.sh            # Manual submission test
 ├── docs/
-│   ├── architecture.md   # System design and data flow
-│   ├── detectors.md      # How detection works
-│   └── custom-rules.md   # Writing custom detection rules
-├── agents.md             # Project guidelines for AI coding agents
-└── scanner-data-contract.json  # JSON Schema for scan output
+│   ├── architecture.md           # System design and data flow
+│   ├── detectors.md              # How detection works
+│   └── custom-rules.md           # Writing custom detection rules
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml                # PR checks: fmt, clippy, test, audit
+│   │   └── release.yml           # Build + GitHub Release + S3 upload
+│   ├── dependabot.yml            # Automated dependency updates
+│   └── CODEOWNERS                # Required reviewers for security-sensitive files
+├── agents.md                     # Project guidelines for AI coding agents
+├── deny.toml                     # Supply chain policy (licenses, advisories)
+├── rust-toolchain.toml           # Pinned Rust compiler version
+├── SECURITY.md                   # Vulnerability disclosure policy
+└── scanner-data-contract.json    # JSON Schema for scan output
 ```
 
 ## Developing
 
 ```bash
-cargo build              # Debug build
-cargo test               # Run all tests
-cargo clippy             # Lint check (should be 0 warnings)
-./scripts/test-scanner.sh  # Exercise all CLI subcommands
+cargo build                         # Debug build
+cargo fmt --check                   # Formatting check
+cargo clippy --all-targets -- -D warnings  # Lint (must be 0 warnings)
+cargo test                          # Run all 337+ tests
+cargo deny check                    # License + advisory audit
+cargo audit                         # RustSec vulnerability scan
+./scripts/test-scanner.sh           # Exercise all CLI subcommands
 ```
+
+> **CI runs all of these automatically on every PR.** See [.github/workflows/ci.yml](.github/workflows/ci.yml) for the full pipeline.
 
 For detailed development instructions: [CONTRIBUTING.md](CONTRIBUTING.md)
 For architecture and code walkthrough: [docs/architecture.md](docs/architecture.md)
+For security vulnerability reports: [SECURITY.md](SECURITY.md)
 
 ## Configuration reference
 

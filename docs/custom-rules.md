@@ -139,3 +139,10 @@ See the `examples/rules/` directory:
 
 - `terraform-ai.toml` — Detect Terraform files with AI provider references
 - `internal-tool.toml` — Template for internal/proprietary tool configs
+
+For reference, the built-in rules that ship with proov are in the `rules/` directory:
+
+- `cursor-rules.toml` — `.cursorrules`, `agents.md`, `AGENTS.md`
+- `agents-md.toml` — Agent instruction files
+- `prompt-configs.toml` — `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md`
+- `prompt-configs-weak.toml` — Lower-confidence prompt file patterns
