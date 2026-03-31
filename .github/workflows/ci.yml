@@ -52,6 +52,12 @@ jobs:
               with:
                   components: clippy, rustfmt
 
+            # rust-toolchain.toml overrides action inputs, so ensure
+            # components are installed. This is a no-op if they're
+            # already listed in rust-toolchain.toml (belt + suspenders).
+            - name: Ensure toolchain components
+              run: rustup component add clippy rustfmt
+
             # Blacksmith intercepts cache calls on its runners — this
             # uses the colocated cache automatically, no extra config.
             - name: Cache Cargo
@@ -86,16 +92,25 @@ jobs:
 
             # Download pre-built binaries (~2s each) instead of
             # `cargo install` which compiles from source (~60s+).
+            # cargo-deny releases include the version in the asset name,
+            # so we must fetch the tag first, then construct the URL.
             - name: Install cargo-deny
               run: |
-                  curl -sSL https://github.com/EmbarkStudios/cargo-deny/releases/latest/download/cargo-deny-x86_64-unknown-linux-musl.tar.gz \
+                  DENY_TAG=$(curl -sSL https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/latest | grep '"tag_name"' | sed 's/.*"\(.*\)".*/\1/')
+                  curl -sSL "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_TAG}/cargo-deny-${DENY_TAG}-x86_64-unknown-linux-musl.tar.gz" \
                     | tar xzf - --strip-components=1 -C /usr/local/bin
+                  cargo-deny --version
 
+            # rustsec/rustsec is a monorepo — /releases/latest returns
+            # whichever crate released most recently (often not cargo-audit).
+            # We search for the latest cargo-audit release specifically.
             - name: Install cargo-audit
               run: |
-                  VERSION=$(curl -sSL https://api.github.com/repos/rustsec/rustsec/releases/latest | grep '"tag_name"' | sed 's/.*"cargo-audit\/v\(.*\)".*/\1/')
-                  curl -sSL "https://github.com/rustsec/rustsec/releases/latest/download/cargo-audit-x86_64-unknown-linux-musl-v${VERSION}.tgz" \
+                  AUDIT_TAG=$(curl -sSL "https://api.github.com/repos/rustsec/rustsec/releases?per_page=20" \
+                    | grep '"tag_name": "cargo-audit/' | head -1 | sed 's/.*"cargo-audit\/v\(.*\)".*/\1/')
+                  curl -sSL "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${AUDIT_TAG}/cargo-audit-x86_64-unknown-linux-musl-v${AUDIT_TAG}.tgz" \
                     | tar xzf - --strip-components=1 -C /usr/local/bin
+                  cargo-audit --version
 
             # cargo-deny checks: advisories, licenses, bans, sources
             - name: cargo deny check

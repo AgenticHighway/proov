@@ -158,6 +158,48 @@ Tag push (v*)
 
 **Resolution:** Use the "Re-run failed jobs" button on the Actions page. If the failure is deterministic, investigate the build logs.
 
+### macOS cross-compilation fails: "can't find crate for core"
+
+**Symptom:** The `x86_64-apple-darwin` build fails with:
+```
+error[E0463]: can't find crate for `core`
+  = note: the `x86_64-apple-darwin` target may not be installed
+```
+
+**Cause:** `macos-latest` runners are ARM64 (Apple Silicon). Building for `x86_64-apple-darwin` is a cross-compilation that requires the target to be explicitly installed. If `rust-toolchain.toml` exists, it overrides `dtolnay/rust-toolchain` action inputs — the action's `targets:` parameter is silently ignored.
+
+**Resolution:** The release workflow includes an explicit `rustup target add ${{ matrix.target }}` step to ensure cross-compilation targets are always installed regardless of `rust-toolchain.toml`. If this step is missing or removed, add it back after the "Install Rust toolchain" step.
+
+*This was the root cause of the v0.6.1 initial release failure (2026-03-31).*
+
+### CI fails: "cargo-fmt is not installed"
+
+**Symptom:** The formatting check fails with:
+```
+error: 'cargo-fmt' is not installed for the toolchain '1.85.1-x86_64-unknown-linux-gnu'
+```
+
+**Cause:** Same `rust-toolchain.toml` override issue — the `components: clippy, rustfmt` input on `dtolnay/rust-toolchain` is ignored. Components must be listed in `rust-toolchain.toml` directly.
+
+**Resolution:** Ensure `rust-toolchain.toml` includes:
+```toml
+components = ["clippy", "rustfmt"]
+```
+The CI workflow also has a belt-and-suspenders `rustup component add clippy rustfmt` step.
+
+### CI fails: cargo-deny or cargo-audit installation fails
+
+**Symptom:** The supply chain audit job fails during binary installation with tar errors.
+
+**Common causes:**
+- **cargo-deny:** The download URL must include the version in the filename (e.g., `cargo-deny-0.19.0-x86_64-...`). A URL without the version returns an HTML page, not a binary.
+- **cargo-audit:** The `rustsec/rustsec` repo is a monorepo — `/releases/latest` returns whichever crate released most recently (often `platforms`, not `cargo-audit`). The CI must search for the latest `cargo-audit/*` tag specifically.
+
+**Resolution:** The CI workflow constructs download URLs dynamically by fetching the correct release tag first. If these scripts break, check:
+1. Has the release asset naming convention changed?
+2. Has the GitHub API response format changed?
+3. Run the URL construction commands locally to debug.
+
 ### Tag was pushed but workflow didn't trigger
 
 **Symptom:** You pushed a tag but no workflow run appears.
