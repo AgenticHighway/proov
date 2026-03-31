@@ -2,6 +2,7 @@
 name = "proov"
 version.workspace = true
 edition.workspace = true
+publish = false
 description = "AI Execution Inventory — detect, analyze, and report AI execution artifacts."
 
 [[bin]]

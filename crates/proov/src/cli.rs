@@ -456,7 +456,10 @@ pub fn run() {
     match contract_sync::sync_contract(&ingest_endpoint) {
         Ok(result) => {
             if result.was_updated {
-                eprintln!("  \x1b[2mContract cache updated to v{}\x1b[0m", result.remote_version);
+                eprintln!(
+                    "  \x1b[2mContract cache updated to v{}\x1b[0m",
+                    result.remote_version
+                );
             }
             if !result.compiled_matches {
                 eprintln!();
@@ -466,9 +469,7 @@ pub fn run() {
                     result.remote_version,
                     contract_sync::COMPILED_CONTRACT_VERSION
                 );
-                eprintln!(
-                    "  Run \x1b[1mproov update\x1b[0m to get a compatible version."
-                );
+                eprintln!("  Run \x1b[1mproov update\x1b[0m to get a compatible version.");
                 eprintln!();
                 std::process::exit(1);
             }
@@ -639,9 +640,7 @@ fn prompt_submit(report: &ScanReport, scan_duration_ms: u64) {
 /// Guide the user through obtaining and entering an API key.
 fn collect_api_key() -> String {
     eprintln!();
-    eprintln!(
-        "  You can get an API key from \x1b[36m{VETTD_SETTINGS_URL}\x1b[0m"
-    );
+    eprintln!("  You can get an API key from \x1b[36m{VETTD_SETTINGS_URL}\x1b[0m");
 
     // Quick reachability check
     match ureq::get(VETTD_SETTINGS_URL)
