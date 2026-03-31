@@ -2,22 +2,29 @@
 # CI — runs on every PR and push to main.
 #
 # PURPOSE:
-#   Gate merges behind automated checks: lint, test, and dependency
-#   audit. This prevents regressions and catches known vulnerabilities
+#   Gate merges behind automated checks: lint, test, and security
+#   scanning. This prevents regressions and catches vulnerabilities
 #   before code reaches the release workflow.
 #
+# JOBS (run in parallel where possible):
+#   check         — fmt → clippy → test (fail-fast, cheapest first)
+#   supply-chain  — cargo-deny + cargo-audit (dependency vulns, licenses)
+#   secrets       — gitleaks (prevents committed secrets/keys)
+#   unsafe-audit  — cargo-geiger (maps unsafe code in dependency tree)
+#
 # FAIL-FAST STRATEGY:
-#   Steps are ordered cheapest-first so broken PRs fail in seconds:
-#     1. fmt     (~1s)  — catches formatting before compiling anything
-#     2. clippy  (~30s) — compiles + lints in one pass (no separate build)
-#     3. test    (~3s)  — reuses clippy build artifacts, just runs tests
-#   The `supply-chain` job runs in parallel and uses pre-built binaries
-#   (not `cargo install`) to avoid 60s+ compile-from-source overhead.
+#   Steps in `check` are ordered cheapest-first so broken PRs fail in
+#   seconds:
+#     1. fmt     (~1s)  — pure text check, no compilation
+#     2. clippy  (~30s) — compiles + lints in one pass
+#     3. test    (~3s)  — reuses clippy build artifacts
 #
 # SUPPLY CHAIN SECURITY:
 #   • All Actions pinned to full commit SHAs (see release.yml header).
 #   • `cargo deny` checks licenses and advisories on every PR.
 #   • `cargo audit` catches known CVEs in the dependency tree.
+#   • `gitleaks` scans for accidentally committed secrets.
+#   • `cargo-geiger` audits unsafe code surface area.
 #   • Minimal permissions — only `contents: read` for checkout.
 #
 # RUNNERS:
@@ -119,3 +126,62 @@ jobs:
             # cargo-audit is a second layer — checks the RustSec advisory DB
             - name: cargo audit
               run: cargo audit
+
+    # ── Secrets Scanning ─────────────────────────────────────────────
+    # Gitleaks detects hardcoded secrets (API keys, tokens, passwords)
+    # in the repo history and staged changes. Runs on a minimal runner
+    # since it's I/O-bound, not CPU-bound. Blocks the build on any
+    # finding — secrets in the repo are always a hard stop.
+    secrets:
+        name: Secrets scan
+        runs-on: blacksmith-2vcpu-ubuntu-2204
+        steps:
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              with:
+                  fetch-depth: 0 # full history for scanning all commits
+
+            - name: Install gitleaks
+              run: |
+                  GL_TAG=$(curl -sSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/')
+                  curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_TAG}/gitleaks_${GL_TAG}_linux_x64.tar.gz" \
+                    | tar xzf - -C /usr/local/bin gitleaks
+                  gitleaks version
+
+            # Scan the full repo history for secrets. On PRs, you could
+            # scope to just the diff with --log-opts="origin/main..HEAD"
+            # but scanning everything catches pre-existing issues too.
+            - name: Scan for secrets
+              run: gitleaks detect --source . --verbose
+
+    # ── Unsafe Code Audit ────────────────────────────────────────────
+    # cargo-geiger counts `unsafe` usage across the entire dependency
+    # tree. This is informational (non-blocking) — many safe crates
+    # use unsafe internally (e.g. ring for crypto, libc for FFI).
+    # The value is visibility: track unsafe surface area over time
+    # and catch unexpected new unsafe dependencies in PRs.
+    unsafe-audit:
+        name: Unsafe code audit
+        runs-on: blacksmith-4vcpu-ubuntu-2204
+        steps:
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - name: Ensure toolchain components
+              run: rustup component add clippy rustfmt
+
+            # Blacksmith caches the compiled cargo-geiger binary after
+            # the first run — subsequent runs skip the 60s+ compile.
+            - name: Cache Cargo
+              uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+
+            - name: Install cargo-geiger
+              run: cargo install cargo-geiger --locked
+
+            # Non-blocking (|| true) — geiger can exit non-zero if it
+            # encounters crates it can't analyze. The output itself is
+            # the valuable part: review it in PR checks to spot new
+            # unsafe dependencies entering the tree.
+            - name: Audit unsafe code usage
+              run: cargo geiger --all-targets --output-format ascii 2>&1 || true
