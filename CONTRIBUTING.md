@@ -212,7 +212,47 @@ CI runs on Linux (Blacksmith Ubuntu 22.04). If you’re developing on macOS, pat
 ### `proov update` fails during development
 
 The self-updater checks S3 for releases. During development, you’re running a debug build that won’t match any published version. This is expected — use `cargo run` instead.
+### Dependabot PRs fail CI after workflow changes
 
+When the CI workflow is modified on `main`, existing Dependabot PR branches still have the old workflow. Their CI runs use the old (potentially broken) configuration.
+
+**Fix:** Update each PR branch to pick up the latest CI:
+```bash
+# For all failing PRs:
+gh pr update-branch <PR_NUMBER> --repo AgenticHighway/proov --rebase
+
+# If rebase fails due to Cargo.lock conflicts:
+gh pr checkout <PR_NUMBER>
+git checkout origin/main -- Cargo.lock
+cargo check        # regenerates lockfile with the PR's dependency change
+git add Cargo.lock crates/proov/Cargo.toml
+git rebase --continue
+git push --force-with-lease
+```
+
+**Prevention:** Test CI changes on a PR *before* merging to main. This catches workflow breakage before it poisons all open Dependabot branches.
+
+### `rust-toolchain.toml` overrides CI action inputs
+
+When `rust-toolchain.toml` exists, `dtolnay/rust-toolchain`'s `targets:` and `components:` inputs are silently ignored. The toolchain file takes full control.
+
+**Fix:** List all required components in `rust-toolchain.toml` directly, and use explicit `rustup target add` / `rustup component add` commands in workflows as a belt-and-suspenders fallback.
+
+### Dependabot major version bumps fail CI with compilation errors
+
+Dependabot doesn't distinguish between safe minor bumps and breaking major bumps. A major version bump (e.g., `sha2` 0.10→0.11) can introduce API changes that require code modifications.
+
+**Fix:** Review the PR diff and changelog before merging major bumps. If CI fails with compilation errors (not workflow errors), the PR needs code changes — close it and handle the migration in a dedicated branch.
+
+### Cargo.lock conflicts when merging multiple Dependabot PRs
+
+When merging several dependency PRs sequentially, later PRs will conflict on `Cargo.lock` because each merge changes the lockfile.
+
+**Fix:** After merging a PR, update the next PR's branch:
+```bash
+gh pr update-branch <PR_NUMBER> --rebase
+# If that fails, resolve locally (see "Dependabot PRs fail CI" above)
+```
 ## Testing submission
 
 To test submitting scan results to a server:
