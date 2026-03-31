@@ -23,11 +23,11 @@ git log --oneline $(git describe --tags --abbrev=0)..HEAD
 
 Use [Conventional Commits](https://www.conventionalcommits.org/) to decide the version bump:
 
-| Change type | Bump | Example |
-| ----------- | ---- | ------- |
-| Breaking changes | Major (X.0.0) | API contract schema v3 |
-| New features, new detectors | Minor (0.X.0) | New MCP detector |
-| Bug fixes, dependency updates, docs | Patch (0.0.X) | Fix clippy warning |
+| Change type                         | Bump          | Example                |
+| ----------------------------------- | ------------- | ---------------------- |
+| Breaking changes                    | Major (X.0.0) | API contract schema v3 |
+| New features, new detectors         | Minor (0.X.0) | New MCP detector       |
+| Bug fixes, dependency updates, docs | Patch (0.0.X) | Fix clippy warning     |
 
 ### 2. Bump the version
 
@@ -74,11 +74,11 @@ git push origin main --tags
 Go to [GitHub Actions](https://github.com/AgenticHighway/proov/actions) and watch the Release workflow. It runs three jobs:
 
 1. **build** — Cross-compiles for 5 targets (runs in parallel):
-   - `aarch64-apple-darwin` (macOS ARM64) — GitHub-hosted runner
-   - `x86_64-apple-darwin` (macOS x86) — GitHub-hosted runner
-   - `aarch64-unknown-linux-gnu` (Linux ARM64) — Blacksmith runner
-   - `x86_64-unknown-linux-gnu` (Linux x86) — Blacksmith runner
-   - `x86_64-pc-windows-msvc` (Windows x86) — Blacksmith runner
+    - `aarch64-apple-darwin` (macOS ARM64) — GitHub-hosted runner
+    - `x86_64-apple-darwin` (macOS x86) — GitHub-hosted runner
+    - `aarch64-unknown-linux-gnu` (Linux ARM64) — Blacksmith runner
+    - `x86_64-unknown-linux-gnu` (Linux x86) — Blacksmith runner
+    - `x86_64-pc-windows-msvc` (Windows x86) — Blacksmith runner
 
 2. **release** — Downloads all 5 artifacts and creates a GitHub Release with auto-generated release notes
 
@@ -127,6 +127,7 @@ Tag push (v*)
 ```
 
 **Security notes:**
+
 - All Actions are pinned to full commit SHAs (not mutable tags)
 - AWS credentials use OIDC federation — no long-lived keys in secrets
 - SHA-256 checksums are embedded in `latest.json` for client-side integrity verification
@@ -152,6 +153,7 @@ Tag push (v*)
 **Symptom:** 4 of 5 matrix legs succeed, one fails.
 
 **Common causes:**
+
 - **Linux ARM64 cross-compile fails:** The `gcc-aarch64-linux-gnu` package may have changed. Check the "Install cross-compilation tools" step logs.
 - **Windows build fails:** Windows runners can have transient issues. Re-run the failed job from the Actions UI.
 - **macOS build fails:** Often a Rust toolchain installation issue with GitHub-hosted runners. Re-run.
@@ -161,6 +163,7 @@ Tag push (v*)
 ### macOS cross-compilation fails: "can't find crate for core"
 
 **Symptom:** The `x86_64-apple-darwin` build fails with:
+
 ```
 error[E0463]: can't find crate for `core`
   = note: the `x86_64-apple-darwin` target may not be installed
@@ -170,11 +173,12 @@ error[E0463]: can't find crate for `core`
 
 **Resolution:** The release workflow includes an explicit `rustup target add ${{ matrix.target }}` step to ensure cross-compilation targets are always installed regardless of `rust-toolchain.toml`. If this step is missing or removed, add it back after the "Install Rust toolchain" step.
 
-*This was the root cause of the v0.6.1 initial release failure (2026-03-31).*
+_This was the root cause of the v0.6.1 initial release failure (2026-03-31)._
 
 ### CI fails: "cargo-fmt is not installed"
 
 **Symptom:** The formatting check fails with:
+
 ```
 error: 'cargo-fmt' is not installed for the toolchain '1.85.1-x86_64-unknown-linux-gnu'
 ```
@@ -182,9 +186,11 @@ error: 'cargo-fmt' is not installed for the toolchain '1.85.1-x86_64-unknown-lin
 **Cause:** Same `rust-toolchain.toml` override issue — the `components: clippy, rustfmt` input on `dtolnay/rust-toolchain` is ignored. Components must be listed in `rust-toolchain.toml` directly.
 
 **Resolution:** Ensure `rust-toolchain.toml` includes:
+
 ```toml
 components = ["clippy", "rustfmt"]
 ```
+
 The CI workflow also has a belt-and-suspenders `rustup component add clippy rustfmt` step.
 
 ### CI fails: cargo-deny or cargo-audit installation fails
@@ -192,10 +198,12 @@ The CI workflow also has a belt-and-suspenders `rustup component add clippy rust
 **Symptom:** The supply chain audit job fails during binary installation with tar errors.
 
 **Common causes:**
+
 - **cargo-deny:** The download URL must include the version in the filename (e.g., `cargo-deny-0.19.0-x86_64-...`). A URL without the version returns an HTML page, not a binary.
 - **cargo-audit:** The `rustsec/rustsec` repo is a monorepo — `/releases/latest` returns whichever crate released most recently (often `platforms`, not `cargo-audit`). The CI must search for the latest `cargo-audit/*` tag specifically.
 
 **Resolution:** The CI workflow constructs download URLs dynamically by fetching the correct release tag first. If these scripts break, check:
+
 1. Has the release asset naming convention changed?
 2. Has the GitHub API response format changed?
 3. Run the URL construction commands locally to debug.
@@ -205,10 +213,12 @@ The CI workflow also has a belt-and-suspenders `rustup component add clippy rust
 **Symptom:** You pushed a tag but no workflow run appears.
 
 **Causes:**
+
 - The tag name doesn't match `v*` (e.g., you used `0.6.1` instead of `v0.6.1`)
 - The tag was created on a branch other than what's expected
 
 **Resolution:**
+
 ```bash
 # Delete the bad tag
 git tag -d bad-tag
@@ -224,10 +234,12 @@ git push origin --tags
 **Symptom:** GitHub Release was created but `latest.json` wasn't updated.
 
 **Causes:**
+
 - OIDC token exchange failed (transient GitHub/AWS issue)
 - The `SCANNER_RELEASE_ROLE_ARN` secret is misconfigured
 
 **Resolution:**
+
 1. Check the "Configure AWS credentials (OIDC)" step logs for the error
 2. Re-run the `upload-s3` job from the Actions UI
 3. If OIDC is persistently failing, verify the IAM role trust policy allows the repo's OIDC subject
@@ -245,10 +257,12 @@ git push origin --tags
 **Symptom:** The release is on GitHub but `proov update --check` says "already up to date."
 
 **Causes:**
+
 - `latest.json` on S3 wasn't updated (S3 upload job failed or was skipped)
 - Client-side 24-hour check cache hasn't expired
 
 **Resolution:**
+
 ```bash
 # Verify latest.json
 curl -s https://ah-scanner-releases.s3.amazonaws.com/latest.json
@@ -265,6 +279,7 @@ proov update --check
 **Symptom:** A release was published but had a bug. You need to re-do it.
 
 **Resolution:**
+
 ```bash
 # Delete the tag locally and remotely
 git tag -d vX.Y.Z
@@ -298,9 +313,10 @@ git commit -m "chore: release vX.Y.Z"
 If a release is broken and users are affected:
 
 1. **Immediate:** Re-upload the previous version's `latest.json` to S3 so `proov update` pulls the old binary:
-   ```bash
-   aws s3 cp s3://ah-scanner-releases/vPREVIOUS/latest.json s3://ah-scanner-releases/latest.json
-   ```
+
+    ```bash
+    aws s3 cp s3://ah-scanner-releases/vPREVIOUS/latest.json s3://ah-scanner-releases/latest.json
+    ```
 
 2. **Thorough:** Follow the "re-release" steps above to publish a fixed version.
 
