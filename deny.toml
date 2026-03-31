@@ -1,0 +1,45 @@
+# ──────────────────────────────────────────────────────────────────────
+# cargo-deny configuration — supply chain policy enforcement.
+#
+# Runs in CI on every PR (see .github/workflows/ci.yml).
+# Checks four categories:
+#   1. advisories — block crates with known CVEs (RustSec database)
+#   2. licenses  — only allow pre-approved open-source licenses
+#   3. bans      — block specific crates or duplicate versions
+#   4. sources   — only allow crates from crates.io
+#
+# Docs: https://embarkstudios.github.io/cargo-deny/
+# ──────────────────────────────────────────────────────────────────────
+
+# Advisories: deny known vulnerabilities (RustSec database).
+# Unmaintained/yanked crates produce warnings, not hard failures.
+[advisories]
+ignore = []
+
+[licenses]
+# Only allow these licenses (covers 99% of the Rust ecosystem).
+# Copyleft licenses (GPL, AGPL) are denied by omission.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+# Warn on multiple versions of the same crate (increases binary size)
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+# Only allow crates from the official registry — no random git deps
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

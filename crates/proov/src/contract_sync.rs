@@ -237,8 +237,9 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::const_is_empty)] // intentional: guard against blanking the const
     fn compiled_version_is_set() {
-        assert!(!COMPILED_CONTRACT_VERSION.is_empty());
+        assert!(!COMPILED_CONTRACT_VERSION.is_empty(), "COMPILED_CONTRACT_VERSION must not be empty");
     }
 
     #[test]

@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────────────
+# Dependabot — automated dependency update PRs.
+#
+# WHY:
+#   Supply chain attacks often exploit stale dependencies. Dependabot
+#   creates PRs when new versions are available, keeping both Cargo
+#   crates and GitHub Actions up to date automatically.
+#
+# NOTES:
+#   • "github-actions" ecosystem watches workflow files for new Action
+#     versions and proposes SHA-pinned updates.
+#   • "cargo" ecosystem watches Cargo.lock for crate updates.
+#   • Weekly cadence balances freshness vs. PR noise.
+# ──────────────────────────────────────────────────────────────────────
+
+version: 2
+
+updates:
+    # Keep GitHub Actions pinned to latest SHAs
+    - package-ecosystem: github-actions
+      directory: /
+      schedule:
+          interval: weekly
+      commit-message:
+          prefix: "ci"
+
+    # Keep Rust crate dependencies up to date
+    - package-ecosystem: cargo
+      directory: /
+      schedule:
+          interval: weekly
+      commit-message:
+          prefix: "deps"

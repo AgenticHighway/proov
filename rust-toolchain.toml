@@ -1,0 +1,5 @@
+# Pin the Rust compiler version across all environments (local + CI).
+# This prevents non-deterministic builds from new rustc releases.
+# Bump this deliberately after testing, not by accident.
+[toolchain]
+channel = "1.85.1"
