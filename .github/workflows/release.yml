@@ -71,6 +71,12 @@ jobs:
               with:
                   targets: ${{ matrix.target }}
 
+            # rust-toolchain.toml overrides the action's `targets` input,
+            # so we explicitly add the target to ensure cross-compilation
+            # works (e.g. x86_64-apple-darwin on ARM64 macOS runners).
+            - name: Add build target
+              run: rustup target add ${{ matrix.target }}
+
             # Swatinem/rust-cache works on all runners. Blacksmith
             # transparently redirects cache I/O to its colocated store
             # on Blacksmith runners — no code changes needed.

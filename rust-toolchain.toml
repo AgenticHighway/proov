@@ -1,5 +1,9 @@
 # Pin the Rust compiler version across all environments (local + CI).
 # This prevents non-deterministic builds from new rustc releases.
 # Bump this deliberately after testing, not by accident.
+#
+# IMPORTANT: When rust-toolchain.toml exists, it overrides dtolnay/rust-toolchain
+# action inputs (targets, components). Components needed in CI must be listed here.
 [toolchain]
 channel = "1.85.1"
+components = ["clippy", "rustfmt"]
