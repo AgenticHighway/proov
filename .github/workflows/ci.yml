@@ -2,9 +2,17 @@
 # CI — runs on every PR and push to main.
 #
 # PURPOSE:
-#   Gate merges behind automated checks: build, lint, test, and
-#   dependency audit. This prevents regressions and catches known
-#   vulnerabilities before code reaches the release workflow.
+#   Gate merges behind automated checks: lint, test, and dependency
+#   audit. This prevents regressions and catches known vulnerabilities
+#   before code reaches the release workflow.
+#
+# FAIL-FAST STRATEGY:
+#   Steps are ordered cheapest-first so broken PRs fail in seconds:
+#     1. fmt     (~1s)  — catches formatting before compiling anything
+#     2. clippy  (~30s) — compiles + lints in one pass (no separate build)
+#     3. test    (~3s)  — reuses clippy build artifacts, just runs tests
+#   The `supply-chain` job runs in parallel and uses pre-built binaries
+#   (not `cargo install`) to avoid 60s+ compile-from-source overhead.
 #
 # SUPPLY CHAIN SECURITY:
 #   • All Actions pinned to full commit SHAs (see release.yml header).
@@ -34,7 +42,7 @@ env:
 
 jobs:
     check:
-        name: Build, lint & test
+        name: Lint & test
         runs-on: blacksmith-4vcpu-ubuntu-2204
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -42,41 +50,56 @@ jobs:
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
               with:
-                  components: clippy
+                  components: clippy, rustfmt
 
             # Blacksmith intercepts cache calls on its runners — this
             # uses the colocated cache automatically, no extra config.
             - name: Cache Cargo
               uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
-            - name: Build
-              run: cargo build --all-targets
+            # ── Fail-fast: cheapest checks first ────────────────────
 
-            # Clippy with deny-warnings ensures zero warnings merge
+            # ~1s — pure text check, no compilation. Catches formatting
+            # issues before waiting for a full compile.
+            - name: Formatting
+              run: cargo fmt --check
+
+            # ~30s — compiles all targets AND lints in a single pass.
+            # No separate `cargo build` step needed — clippy does both.
+            # -D warnings ensures zero warnings merge.
             - name: Clippy
               run: cargo clippy --all-targets -- -D warnings
 
+            # ~3s — reuses build artifacts from clippy above, so this
+            # is essentially just running the test harness.
             - name: Test
               run: cargo test
 
-    # Separate job so it can run in parallel with build/test
+    # Runs in parallel with check — no dependency between them.
+    # Uses pre-built binaries (not `cargo install`) to avoid the 60s+
+    # compile-from-source overhead of building cargo-audit.
     supply-chain:
         name: Supply chain audit
         runs-on: blacksmith-2vcpu-ubuntu-2204
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+            # Download pre-built binaries (~2s each) instead of
+            # `cargo install` which compiles from source (~60s+).
             - name: Install cargo-deny
               run: |
                   curl -sSL https://github.com/EmbarkStudios/cargo-deny/releases/latest/download/cargo-deny-x86_64-unknown-linux-musl.tar.gz \
                     | tar xzf - --strip-components=1 -C /usr/local/bin
 
+            - name: Install cargo-audit
+              run: |
+                  VERSION=$(curl -sSL https://api.github.com/repos/rustsec/rustsec/releases/latest | grep '"tag_name"' | sed 's/.*"cargo-audit\/v\(.*\)".*/\1/')
+                  curl -sSL "https://github.com/rustsec/rustsec/releases/latest/download/cargo-audit-x86_64-unknown-linux-musl-v${VERSION}.tgz" \
+                    | tar xzf - --strip-components=1 -C /usr/local/bin
+
             # cargo-deny checks: advisories, licenses, bans, sources
             - name: cargo deny check
               run: cargo deny check
-
-            - name: Install cargo-audit
-              run: cargo install cargo-audit --locked
 
             # cargo-audit is a second layer — checks the RustSec advisory DB
             - name: cargo audit
