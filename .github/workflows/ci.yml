@@ -52,7 +52,7 @@ jobs:
         name: Lint & test
         runs-on: blacksmith-4vcpu-ubuntu-2204
         steps:
-            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -95,7 +95,7 @@ jobs:
         name: Supply chain audit
         runs-on: blacksmith-2vcpu-ubuntu-2204
         steps:
-            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Download pre-built binaries (~2s each) instead of
             # `cargo install` which compiles from source (~60s+).
@@ -136,7 +136,7 @@ jobs:
         name: Secrets scan
         runs-on: blacksmith-2vcpu-ubuntu-2204
         steps:
-            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0 # full history for scanning all commits
 
@@ -163,7 +163,7 @@ jobs:
         name: Unsafe code audit
         runs-on: blacksmith-4vcpu-ubuntu-2204
         steps:
-            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
