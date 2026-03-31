@@ -36,7 +36,16 @@ proov/
 │   │       ├── models.rs     # Core data types
 │   │       ├── risk_engine.rs # Risk scoring (0-100)
 │   │       ├── verifier.rs   # Pass/fail determination
-│   │       ├── contract.rs   # Output format builder
+│   │       ├── contract/     # AH contract format builders
+│   │       │   ├── mod.rs       # Module declarations
+│   │       │   ├── types.rs     # Contract type definitions
+│   │       │   ├── prompts.rs   # Prompt contract builder
+│   │       │   ├── skills.rs    # Skills contract builder
+│   │       │   ├── agents.rs    # Agents contract builder
+│   │       │   ├── mcp.rs       # MCP server contract builder
+│   │       │   ├── apps.rs      # Agentic app contract builder
+│   │       │   └── helpers.rs   # Shared contract utilities
+│   │       ├── contract_sync.rs  # Server contract version sync + caching
 │   │       ├── submit.rs     # HTTP submission + retry
 │   │       ├── identity.rs   # Scanner UUID management
 │   │       ├── payload.rs    # API payload construction
@@ -54,10 +63,15 @@ proov/
 ├── scripts/
 │   ├── test-scanner.sh       # Automated test suite (all subcommands)
 │   └── test-submit.sh        # Manual submission test
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml            # PR checks: fmt, clippy, test, audit
+│   │   └── release.yml       # Build + GitHub Release + S3 upload
+│   ├── dependabot.yml        # Automated dependency updates
+│   └── CODEOWNERS            # Required reviewers
 ├── scanner-data-contract.json # JSON Schema for the ingest API
-├── ahscan-contract.json       # Example output payload
-└── .github/workflows/
-    └── release.yml            # CI: build + GitHub Release + S3 upload
+├── deny.toml                  # Supply chain policy (licenses, advisories)
+└── rust-toolchain.toml        # Pinned Rust compiler version
 ```
 
 ## Data flow
@@ -114,7 +128,7 @@ Here is the complete path data takes through the scanner, from CLI invocation to
     └──┬───┬───┬──┘
        │   │   │
        │   │   └──► formatters.rs → terminal output (human/overview/summary)
-       │   └──────► contract.rs → JSON file (--out, --json)
+       │   └──────► contract/ → JSON file (--out, --json, --contract)
        └──────────► submit.rs → HTTP POST to server (--submit)
 ```
 
@@ -124,39 +138,42 @@ Here is the complete path data takes through the scanner, from CLI invocation to
 
 These modules never touch the filesystem, network, or terminal. They are safe to unit test:
 
-| Module            | Purpose                                   |
-| ----------------- | ----------------------------------------- |
-| `risk_engine.rs`  | Score artifacts 0-100 based on signals    |
-| `verifier.rs`     | Assign pass/conditional_pass/fail         |
-| `payload.rs`      | Build the ingest JSON payload             |
-| `capabilities.rs` | Map signals → high-level capability names |
-| `lite_mode.rs`    | Filter results for free-tier users        |
+| Module            | Purpose                                                                                        |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| `risk_engine.rs`  | Score artifacts 0-100 based on signals                                                         |
+| `verifier.rs`     | Assign pass/conditional_pass/fail                                                              |
+| `payload.rs`      | Build the ingest JSON payload                                                                  |
+| `capabilities.rs` | Map signals → high-level capability names                                                      |
+| `lite_mode.rs`    | Filter results for free-tier users                                                             |
+| `contract/`       | Transform ScanReport → AH contract format (types, prompts, skills, agents, mcp, apps, helpers) |
 
 ### Side-effect modules (I/O)
 
 These modules interact with the outside world:
 
-| Module                | Side effect                              |
-| --------------------- | ---------------------------------------- |
-| `discovery.rs`        | Reads filesystem (directory walking)     |
-| `detectors/*`         | Read file contents                       |
-| `submit.rs`           | HTTP POST, read/write config files       |
-| `identity.rs`         | Read/write UUID files in ~/.ahscan/      |
-| `network_evidence.rs` | Runs macOS firewall commands             |
-| `updater.rs`          | HTTP GET to S3 for update manifests      |
-| `setup.rs`            | Interactive prompts + config file writes |
-| `wizard.rs`           | Interactive terminal UI                  |
-| `progress.rs`         | Writes to stderr                         |
+| Module                | Side effect                                                               |
+| --------------------- | ------------------------------------------------------------------------- |
+| `discovery.rs`        | Reads filesystem (directory walking)                                      |
+| `detectors/*`         | Read file contents                                                        |
+| `submit.rs`           | HTTP POST, read/write config files                                        |
+| `identity.rs`         | Read/write UUID files in ~/.ahscan/                                       |
+| `network_evidence.rs` | Runs macOS firewall commands                                              |
+| `updater.rs`          | HTTP GET to S3 for update manifests                                       |
+| `contract_sync.rs`    | HTTP GET contract version from server, local cache in ~/.ahscan/contract/ |
+| `setup.rs`            | Interactive prompts + config file writes                                  |
+| `wizard.rs`           | Interactive terminal UI                                                   |
+| `progress.rs`         | Writes to stderr                                                          |
 
 ### Orchestration
 
-| Module           | Role                                                              |
-| ---------------- | ----------------------------------------------------------------- |
-| `cli.rs`         | Entry point: argument parsing, dispatch, output mode selection    |
-| `scan.rs`        | Pipeline: discovery → detection → scoring → verification          |
-| `contract.rs`    | Transform `ScanReport` → AH-Verify v2.1.0 contract format         |
-| `rule_engine.rs` | Load TOML rules from `~/.ahscan/rules/`, match against candidates |
-| `rules.rs`       | CLI subcommand for rule management (list, add, remove, validate)  |
+| Module             | Role                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `cli.rs`           | Entry point: argument parsing, dispatch, output mode selection                                                                    |
+| `scan.rs`          | Pipeline: discovery → detection → scoring → verification                                                                          |
+| `contract/`        | Transform `ScanReport` → AH-Verify v2.1.0 contract format (split into type-specific builders: prompts, skills, agents, mcp, apps) |
+| `contract_sync.rs` | Sync contract schema version from server, cache locally in `~/.ahscan/contract/`, warn on version mismatch                        |
+| `rule_engine.rs`   | Load TOML rules from `~/.ahscan/rules/`, match against candidates                                                                 |
+| `rules.rs`         | CLI subcommand for rule management (list, add, remove, validate)                                                                  |
 
 ## File primitives
 
@@ -304,9 +321,32 @@ The scanner enforces strict endpoint validation in `network.rs`:
 ## Release process
 
 1. Bump version in workspace `Cargo.toml`
-2. Commit: `chore: bump version to X.Y.Z`
+2. Commit: `chore: release vX.Y.Z`
 3. Tag: `git tag vX.Y.Z`
 4. Push: `git push origin main --tags`
 5. GitHub Actions builds binaries for 5 targets (macOS arm64/x86, Linux arm64/x86, Windows x86)
 6. Uploads to GitHub Releases + S3 bucket
 7. Generates `latest.json` manifest with SHA-256 checksums for self-update
+
+## CI/CD
+
+The project uses two GitHub Actions workflows, both running on [Blacksmith](https://blacksmith.sh) runners for speed:
+
+**CI** (`.github/workflows/ci.yml`) — runs on every PR and push to `main`:
+
+- Steps ordered cheapest-first for fast failure (fmt → clippy → test)
+- Parallel supply chain audit job (cargo-deny + cargo-audit)
+
+**Release** (`.github/workflows/release.yml`) — runs on version tags (`v*`):
+
+- Cross-platform builds (5 targets)
+- GitHub Release creation
+- S3 upload with SHA-256 checksums
+
+**Supply chain hardening:**
+
+- All third-party Actions pinned to full commit SHAs
+- Dependabot auto-updates for both Cargo crates and Actions
+- `deny.toml` enforces license allowlist and blocks non-crates.io sources
+- CODEOWNERS requires review on security-sensitive files
+- AWS credentials use OIDC federation (no long-lived keys)

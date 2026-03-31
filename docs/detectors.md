@@ -8,6 +8,7 @@ Detectors are the core of what proov does — they examine filesystem candidates
 2. **Detectors** receive the candidate list and examine each file
 3. Each detector returns zero or more `ArtifactReport`s with signals, confidence scores, and metadata
 4. Reports are then scored by `risk_engine.rs` and verified by `verifier.rs`
+5. Verified reports are formatted for terminal output (`formatters.rs`), serialized to JSON (`contract/`), or submitted to the server (`submit.rs`)
 
 ## File primitives
 
