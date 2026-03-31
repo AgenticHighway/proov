@@ -198,7 +198,7 @@ pub fn walk_bounded(root: &Path, origin: &str, on_tick: Option<&dyn Fn(&str)>) -
         });
         count += 1;
         if let Some(tick) = on_tick {
-            if count.is_multiple_of(5000) {
+            if count % 5000 == 0 {
                 tick(&format!("{count} files"));
             }
         }
@@ -230,7 +230,7 @@ pub fn walk_deep_workdir(
         });
         count += 1;
         if let Some(tick) = on_tick {
-            if count.is_multiple_of(5000) {
+            if count % 5000 == 0 {
                 tick(&format!("{count} files"));
             }
         }
@@ -301,7 +301,7 @@ pub fn discover_filesystem_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candi
             });
             count += 1;
             if let Some(tick) = on_tick {
-                if count.is_multiple_of(10_000) {
+                if count % 10_000 == 0 {
                     tick(&format!("{count} files"));
                 }
             }
@@ -340,7 +340,7 @@ pub fn discover_root_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> 
         });
         count += 1;
         if let Some(tick) = on_tick {
-            if count.is_multiple_of(10_000) {
+            if count % 10_000 == 0 {
                 tick(&format!("{count} files"));
             }
         }

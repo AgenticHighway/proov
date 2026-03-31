@@ -1,10 +1,35 @@
+# ──────────────────────────────────────────────────────────────────────
+# Release workflow — build cross-platform binaries, publish GitHub
+# Release, and upload artifacts + manifest to S3.
+#
+# SUPPLY CHAIN SECURITY:
+#   • All third-party Actions are pinned to full commit SHAs to prevent
+#     tag-repointing attacks (see: tj-actions/changed-files incident).
+#     The "# vN" comment after each SHA records the human-readable tag
+#     at the time of pinning — Dependabot uses it to propose updates.
+#   • Job-level `permissions` follow least-privilege: each job declares
+#     only the scopes it actually needs.
+#   • OIDC (`id-token: write`) is used for AWS instead of long-lived keys.
+#
+# RUNNERS:
+#   • Linux/Windows builds use Blacksmith runners for 2× speed + colocated
+#     cache (https://docs.blacksmith.sh). macOS uses GitHub-hosted runners
+#     because Blacksmith doesn't offer macOS.
+#   • Swatinem/rust-cache works on all runners — Blacksmith transparently
+#     intercepts cache calls on its runners for 4× faster downloads.
+#     (useblacksmith/rust-cache is archived and no longer maintained.)
+# ──────────────────────────────────────────────────────────────────────
+
 name: Release
 
 on:
     push:
         tags:
             - "v*"
+    # Allow manual re-runs in case a release needs to be re-published
+    workflow_dispatch:
 
+# Top-level permissions — jobs override with least-privilege below
 permissions:
     id-token: write
     contents: write
@@ -14,12 +39,15 @@ env:
     BINARY_NAME: proov
 
 jobs:
+    # ── Build ────────────────────────────────────────────────────────
+    # Cross-compile for 5 OS/arch targets. Each matrix leg uploads its
+    # artifact so downstream jobs can download without rebuilding.
     build:
         strategy:
             matrix:
                 include:
                     - target: aarch64-apple-darwin
-                      os: macos-latest
+                      os: macos-latest # no Blacksmith macOS runners
                       artifact: proov-darwin-arm64.tar.gz
                     - target: x86_64-apple-darwin
                       os: macos-latest
@@ -27,7 +55,7 @@ jobs:
                     - target: aarch64-unknown-linux-gnu
                       os: blacksmith-4vcpu-ubuntu-2204
                       artifact: proov-linux-arm64.tar.gz
-                      cross: true
+                      cross: true # needs cross-linker
                     - target: x86_64-unknown-linux-gnu
                       os: blacksmith-4vcpu-ubuntu-2204
                       artifact: proov-linux-amd64.tar.gz
@@ -36,22 +64,18 @@ jobs:
                       artifact: proov-windows-amd64.exe
         runs-on: ${{ matrix.os }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@stable
+              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
               with:
                   targets: ${{ matrix.target }}
 
-            - name: Cache Cargo (Blacksmith runners)
-              if: runner.os == 'Linux' || runner.os == 'Windows'
-              uses: useblacksmith/rust-cache@v3
-              with:
-                  key: ${{ matrix.target }}
-
-            - name: Cache Cargo (macOS)
-              if: runner.os == 'macOS'
-              uses: Swatinem/rust-cache@v2
+            # Swatinem/rust-cache works on all runners. Blacksmith
+            # transparently redirects cache I/O to its colocated store
+            # on Blacksmith runners — no code changes needed.
+            - name: Cache Cargo
+              uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
               with:
                   key: ${{ matrix.target }}
 
@@ -76,19 +100,23 @@ jobs:
               run: cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe ${{ matrix.artifact }}
 
             - name: Upload build artifact
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: ${{ matrix.artifact }}
                   path: ${{ matrix.artifact }}
 
+    # ── GitHub Release ───────────────────────────────────────────────
+    # Collects all build artifacts and creates/updates the GitHub Release.
     release:
         needs: build
         runs-on: blacksmith-2vcpu-ubuntu-2204
+        permissions:
+            contents: write # create releases + upload assets
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
             - name: Download all artifacts
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
               with:
                   path: artifacts
 
@@ -102,17 +130,25 @@ jobs:
                   ls -lh release/
 
             - name: Create GitHub Release
-              uses: softprops/action-gh-release@v2
+              uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
               with:
                   generate_release_notes: true
                   files: release/*
 
+    # ── S3 Upload ────────────────────────────────────────────────────
+    # Publishes binaries + latest.json to S3 for the self-updater.
+    # Uses OIDC federation — no long-lived AWS keys stored in secrets.
+    # SHA-256 checksums are embedded in latest.json so the client can
+    # verify binary integrity after download.
     upload-s3:
         needs: build
         runs-on: blacksmith-2vcpu-ubuntu-2204
+        permissions:
+            id-token: write # OIDC token for AWS assume-role
+            contents: read
         steps:
             - name: Download all artifacts
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
               with:
                   path: artifacts
 
@@ -124,8 +160,11 @@ jobs:
                     cp "$dir/$name" "release/$name"
                   done
 
+            # OIDC federation: the runner exchanges a GitHub JWT for
+            # short-lived AWS credentials scoped to SCANNER_RELEASE_ROLE_ARN.
+            # No long-lived AWS keys are stored in GitHub Secrets.
             - name: Configure AWS credentials (OIDC)
-              uses: aws-actions/configure-aws-credentials@v4
+              uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
               with:
                   role-to-assume: ${{ secrets.SCANNER_RELEASE_ROLE_ARN }}
                   aws-region: us-east-1
@@ -143,6 +182,8 @@ jobs:
                     aws s3 cp "$file" "s3://ah-scanner-releases/${TAG}/${name}"
                   done
 
+            # Per-artifact SHA-256 checksums are embedded in latest.json
+            # so `proov update` can verify binary integrity after download.
             - name: Generate SHA-256 checksums
               id: checksums
               run: |
@@ -150,7 +191,6 @@ jobs:
                     name=$(basename "$file")
                     hash=$(sha256sum "$file" | awk '{print $1}')
                     echo "SHA256 $name = $hash"
-                    # Export as step outputs (replace dots/dashes with underscores for env var names)
                     key=$(echo "$name" | sed 's/[^a-zA-Z0-9]/_/g')
                     echo "${key}=${hash}" >> "$GITHUB_OUTPUT"
                   done
@@ -161,7 +201,6 @@ jobs:
                   S3_BASE="https://ah-scanner-releases.s3.amazonaws.com/${TAG}"
                   DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-                  # Build the manifest JSON with per-platform checksums
                   cat > /tmp/latest.json <<EOF
                   {
                     "version": "${TAG}",

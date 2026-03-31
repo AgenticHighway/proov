@@ -146,6 +146,22 @@ pub fn humanize_capability(cap: &str) -> String {
     }
 }
 
+const MAX_READ_BYTES: usize = 8192;
+
+pub fn read_artifact_head(a: &ArtifactReport) -> Option<String> {
+    let path_str = first_path(a);
+    if path_str == "unknown" {
+        return None;
+    }
+    let path = std::path::Path::new(path_str);
+    if !crate::models::is_content_read_allowed(path) {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let len = bytes.len().min(MAX_READ_BYTES);
+    String::from_utf8(bytes[..len].to_vec()).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,20 +297,4 @@ mod tests {
     fn humanize_capability_unknown_replaces_underscores() {
         assert_eq!(humanize_capability("my_custom_thing"), "my custom thing");
     }
-}
-
-const MAX_READ_BYTES: usize = 8192;
-
-pub fn read_artifact_head(a: &ArtifactReport) -> Option<String> {
-    let path_str = first_path(a);
-    if path_str == "unknown" {
-        return None;
-    }
-    let path = std::path::Path::new(path_str);
-    if !crate::models::is_content_read_allowed(path) {
-        return None;
-    }
-    let bytes = std::fs::read(path).ok()?;
-    let len = bytes.len().min(MAX_READ_BYTES);
-    String::from_utf8(bytes[..len].to_vec()).ok()
 }

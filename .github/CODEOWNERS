@@ -1,0 +1,32 @@
+# ──────────────────────────────────────────────────────────────────────
+
+# CODEOWNERS — require review from designated owners.
+
+#
+
+# WHY:
+
+# Prevents changes to security-sensitive files (workflows, CI config,
+
+# submission/network/update code) from being merged without review by
+
+# a trusted maintainer. Critical for supply chain security.
+
+# ──────────────────────────────────────────────────────────────────────
+
+# Default: all changes require review from the core maintainer
+
+-                                       @willsarg
+
+# CI/CD and supply chain — extra scrutiny
+
+.github/ @willsarg
+deny.toml @willsarg
+rust-toolchain.toml @willsarg
+
+# Security-sensitive scanner code
+
+crates/proov/src/submit.rs @willsarg
+crates/proov/src/network.rs @willsarg
+crates/proov/src/updater.rs @willsarg
+crates/proov/src/identity.rs @willsarg
