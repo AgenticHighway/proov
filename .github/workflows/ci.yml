@@ -7,17 +7,19 @@
 #   before code reaches the release workflow.
 #
 # JOBS (run in parallel where possible):
-#   check         — fmt → clippy → test (fail-fast, cheapest first)
-#   supply-chain  — cargo-deny + cargo-audit (dependency vulns, licenses)
-#   secrets       — gitleaks (prevents committed secrets/keys)
-#   unsafe-audit  — cargo-geiger (maps unsafe code in dependency tree)
+#   changes       — detects which files changed (dorny/paths-filter)
+#   check         — fmt → clippy → test (skipped for docs-only changes)
+#   supply-chain  — cargo-deny + cargo-audit (skipped if no dep changes)
+#   secrets       — gitleaks (always runs — any file can contain secrets)
+#   unsafe-audit  — cargo-geiger (skipped if no dep changes)
 #
-# FAIL-FAST STRATEGY:
-#   Steps in `check` are ordered cheapest-first so broken PRs fail in
-#   seconds:
-#     1. fmt     (~1s)  — pure text check, no compilation
-#     2. clippy  (~30s) — compiles + lints in one pass
-#     3. test    (~3s)  — reuses clippy build artifacts
+# OPTIMIZATIONS:
+#   • Path filtering: dorny/paths-filter skips expensive Rust jobs when
+#     only docs/scripts/config changed (saves ~35s+ per docs-only PR).
+#   • Concurrency: cancel-in-progress prevents wasted runs when you
+#     push again quickly or when push+PR events both fire.
+#   • Fail-fast: steps in `check` ordered cheapest-first (fmt → clippy
+#     → test) so broken PRs fail in seconds, not minutes.
 #
 # SUPPLY CHAIN SECURITY:
 #   • All Actions pinned to full commit SHAs (see release.yml header).
@@ -40,6 +42,14 @@ on:
     push:
         branches: [main]
 
+# Cancel in-progress runs when a new push arrives on the same branch.
+# This prevents wasted compute when you push rapid fixes, and deduplicates
+# the push + pull_request events that GitHub fires simultaneously.
+# On main, use run_id so pushes don't cancel each other (each merge matters).
+concurrency:
+    group: ci-${{ github.event_name == 'push' && github.run_id || github.head_ref }}
+    cancel-in-progress: true
+
 # Least-privilege: CI only needs to read the repo
 permissions:
     contents: read
@@ -48,8 +58,39 @@ env:
     CARGO_TERM_COLOR: always
 
 jobs:
+    # ── Path Detection ───────────────────────────────────────────────
+    # Runs in <5s on a minimal runner. Downstream jobs use its outputs
+    # to skip expensive work when only docs/scripts/config changed.
+    changes:
+        name: Detect changes
+        runs-on: blacksmith-2vcpu-ubuntu-2204
+        outputs:
+            rust: ${{ steps.filter.outputs.rust }}
+            deps: ${{ steps.filter.outputs.deps }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
+              with:
+                  filters: |
+                      rust:
+                        - 'crates/**'
+                        - 'Cargo.toml'
+                        - 'Cargo.lock'
+                        - 'rust-toolchain.toml'
+                        - 'deny.toml'
+                        - '.github/workflows/**'
+                      deps:
+                        - 'Cargo.toml'
+                        - 'Cargo.lock'
+                        - 'crates/**/Cargo.toml'
+                        - 'deny.toml'
+
     check:
         name: Lint & test
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
         runs-on: blacksmith-4vcpu-ubuntu-2204
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -93,6 +134,8 @@ jobs:
     # compile-from-source overhead of building cargo-audit.
     supply-chain:
         name: Supply chain audit
+        needs: changes
+        if: needs.changes.outputs.deps == 'true'
         runs-on: blacksmith-2vcpu-ubuntu-2204
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -161,6 +204,8 @@ jobs:
     # and catch unexpected new unsafe dependencies in PRs.
     unsafe-audit:
         name: Unsafe code audit
+        needs: changes
+        if: needs.changes.outputs.deps == 'true'
         runs-on: blacksmith-4vcpu-ubuntu-2204
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
