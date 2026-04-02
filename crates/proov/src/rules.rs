@@ -122,6 +122,8 @@ pub fn cmd_validate(source: &Path) {
 
 /// Validate and copy `source` into `dest_dir`. Returns the installed path.
 pub(crate) fn install_rule(source: &Path, dest_dir: &Path) -> Result<PathBuf, String> {
+    ensure_regular_rule_file(source, "source")?;
+
     // Validate before touching the dest directory
     let rule = load_rule_file_pub(source).map_err(|e| format!("rule validation failed — {e}"))?;
     eprintln!("Rule '{}' validated OK.", rule.detector.name);
@@ -129,6 +131,7 @@ pub(crate) fn install_rule(source: &Path, dest_dir: &Path) -> Result<PathBuf, St
     let dest = dest_dir.join(source.file_name().ok_or("source has no filename")?);
 
     if dest.exists() {
+        ensure_regular_rule_file(&dest, "destination")?;
         eprintln!(
             "Warning: {} already exists. Overwriting.",
             dest.file_name().unwrap_or_default().to_string_lossy()
@@ -155,6 +158,11 @@ pub(crate) fn toml_entries(dir: &Path) -> Vec<PathBuf> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("toml"))
+        .filter(|p| {
+            fs::symlink_metadata(p)
+                .map(|m| m.file_type().is_file())
+                .unwrap_or(false)
+        })
         .collect();
     paths.sort();
     paths
@@ -218,6 +226,20 @@ fn print_rule_summary(path: &Path, rule: &DetectionRule) {
     );
 }
 
+fn ensure_regular_rule_file(path: &Path, label: &str) -> Result<(), String> {
+    let meta = fs::symlink_metadata(path)
+        .map_err(|e| format!("could not inspect {label} file {}: {e}", path.display()))?;
+
+    if meta.file_type().is_symlink() {
+        return Err(format!("{label} file {} must not be a symlink", path.display()));
+    }
+    if !meta.file_type().is_file() {
+        return Err(format!("{label} file {} must be a regular file", path.display()));
+    }
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -226,6 +248,11 @@ fn print_rule_summary(path: &Path, rule: &DetectionRule) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[cfg(unix)]
+    fn make_symlink(src: &Path, dest: &Path) {
+        std::os::unix::fs::symlink(src, dest).unwrap();
+    }
 
     /// Create a uniquely-named temp directory that is removed when the guard drops.
     struct TempDir(PathBuf);
@@ -319,6 +346,17 @@ confidence = 0.5
             entries[0].file_name().unwrap().to_str().unwrap(),
             "rule.toml"
         );
+    }
+
+    #[test]
+    fn toml_entries_skips_non_regular_toml_paths() {
+        let dir = TempDir::new("entries_non_regular");
+        write_file(dir.path(), "rule.toml", VALID_TOML);
+        fs::create_dir(dir.path().join("folder.toml")).unwrap();
+
+        let entries = toml_entries(dir.path());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].file_name().unwrap().to_str().unwrap(), "rule.toml");
     }
 
     #[test]
@@ -441,6 +479,35 @@ confidence = 0.5
 
         let result = install_rule(&source, dest_dir.path());
         assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_rule_rejects_symlink_source() {
+        let src_dir = TempDir::new("install_symlink_src");
+        let dest_dir = TempDir::new("install_symlink_dest");
+        let real = write_file(src_dir.path(), "real.toml", VALID_TOML);
+        let symlink = src_dir.path().join("linked.toml");
+        make_symlink(&real, &symlink);
+
+        let result = install_rule(&symlink, dest_dir.path());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must not be a symlink"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_rule_rejects_symlink_destination() {
+        let src_dir = TempDir::new("install_dest_symlink_src");
+        let dest_dir = TempDir::new("install_dest_symlink_dest");
+        let source = write_file(src_dir.path(), "valid.toml", VALID_TOML);
+        let real_dest = write_file(dest_dir.path(), "real-target.toml", VALID_TOML);
+        let symlink_dest = dest_dir.path().join("valid.toml");
+        make_symlink(&real_dest, &symlink_dest);
+
+        let result = install_rule(&source, dest_dir.path());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("destination file"));
     }
 
     // -----------------------------------------------------------------------
