@@ -274,7 +274,68 @@ assert '$field' in data['scanMeta'], '$field not in scanMeta'
     fi
 done
 
-# ── 10. Data quality checks (quick scan) ────────────────────────────
+# ── 10. Fixture corpus ──────────────────────────────────────────────
+
+section "Fixture corpus"
+
+FIXTURE_ROOT="$REPO_ROOT/crates/proov/tests/fixtures/docker"
+PLAIN_FIXTURE="$FIXTURE_ROOT/plain-image-definition"
+DIRECT_FIXTURE="$FIXTURE_ROOT/direct-agentic-compose"
+COLOCATED_FIXTURE="$FIXTURE_ROOT/colocated-agent-project"
+
+PLAIN_JSON="$OUT_DIR/${TIMESTAMP}-fixture-plain.json"
+DIRECT_JSON="$OUT_DIR/${TIMESTAMP}-fixture-direct.json"
+COLOCATED_CONTRACT="$OUT_DIR/${TIMESTAMP}-fixture-colocated-contract.json"
+
+$RUN folder "$PLAIN_FIXTURE" --json > "$PLAIN_JSON" 2>/dev/null || true
+expect_json_file "plain Docker fixture (--json writes valid JSON)" "$PLAIN_JSON"
+if python3 -c "
+import json
+data = json.load(open('$PLAIN_JSON'))
+containers = [a for a in data['artifacts'] if a['artifact_type'].startswith('container_')]
+assert len(containers) == 1, f'expected 1 container artifact, got {len(containers)}'
+artifact = containers[0]
+assert artifact['artifact_type'] == 'container_candidate', artifact['artifact_type']
+assert artifact['metadata']['container_kind'] == 'image_definition'
+assert artifact['metadata']['direct_ai_evidence'] is False
+" 2>/dev/null; then
+    pass "plain Docker fixture stays candidate"
+else
+    fail "plain Docker fixture classification changed"
+fi
+
+$RUN folder "$DIRECT_FIXTURE" --json > "$DIRECT_JSON" 2>/dev/null || true
+expect_json_file "direct agentic fixture (--json writes valid JSON)" "$DIRECT_JSON"
+if python3 -c "
+import json
+data = json.load(open('$DIRECT_JSON'))
+containers = [a for a in data['artifacts'] if a['artifact_type'].startswith('container_')]
+assert len(containers) == 1, f'expected 1 container artifact, got {len(containers)}'
+artifact = containers[0]
+assert artifact['artifact_type'] == 'container_config', artifact['artifact_type']
+assert artifact['metadata']['container_kind'] == 'service_orchestration'
+assert artifact['metadata']['direct_agentic_evidence'] is True
+" 2>/dev/null; then
+    pass "direct agentic fixture upgrades to container_config"
+else
+    fail "direct agentic fixture classification changed"
+fi
+
+$RUN folder "$COLOCATED_FIXTURE" --contract > "$COLOCATED_CONTRACT" 2>/dev/null || true
+expect_json_file "co-located agent fixture (--contract writes valid JSON)" "$COLOCATED_CONTRACT"
+if python3 -c "
+import json
+data = json.load(open('$COLOCATED_CONTRACT'))
+assert len(data['agents']) == 1, f\"expected 1 agent, got {len(data['agents'])}\"
+assert len(data['agenticApps']) == 1, f\"expected 1 app, got {len(data['agenticApps'])}\"
+assert data['agenticApps'][0]['agentCount'] == 1, data['agenticApps'][0]['agentCount']
+" 2>/dev/null; then
+    pass "co-located agent fixture builds one agentic app"
+else
+    fail "co-located agent fixture contract changed"
+fi
+
+# ── 11. Data quality checks (quick scan) ────────────────────────────
 
 section "Data quality (quick scan contract)"
 
@@ -410,20 +471,20 @@ else
     fail "MCP server envVars missing"
 fi
 
-# ── 11. Error cases ─────────────────────────────────────────────────
+# ── 12. Error cases ─────────────────────────────────────────────────
 
 section "Error cases"
 expect_fail  "file scan (nonexistent file)"  $RUN file /tmp/ahscan-no-such-file-12345.txt
 expect_fail  "submit without API key"        $RUN quick --submit
 
-# ── 11. Full scan (smoke test — quick bail) ──────────────────────────
+# ── 13. Full scan (smoke test — quick bail) ──────────────────────────
 
 section "Full scan (smoke test)"
 echo "  (scans from / — capped at 500k files, will take longer)"
 echo "  Running with --summary to keep output brief..."
 expect_ok "full scan (--summary)" $RUN full --summary
 
-# ── 12. Auth config ──────────────────────────────────────────────────
+# ── 14. Auth config ──────────────────────────────────────────────────
 
 section "Auth configuration"
 
@@ -468,7 +529,7 @@ elif [ -f "$AUTH_CONFIG" ]; then
     dim "  Cleaned up test config"
 fi
 
-# ── 13. Self-update system ────────────────────────────────────────────
+# ── 15. Self-update system ────────────────────────────────────────────
 
 section "Self-update system"
 
@@ -493,7 +554,7 @@ else
     fail "update unexpected output: $UPDATE_OUT"
 fi
 
-# ── 14. Local submission ──────────────────────────────────────────────
+# ── 16. Local submission ──────────────────────────────────────────────
 
 section "Local submission (localhost:3000)"
 

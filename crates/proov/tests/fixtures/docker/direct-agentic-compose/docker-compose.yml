@@ -1,0 +1,9 @@
+services:
+    orchestrator:
+        image: ghcr.io/example/langgraph-runner:latest
+        environment:
+            OPENAI_API_KEY: ${OPENAI_API_KEY}
+        command:
+            - python
+            - -m
+            - langgraph.worker
