@@ -231,10 +231,16 @@ fn ensure_regular_rule_file(path: &Path, label: &str) -> Result<(), String> {
         .map_err(|e| format!("could not inspect {label} file {}: {e}", path.display()))?;
 
     if meta.file_type().is_symlink() {
-        return Err(format!("{label} file {} must not be a symlink", path.display()));
+        return Err(format!(
+            "{label} file {} must not be a symlink",
+            path.display()
+        ));
     }
     if !meta.file_type().is_file() {
-        return Err(format!("{label} file {} must be a regular file", path.display()));
+        return Err(format!(
+            "{label} file {} must be a regular file",
+            path.display()
+        ));
     }
 
     Ok(())
@@ -356,7 +362,10 @@ confidence = 0.5
 
         let entries = toml_entries(dir.path());
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].file_name().unwrap().to_str().unwrap(), "rule.toml");
+        assert_eq!(
+            entries[0].file_name().unwrap().to_str().unwrap(),
+            "rule.toml"
+        );
     }
 
     #[test]

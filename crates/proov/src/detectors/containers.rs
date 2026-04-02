@@ -154,10 +154,7 @@ fn classify_candidate(candidate: &Candidate, ai_dirs: &HashSet<PathBuf>) -> Opti
     };
 
     metadata.insert("direct_ai_evidence".into(), json!(has_ai_content));
-    metadata.insert(
-        "direct_agentic_evidence".into(),
-        json!(has_agentic_content),
-    );
+    metadata.insert("direct_agentic_evidence".into(), json!(has_agentic_content));
     metadata.insert("ai_artifact_proximity".into(), json!(has_ai_proximity));
     metadata.insert("paths".into(), json!([candidate.path.to_string_lossy()]));
 

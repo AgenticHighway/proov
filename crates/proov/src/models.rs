@@ -393,6 +393,8 @@ mod tests {
     fn content_read_allowlist_includes_docker_configs() {
         assert!(is_content_read_allowed(Path::new("/tmp/Dockerfile")));
         assert!(is_content_read_allowed(Path::new("/tmp/compose.yaml")));
-        assert!(is_content_read_allowed(Path::new("/tmp/docker-compose.yml")));
+        assert!(is_content_read_allowed(Path::new(
+            "/tmp/docker-compose.yml"
+        )));
     }
 }
