@@ -78,14 +78,14 @@ proov quick --contract --submit --api-key <key>  # Contract to file + submit
 
 ## What it detects
 
-| Detector              | Files                                                         | What it looks for                                               |
-| --------------------- | ------------------------------------------------------------- | --------------------------------------------------------------- |
-| Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md`                      | AI instruction files with capability keywords (TOML rule)       |
-| Prompt configs        | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md` | Prompt configuration for GitHub Copilot and similar (TOML rule) |
-| MCP configs           | `mcp.json`, `claude_desktop_config.json`                      | Model Context Protocol server declarations                      |
-| Container configs     | `Dockerfile`, `compose.yaml`, `docker-compose.yml`            | Containers with AI-related tooling                              |
-| Browser footprints    | Chrome, Edge, Brave, Arc profiles                             | Extension directory presence only (no content reads)            |
-| Custom rules          | Any `.toml` in `~/.ahscan/rules/`                             | Declarative rules you define                                    |
+| Detector              | Files                                                         | What it looks for                                                                                    |
+| --------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md`                      | AI instruction files with capability keywords (TOML rule)                                            |
+| Prompt configs        | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md` | Prompt configuration for GitHub Copilot and similar (TOML rule)                                      |
+| MCP configs           | `mcp.json`, `claude_desktop_config.json`                      | Model Context Protocol server declarations                                                           |
+| Container configs     | `Dockerfile`, `compose.yaml`, `docker-compose.yml`            | Docker image definitions and service orchestration with direct AI evidence or nearby agent artifacts |
+| Browser footprints    | Chrome, Edge, Brave, Arc profiles                             | Extension directory presence only (no content reads)                                                 |
+| Custom rules          | Any `.toml` in `~/.ahscan/rules/`                             | Declarative rules you define                                                                         |
 
 ## Risk scoring
 

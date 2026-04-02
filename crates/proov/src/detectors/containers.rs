@@ -23,6 +23,7 @@ const CONTAINER_FILENAMES: &[&str] = &[
 
 const AI_RELEVANCE_TOKENS: &[&str] = &[
     "langchain",
+    "langgraph",
     "autogen",
     "crewai",
     "autogpt",
@@ -48,6 +49,23 @@ const AI_RELEVANCE_TOKENS: &[&str] = &[
     "ai-tool",
     "mcp",
 ];
+
+const DIRECT_AGENTIC_TOKENS: &[&str] = &[
+    "langchain",
+    "langgraph",
+    "autogen",
+    "crewai",
+    "autogpt",
+    "opendevin",
+    "swe-agent",
+    "aider",
+];
+
+struct ContentScan {
+    signals: Vec<String>,
+    has_ai_content: bool,
+    has_agentic_content: bool,
+}
 
 pub struct ContainerDetector;
 
@@ -97,38 +115,50 @@ fn classify_candidate(candidate: &Candidate, ai_dirs: &HashSet<PathBuf>) -> Opti
     }
 
     let mut signals = Vec::new();
-    let mut has_ai_signal = false;
+    let mut has_ai_proximity = false;
+    let mut has_ai_content = false;
+    let mut has_agentic_content = false;
     let mut metadata = serde_json::Map::new();
 
     // File primitives — gather once
     let file_prims = gather_file_primitives(&candidate.path);
     metadata.extend(file_prims);
+    metadata.insert("container_kind".into(), json!(container_kind(name)));
 
     // Proximity check: container file lives alongside AI artifacts
     if let Some(parent) = candidate.path.parent() {
         if ai_dirs.contains(parent) {
             signals.push("ai_artifact_proximity".to_string());
-            has_ai_signal = true;
+            has_ai_proximity = true;
         }
     }
 
     // Content scan for AI relevance tokens + container-specific primitives
     if is_content_read_allowed(&candidate.path) {
         if let Some(content) = read_head(&candidate.path) {
-            let (content_signals, content_is_ai) = scan_content(&content);
-            signals.extend(content_signals);
-            has_ai_signal = has_ai_signal || content_is_ai;
+            let content_scan = scan_content(&content);
+            signals.extend(content_scan.signals);
+            has_ai_content = content_scan.has_ai_content;
+            has_agentic_content = content_scan.has_agentic_content;
 
             extract_container_metadata(name, &content, &mut metadata);
         }
     }
 
-    let (artifact_type, confidence) = if has_ai_signal {
+    let (artifact_type, confidence) = if has_ai_content {
         ("container_config", 0.8)
+    } else if has_ai_proximity {
+        ("container_candidate", 0.55)
     } else {
         ("container_candidate", 0.4)
     };
 
+    metadata.insert("direct_ai_evidence".into(), json!(has_ai_content));
+    metadata.insert(
+        "direct_agentic_evidence".into(),
+        json!(has_agentic_content),
+    );
+    metadata.insert("ai_artifact_proximity".into(), json!(has_ai_proximity));
     metadata.insert("paths".into(), json!([candidate.path.to_string_lossy()]));
 
     let mut report = ArtifactReport::new(artifact_type, confidence);
@@ -139,9 +169,8 @@ fn classify_candidate(candidate: &Candidate, ai_dirs: &HashSet<PathBuf>) -> Opti
     Some(report)
 }
 
-fn scan_content(content: &str) -> (Vec<String>, bool) {
+fn scan_content(content: &str) -> ContentScan {
     let mut signals = Vec::new();
-    let mut has_ai = false;
     let lowered = content.to_lowercase();
 
     let found: Vec<String> = AI_RELEVANCE_TOKENS
@@ -149,14 +178,25 @@ fn scan_content(content: &str) -> (Vec<String>, bool) {
         .filter(|t| lowered.contains(**t))
         .map(|s| format!("ai_token:{s}"))
         .collect();
-    if !found.is_empty() {
-        has_ai = true;
-        signals.extend(found);
-    }
+    let has_ai_content = !found.is_empty();
+    signals.extend(found);
+    let has_agentic_content = DIRECT_AGENTIC_TOKENS.iter().any(|t| lowered.contains(t));
     signals.extend(check_for_secrets(content));
     signals.extend(check_for_dangerous_patterns(content));
 
-    (signals, has_ai)
+    ContentScan {
+        signals,
+        has_ai_content,
+        has_agentic_content,
+    }
+}
+
+fn container_kind(name: &str) -> &'static str {
+    if name.contains("compose") {
+        "service_orchestration"
+    } else {
+        "image_definition"
+    }
 }
 
 fn extract_container_metadata(
@@ -220,6 +260,7 @@ fn extract_exposed_ports(content: &str) -> Vec<String> {
 fn extract_compose_services(content: &str) -> Vec<String> {
     let mut services = Vec::new();
     let mut in_services = false;
+    let mut service_indent: Option<usize> = None;
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -230,17 +271,22 @@ fn extract_compose_services(content: &str) -> Vec<String> {
         // Top-level key detection (no leading whitespace)
         if !line.starts_with(' ') && !line.starts_with('\t') {
             in_services = trimmed.starts_with("services:");
+            if !in_services {
+                service_indent = None;
+            }
             continue;
         }
 
         if in_services {
-            // Service names are at indent level 1 (2-4 spaces) and end with ':'
             let leading = line.len() - line.trim_start().len();
-            if (1..=6).contains(&leading) {
-                if let Some(name) = trimmed.strip_suffix(':') {
-                    let name = name.trim();
-                    if !name.is_empty() && !name.contains(' ') {
-                        services.push(name.to_string());
+            if trimmed.ends_with(':') {
+                let expected_indent = service_indent.get_or_insert(leading);
+                if leading == *expected_indent {
+                    if let Some(name) = trimmed.strip_suffix(':') {
+                        let name = name.trim();
+                        if !name.is_empty() && !name.contains(' ') {
+                            services.push(name.to_string());
+                        }
                     }
                 }
             }
@@ -258,6 +304,19 @@ fn read_head(path: &std::path::Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::Candidate;
+    use tempfile::TempDir;
+
+    fn candidate(path: &std::path::Path) -> Candidate {
+        Candidate {
+            path: path.to_path_buf(),
+            origin: "workdir".to_string(),
+        }
+    }
+
+    fn temp_candidate_dir() -> TempDir {
+        tempfile::tempdir().unwrap()
+    }
 
     #[test]
     fn extract_base_image_simple() {
@@ -310,5 +369,79 @@ mod tests {
     #[test]
     fn extract_compose_services_empty() {
         assert!(extract_compose_services("version: '3'").is_empty());
+    }
+
+    #[test]
+    fn scan_content_distinguishes_ai_and_agentic_signals() {
+        let scan = scan_content("FROM python:3.11\nRUN pip install openai crewai");
+        assert!(scan.has_ai_content);
+        assert!(scan.has_agentic_content);
+        assert!(scan.signals.iter().any(|s| s == "ai_token:openai"));
+        assert!(scan.signals.iter().any(|s| s == "ai_token:crewai"));
+    }
+
+    #[test]
+    fn classify_candidate_proximity_only_stays_candidate() {
+        let dir = temp_candidate_dir();
+        let dockerfile = dir.path().join("Dockerfile");
+        let agents = dir.path().join("agents.md");
+        std::fs::write(&dockerfile, "FROM python:3.11-slim\nRUN echo hello").unwrap();
+        std::fs::write(&agents, "# agents").unwrap();
+
+        let candidates = vec![candidate(&dockerfile), candidate(&agents)];
+        let ai_dirs = build_ai_dir_set(&candidates);
+        let report = classify_candidate(&candidates[0], &ai_dirs).unwrap();
+
+        assert_eq!(report.artifact_type, "container_candidate");
+        assert_eq!(report.confidence, 0.55);
+        assert_eq!(report.metadata["container_kind"], "image_definition");
+        assert_eq!(report.metadata["direct_ai_evidence"], false);
+        assert_eq!(report.metadata["direct_agentic_evidence"], false);
+        assert_eq!(report.metadata["ai_artifact_proximity"], true);
+        assert!(report
+            .signals
+            .iter()
+            .any(|signal| signal == "ai_artifact_proximity"));
+    }
+
+    #[test]
+    fn classify_candidate_content_evidence_upgrades_to_config() {
+        let dir = temp_candidate_dir();
+        let dockerfile = dir.path().join("Dockerfile");
+        std::fs::write(
+            &dockerfile,
+            "FROM python:3.11-slim\nRUN pip install openai crewai\nEXPOSE 8080",
+        )
+        .unwrap();
+
+        let candidates = vec![candidate(&dockerfile)];
+        let ai_dirs = build_ai_dir_set(&candidates);
+        let report = classify_candidate(&candidates[0], &ai_dirs).unwrap();
+
+        assert_eq!(report.artifact_type, "container_config");
+        assert_eq!(report.metadata["container_kind"], "image_definition");
+        assert_eq!(report.metadata["direct_ai_evidence"], true);
+        assert_eq!(report.metadata["direct_agentic_evidence"], true);
+        assert_eq!(report.metadata["base_image"], "python:3.11-slim");
+        assert_eq!(report.metadata["exposed_ports"], json!(["8080"]));
+    }
+
+    #[test]
+    fn classify_candidate_compose_sets_service_orchestration_kind() {
+        let dir = temp_candidate_dir();
+        let compose = dir.path().join("docker-compose.yml");
+        std::fs::write(
+            &compose,
+            "services:\n  web:\n    image: app\n    environment:\n      OPENAI_API_KEY: test",
+        )
+        .unwrap();
+
+        let candidates = vec![candidate(&compose)];
+        let ai_dirs = build_ai_dir_set(&candidates);
+        let report = classify_candidate(&candidates[0], &ai_dirs).unwrap();
+
+        assert_eq!(report.metadata["container_kind"], "service_orchestration");
+        assert_eq!(report.metadata["services"], json!(["web"]));
+        assert_eq!(report.metadata["direct_ai_evidence"], true);
     }
 }
