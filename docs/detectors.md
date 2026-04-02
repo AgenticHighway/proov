@@ -74,28 +74,38 @@ Model Context Protocol server configurations. The detector validates JSON struct
 
 **Detects:** `Dockerfile`, `compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`
 
-Container configurations that may house AI execution environments. The detector checks proximity to other AI artifacts, scans for AI-relevance tokens, and extracts structural primitives.
+Container-related configuration files that may describe AI execution environments. Dockerfiles are treated as image definitions and compose files are treated as service orchestration. The detector scans file content directly, records proximity to other AI artifacts as a supporting signal, and only upgrades a Docker artifact to `container_config` when the file itself contains AI-related content. Proximity alone remains a weaker `container_candidate` signal.
+
+`agenticApps` promotion is stricter than raw container detection: a Docker artifact only becomes an app contract record when it has direct agentic content or real co-located agent artifacts.
 
 **Metadata contract (Dockerfile):**
 
-| Key               | Type     | Always present?   | Description                         |
-| ----------------- | -------- | ----------------- | ----------------------------------- |
-| `file_size_bytes` | number   | Yes               | File primitive                      |
-| `last_modified`   | string   | Yes               | File primitive                      |
-| `content_hash`    | string   | Yes               | File primitive                      |
-| `paths`           | array    | Yes               | Absolute file path                  |
-| `base_image`      | string   | If FROM present   | First FROM image:tag                |
-| `exposed_ports`   | string[] | If EXPOSE present | Port numbers from EXPOSE statements |
+| Key                       | Type     | Always present?   | Description                                        |
+| ------------------------- | -------- | ----------------- | -------------------------------------------------- |
+| `file_size_bytes`         | number   | Yes               | File primitive                                     |
+| `last_modified`           | string   | Yes               | File primitive                                     |
+| `content_hash`            | string   | Yes               | File primitive                                     |
+| `paths`                   | array    | Yes               | Absolute file path                                 |
+| `container_kind`          | string   | Yes               | `image_definition` for Dockerfiles                 |
+| `direct_ai_evidence`      | boolean  | Yes               | Whether the file itself contains AI tokens         |
+| `direct_agentic_evidence` | boolean  | Yes               | Whether the file contains stronger agentic signals |
+| `ai_artifact_proximity`   | boolean  | Yes               | Whether nearby AI artifacts were found             |
+| `base_image`              | string   | If FROM present   | First FROM image:tag                               |
+| `exposed_ports`           | string[] | If EXPOSE present | Port numbers from EXPOSE statements                |
 
 **Metadata contract (compose):**
 
-| Key               | Type     | Always present? | Description             |
-| ----------------- | -------- | --------------- | ----------------------- |
-| `file_size_bytes` | number   | Yes             | File primitive          |
-| `last_modified`   | string   | Yes             | File primitive          |
-| `content_hash`    | string   | Yes             | File primitive          |
-| `paths`           | array    | Yes             | Absolute file path      |
-| `services`        | string[] | If found        | Top-level service names |
+| Key                       | Type     | Always present? | Description                                        |
+| ------------------------- | -------- | --------------- | -------------------------------------------------- |
+| `file_size_bytes`         | number   | Yes             | File primitive                                     |
+| `last_modified`           | string   | Yes             | File primitive                                     |
+| `content_hash`            | string   | Yes             | File primitive                                     |
+| `paths`                   | array    | Yes             | Absolute file path                                 |
+| `container_kind`          | string   | Yes             | `service_orchestration` for compose-style files    |
+| `direct_ai_evidence`      | boolean  | Yes             | Whether the file itself contains AI tokens         |
+| `direct_agentic_evidence` | boolean  | Yes             | Whether the file contains stronger agentic signals |
+| `ai_artifact_proximity`   | boolean  | Yes             | Whether nearby AI artifacts were found             |
+| `services`                | string[] | If found        | Top-level service names                            |
 
 ### Browser Footprints (`browser_footprints.rs`)
 

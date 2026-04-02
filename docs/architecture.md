@@ -214,6 +214,7 @@ ArtifactReport       After detection + scoring:
   - artifact_hash      content-based identity (path-independent)
   - artifact_id        hash + scope = unique ID
   - artifact_scope     "host" | "project" | "container"
+                                                   For Docker artifacts, "container" currently means container-related config files on disk, not live runtime instances.
   - registry_eligible  whether it qualifies for server submission
      │
      ▼
@@ -223,6 +224,8 @@ ScanReport           Collection of artifacts from one scan run:
      ▼
 ContractPayload      Server-facing format (scanner-data-contract.json):
   - scanMeta, prompts, skills, mcpServers, agents, agenticApps
+
+`agenticApps` are built conservatively from container artifacts: a Dockerfile or compose file is only promoted when it contains direct agentic signals or has real co-located agent artifacts. Proximity to AI files alone is not enough.
 ```
 
 ## Risk scoring algorithm
