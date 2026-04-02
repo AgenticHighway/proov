@@ -301,14 +301,17 @@ fn artifact_label(a: &ArtifactReport) -> &'static str {
 }
 
 fn metadata_bool(a: &ArtifactReport, key: &str) -> bool {
-    a.metadata.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+    a.metadata
+        .get(key)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::{AgentCapability, AgentTool, TrustFactor};
     use super::*;
     use crate::models::ArtifactReport;
-    use super::super::types::{AgentCapability, AgentTool, TrustFactor};
 
     fn make_agent(name: &str, source_file_path: &str, classification: &str) -> Agent {
         Agent {
@@ -418,8 +421,10 @@ mod tests {
     #[test]
     fn build_verification_checks_basic() {
         let mut a = ArtifactReport::new("container_config", 0.8);
-        a.metadata
-            .insert("container_kind".to_string(), serde_json::json!("image_definition"));
+        a.metadata.insert(
+            "container_kind".to_string(),
+            serde_json::json!("image_definition"),
+        );
         let checks = build_verification_checks(&a);
         assert!(checks.contains(&"Container image definition present".to_string()));
         assert!(checks.contains(&"Risk score computed".to_string()));
@@ -496,8 +501,10 @@ mod tests {
     #[test]
     fn build_risk_summary_with_reasons() {
         let mut a = ArtifactReport::new("container_config", 0.8);
-        a.metadata
-            .insert("container_kind".to_string(), serde_json::json!("image_definition"));
+        a.metadata.insert(
+            "container_kind".to_string(),
+            serde_json::json!("image_definition"),
+        );
         a.risk_reasons = vec!["shell access".to_string(), "network calls".to_string()];
         let summary = build_risk_summary("my-app", &a, "High");
         assert!(summary.contains("High-risk"));
@@ -536,8 +543,10 @@ mod tests {
             "paths".to_string(),
             serde_json::json!(["/tmp/project/Dockerfile"]),
         );
-        a.metadata
-            .insert("container_kind".to_string(), serde_json::json!("image_definition"));
+        a.metadata.insert(
+            "container_kind".to_string(),
+            serde_json::json!("image_definition"),
+        );
 
         let agent = make_agent("planner", "/tmp/project/agents.md", "planner");
         let apps = build_agentic_apps(&[&a], &[agent]);

@@ -175,7 +175,10 @@ pub fn parse_rule_content(content: &str) -> Result<DetectionRule, String> {
     parse_rule_content_for_source(content, RuleSource::User)
 }
 
-fn parse_rule_content_for_source(content: &str, source: RuleSource) -> Result<DetectionRule, String> {
+fn parse_rule_content_for_source(
+    content: &str,
+    source: RuleSource,
+) -> Result<DetectionRule, String> {
     let rule: DetectionRule = toml::from_str(content).map_err(|e| format!("parse error: {e}"))?;
 
     validate_rule(&rule, source)?;
@@ -212,7 +215,12 @@ fn validate_rule_name(value: &str) -> Result<(), String> {
 }
 
 fn validate_artifact_type(value: &str, source: RuleSource) -> Result<(), String> {
-    validate_identifier(value, "detector.artifact_type", MAX_ARTIFACT_TYPE_LEN, false)?;
+    validate_identifier(
+        value,
+        "detector.artifact_type",
+        MAX_ARTIFACT_TYPE_LEN,
+        false,
+    )?;
     if matches!(source, RuleSource::User) && RESERVED_ARTIFACT_TYPES.contains(&value) {
         return Err(format!(
             "detector.artifact_type '{value}' is reserved for built-in detectors"
@@ -235,7 +243,9 @@ fn validate_description(value: &str) -> Result<(), String> {
 
 fn validate_patterns(values: &[String], field: &str) -> Result<(), String> {
     if values.len() > MAX_MATCH_ENTRIES {
-        return Err(format!("{field} supports at most {MAX_MATCH_ENTRIES} entries"));
+        return Err(format!(
+            "{field} supports at most {MAX_MATCH_ENTRIES} entries"
+        ));
     }
 
     for value in values {
@@ -248,7 +258,9 @@ fn validate_patterns(values: &[String], field: &str) -> Result<(), String> {
             ));
         }
         if value.chars().any(char::is_control) {
-            return Err(format!("{field} entries must not contain control characters"));
+            return Err(format!(
+                "{field} entries must not contain control characters"
+            ));
         }
     }
 
@@ -287,7 +299,9 @@ fn validate_keyword_config(kw: &KeywordConfig, field: &str) -> Result<(), String
         false,
     )?;
     if kw.signals_prefix == "filename_match" {
-        return Err(format!("{field}.signals_prefix 'filename_match' is reserved"));
+        return Err(format!(
+            "{field}.signals_prefix 'filename_match' is reserved"
+        ));
     }
 
     if kw.boost_threshold == 0 {
@@ -328,9 +342,7 @@ fn validate_identifier(
     let mut chars = value.chars();
     let first = chars.next().ok_or_else(|| format!("{field} is required"))?;
     if !first.is_ascii_lowercase() {
-        return Err(format!(
-            "{field} must start with a lowercase ASCII letter"
-        ));
+        return Err(format!("{field} must start with a lowercase ASCII letter"));
     }
 
     for ch in chars {
@@ -573,7 +585,9 @@ boost_threshold = 1
     fn load_rules_from_dir_skips_non_regular_toml_entries() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir(dir.path().join("nested.toml")).unwrap();
-        fs::write(dir.path().join("valid.toml"), r#"
+        fs::write(
+            dir.path().join("valid.toml"),
+            r#"
 [detector]
 name = "valid_rule"
 artifact_type = "valid_config"
@@ -581,7 +595,8 @@ artifact_type = "valid_config"
 [match]
 suffixes = [".valid"]
 confidence = 0.5
-"#)
+"#,
+        )
         .unwrap();
 
         let rules = load_rules_from_dir(dir.path());
@@ -595,7 +610,9 @@ confidence = 0.5
         let dir = tempfile::tempdir().unwrap();
         let source_dir = tempfile::tempdir().unwrap();
         let source = source_dir.path().join("source.toml");
-        fs::write(&source, r#"
+        fs::write(
+            &source,
+            r#"
 [detector]
 name = "linked_rule"
 artifact_type = "linked_config"
@@ -603,7 +620,8 @@ artifact_type = "linked_config"
 [match]
 suffixes = [".linked"]
 confidence = 0.5
-"#)
+"#,
+        )
         .unwrap();
         make_symlink(&source, &dir.path().join("linked.toml"));
 
