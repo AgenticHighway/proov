@@ -177,6 +177,7 @@ proov/
 ├── docs/
 │   ├── architecture.md           # System design and data flow
 │   ├── detectors.md              # How detection works
+│   ├── output-spec.md            # Plain-English spec for contract outputs
 │   └── custom-rules.md           # Writing custom detection rules
 ├── .github/
 │   ├── workflows/
@@ -207,6 +208,7 @@ cargo audit                         # RustSec vulnerability scan
 
 For detailed development instructions: [CONTRIBUTING.md](CONTRIBUTING.md)
 For architecture and code walkthrough: [docs/architecture.md](docs/architecture.md)
+For the plain-English output spec: [docs/output-spec.md](docs/output-spec.md)
 For security vulnerability reports: [SECURITY.md](SECURITY.md)
 
 ## Configuration reference
