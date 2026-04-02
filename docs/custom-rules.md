@@ -133,6 +133,59 @@ These signals feed into the risk engine and verifier. Use the same signal patter
 - **Check the examples** in `examples/rules/` for working patterns.
 - **Test with `proov file <path>`** to verify a rule fires on a specific file.
 
+## Security model and limits
+
+Custom rules are intentionally **declarative only**.
+
+What they can do:
+
+- match file names and suffixes
+- read the first 8 KB of content for file types already allowed by the scanner
+- emit artifact types, signals, and confidence values
+
+What they cannot do:
+
+- execute shell commands
+- load code or plugins
+- make network requests
+- bypass the scanner's global content-read allowlist
+
+That said, rules should still be treated as **trusted local configuration**, not as something you install from arbitrary strangers.
+
+Why that matters:
+
+- a malicious rule can still create noisy or misleading findings
+- a badly designed rule can slow scans down or create excessive false positives
+- custom rules influence downstream scoring and reporting even though they do not execute code
+
+### Validation and hardening
+
+User-installed rules are validated before install and when loaded at runtime.
+
+Current guardrails include:
+
+- `detector.name` must be a short lowercase identifier
+- `artifact_type` must be a short lowercase snake_case identifier
+- built-in artifact types are reserved and cannot be reused by user rules
+- confidence values must stay in the range `0.0..=1.0`
+- keyword blocks have size limits and non-empty keyword requirements
+- `signals_prefix` must be a short lowercase identifier
+- symlinked rule files are rejected
+- non-regular `.toml` entries in the rules directory are ignored
+
+### Practical trust guidance
+
+- Only install rules you wrote yourself or reviewed carefully.
+- Prefer running `proov rules validate <file.toml>` before `proov rules add <file.toml>`.
+- Keep rule names, artifact types, and signal prefixes boring and predictable.
+- If you distribute rules internally, review them the same way you would review CI config or policy code.
+
+### Current limitations
+
+Custom rules are hardened against malformed input and obvious filesystem tricks, but they are **not** intended to be a sandbox for untrusted third-party content downloaded from the internet.
+
+The security model is: safe declarative extension for trusted local use.
+
 ## Examples
 
 See the `examples/rules/` directory:

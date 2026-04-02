@@ -8,6 +8,31 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const MAX_RULE_NAME_LEN: usize = 64;
+const MAX_ARTIFACT_TYPE_LEN: usize = 64;
+const MAX_SIGNAL_PREFIX_LEN: usize = 32;
+const MAX_DESCRIPTION_LEN: usize = 200;
+const MAX_MATCH_ENTRIES: usize = 64;
+const MAX_KEYWORDS_PER_BLOCK: usize = 64;
+const MAX_PATTERN_LEN: usize = 128;
+const MAX_KEYWORD_LEN: usize = 64;
+
+const RESERVED_ARTIFACT_TYPES: &[&str] = &[
+    "cursor_rules",
+    "agents_md",
+    "prompt_config",
+    "mcp_config",
+    "container_config",
+    "container_candidate",
+    "browser_footprint",
+];
+
+#[derive(Copy, Clone)]
+enum RuleSource {
+    Builtin,
+    User,
+}
+
 // ---------------------------------------------------------------------------
 // Rule definition
 // ---------------------------------------------------------------------------
@@ -89,7 +114,7 @@ pub fn load_builtin_rules() -> Vec<DetectionRule> {
 
     let mut rules = Vec::new();
     for (name, content) in SOURCES {
-        match parse_rule_content(content) {
+        match parse_rule_content_for_source(content, RuleSource::Builtin) {
             Ok(rule) => rules.push(rule),
             Err(e) => eprintln!("Warning: built-in rule '{name}' failed to parse: {e}"),
         }
@@ -118,6 +143,18 @@ pub fn load_rules_from_dir(dir: &Path) -> Vec<DetectionRule> {
         if path.extension().and_then(|e| e.to_str()) != Some("toml") {
             continue;
         }
+        let meta = match fs::symlink_metadata(&path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if meta.file_type().is_symlink() {
+            eprintln!("Warning: skipping symlinked rule {}", path.display());
+            continue;
+        }
+        if !meta.file_type().is_file() {
+            eprintln!("Warning: skipping non-regular rule {}", path.display());
+            continue;
+        }
         match load_rule_file(&path) {
             Ok(rule) => rules.push(rule),
             Err(e) => {
@@ -135,19 +172,181 @@ fn load_rule_file(path: &Path) -> Result<DetectionRule, String> {
 
 /// Parse and validate a rule from raw TOML content (no file I/O).
 pub fn parse_rule_content(content: &str) -> Result<DetectionRule, String> {
+    parse_rule_content_for_source(content, RuleSource::User)
+}
+
+fn parse_rule_content_for_source(content: &str, source: RuleSource) -> Result<DetectionRule, String> {
     let rule: DetectionRule = toml::from_str(content).map_err(|e| format!("parse error: {e}"))?;
 
-    if rule.detector.name.is_empty() {
-        return Err("detector.name is required".to_string());
-    }
-    if rule.detector.artifact_type.is_empty() {
-        return Err("detector.artifact_type is required".to_string());
-    }
+    validate_rule(&rule, source)?;
+
+    Ok(rule)
+}
+
+fn validate_rule(rule: &DetectionRule, source: RuleSource) -> Result<(), String> {
+    validate_rule_name(&rule.detector.name)?;
+    validate_description(&rule.detector.description)?;
+    validate_artifact_type(&rule.detector.artifact_type, source)?;
+
     if rule.match_config.filenames.is_empty() && rule.match_config.suffixes.is_empty() {
         return Err("match.filenames or match.suffixes must be non-empty".to_string());
     }
 
-    Ok(rule)
+    validate_confidence(rule.match_config.confidence, "match.confidence")?;
+    validate_patterns(&rule.match_config.filenames, "match.filenames")?;
+    validate_patterns(&rule.match_config.suffixes, "match.suffixes")?;
+
+    if let Some(ref kw) = rule.keywords {
+        validate_keyword_config(kw, "keywords")?;
+    }
+    if let Some(ref kw) = rule.deep_keywords {
+        validate_keyword_config(kw, "deep_keywords")?;
+    }
+
+    Ok(())
+}
+
+fn validate_rule_name(value: &str) -> Result<(), String> {
+    validate_identifier(value, "detector.name", MAX_RULE_NAME_LEN, true)?;
+    Ok(())
+}
+
+fn validate_artifact_type(value: &str, source: RuleSource) -> Result<(), String> {
+    validate_identifier(value, "detector.artifact_type", MAX_ARTIFACT_TYPE_LEN, false)?;
+    if matches!(source, RuleSource::User) && RESERVED_ARTIFACT_TYPES.contains(&value) {
+        return Err(format!(
+            "detector.artifact_type '{value}' is reserved for built-in detectors"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_description(value: &str) -> Result<(), String> {
+    if value.len() > MAX_DESCRIPTION_LEN {
+        return Err(format!(
+            "detector.description must be <= {MAX_DESCRIPTION_LEN} characters"
+        ));
+    }
+    if value.chars().any(char::is_control) {
+        return Err("detector.description must not contain control characters".to_string());
+    }
+    Ok(())
+}
+
+fn validate_patterns(values: &[String], field: &str) -> Result<(), String> {
+    if values.len() > MAX_MATCH_ENTRIES {
+        return Err(format!("{field} supports at most {MAX_MATCH_ENTRIES} entries"));
+    }
+
+    for value in values {
+        if value.is_empty() {
+            return Err(format!("{field} entries must not be empty"));
+        }
+        if value.len() > MAX_PATTERN_LEN {
+            return Err(format!(
+                "{field} entries must be <= {MAX_PATTERN_LEN} characters"
+            ));
+        }
+        if value.chars().any(char::is_control) {
+            return Err(format!("{field} entries must not contain control characters"));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_keyword_config(kw: &KeywordConfig, field: &str) -> Result<(), String> {
+    if kw.keywords.is_empty() {
+        return Err(format!("{field}.keywords must not be empty"));
+    }
+    if kw.keywords.len() > MAX_KEYWORDS_PER_BLOCK {
+        return Err(format!(
+            "{field}.keywords supports at most {MAX_KEYWORDS_PER_BLOCK} entries"
+        ));
+    }
+    for keyword in &kw.keywords {
+        if keyword.is_empty() {
+            return Err(format!("{field}.keywords entries must not be empty"));
+        }
+        if keyword.len() > MAX_KEYWORD_LEN {
+            return Err(format!(
+                "{field}.keywords entries must be <= {MAX_KEYWORD_LEN} characters"
+            ));
+        }
+        if keyword.chars().any(char::is_control) {
+            return Err(format!(
+                "{field}.keywords entries must not contain control characters"
+            ));
+        }
+    }
+
+    validate_identifier(
+        &kw.signals_prefix,
+        &format!("{field}.signals_prefix"),
+        MAX_SIGNAL_PREFIX_LEN,
+        false,
+    )?;
+    if kw.signals_prefix == "filename_match" {
+        return Err(format!("{field}.signals_prefix 'filename_match' is reserved"));
+    }
+
+    if kw.boost_threshold == 0 {
+        return Err(format!("{field}.boost_threshold must be at least 1"));
+    }
+    if kw.boost_threshold > kw.keywords.len() {
+        return Err(format!(
+            "{field}.boost_threshold cannot exceed the number of keywords"
+        ));
+    }
+    if let Some(boost) = kw.boost_confidence {
+        validate_confidence(boost, &format!("{field}.boost_confidence"))?;
+    }
+
+    Ok(())
+}
+
+fn validate_confidence(value: f64, field: &str) -> Result<(), String> {
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return Err(format!("{field} must be between 0.0 and 1.0"));
+    }
+    Ok(())
+}
+
+fn validate_identifier(
+    value: &str,
+    field: &str,
+    max_len: usize,
+    allow_hyphen: bool,
+) -> Result<(), String> {
+    if value.is_empty() {
+        return Err(format!("{field} is required"));
+    }
+    if value.len() > max_len {
+        return Err(format!("{field} must be <= {max_len} characters"));
+    }
+
+    let mut chars = value.chars();
+    let first = chars.next().ok_or_else(|| format!("{field} is required"))?;
+    if !first.is_ascii_lowercase() {
+        return Err(format!(
+            "{field} must start with a lowercase ASCII letter"
+        ));
+    }
+
+    for ch in chars {
+        let allowed = ch.is_ascii_lowercase()
+            || ch.is_ascii_digit()
+            || ch == '_'
+            || (allow_hyphen && ch == '-');
+        if !allowed {
+            return Err(format!(
+                "{field} may only contain lowercase ASCII letters, digits, underscores{}",
+                if allow_hyphen { ", or hyphens" } else { "" }
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Public entry point for rule loading — used by `rules.rs` CLI commands.
@@ -212,6 +411,12 @@ pub fn scan_rule_keywords(content: &str, kw: &KeywordConfig) -> (Vec<String>, us
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    #[cfg(unix)]
+    fn make_symlink(src: &Path, dest: &Path) {
+        std::os::unix::fs::symlink(src, dest).unwrap();
+    }
 
     fn sample_rule() -> DetectionRule {
         let toml_str = r#"
@@ -292,6 +497,118 @@ confidence = 0.5
         let result = load_rule_file(&tmp);
         assert!(result.is_err());
         let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn parse_rule_content_rejects_reserved_artifact_type_for_user_rules() {
+        let bad_toml = r#"
+[detector]
+name = "user_prompt_clone"
+artifact_type = "prompt_config"
+
+[match]
+filenames = ["custom.prompt.md"]
+confidence = 0.5
+"#;
+        let result = parse_rule_content(bad_toml);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("reserved for built-in detectors"));
+    }
+
+    #[test]
+    fn parse_rule_content_rejects_out_of_range_confidence() {
+        let bad_toml = r#"
+[detector]
+name = "bad_confidence"
+artifact_type = "bad_confidence_config"
+
+[match]
+suffixes = [".bad"]
+confidence = 1.5
+"#;
+        let result = parse_rule_content(bad_toml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("match.confidence"));
+    }
+
+    #[test]
+    fn parse_rule_content_rejects_invalid_signal_prefix() {
+        let bad_toml = r#"
+[detector]
+name = "bad_prefix"
+artifact_type = "bad_prefix_config"
+
+[match]
+suffixes = [".bad"]
+confidence = 0.5
+
+[keywords]
+keywords = ["openai"]
+signals_prefix = "bad-prefix"
+boost_confidence = 0.8
+boost_threshold = 1
+"#;
+        let result = parse_rule_content(bad_toml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("signals_prefix"));
+    }
+
+    #[test]
+    fn parse_rule_content_rejects_excessive_keyword_count() {
+        let keywords = (0..65)
+            .map(|n| format!("\"kw{n}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let bad_toml = format!(
+            "[detector]\nname = \"too_many\"\nartifact_type = \"too_many_config\"\n\n[match]\nsuffixes = [\".bad\"]\nconfidence = 0.5\n\n[keywords]\nkeywords = [{keywords}]\nsignals_prefix = \"keyword\"\nboost_confidence = 0.8\nboost_threshold = 1\n"
+        );
+        let result = parse_rule_content(&bad_toml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("supports at most"));
+    }
+
+    #[test]
+    fn load_rules_from_dir_skips_non_regular_toml_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("nested.toml")).unwrap();
+        fs::write(dir.path().join("valid.toml"), r#"
+[detector]
+name = "valid_rule"
+artifact_type = "valid_config"
+
+[match]
+suffixes = [".valid"]
+confidence = 0.5
+"#)
+        .unwrap();
+
+        let rules = load_rules_from_dir(dir.path());
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].detector.name, "valid_rule");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_rules_from_dir_skips_symlinked_rule_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_dir = tempfile::tempdir().unwrap();
+        let source = source_dir.path().join("source.toml");
+        fs::write(&source, r#"
+[detector]
+name = "linked_rule"
+artifact_type = "linked_config"
+
+[match]
+suffixes = [".linked"]
+confidence = 0.5
+"#)
+        .unwrap();
+        make_symlink(&source, &dir.path().join("linked.toml"));
+
+        let rules = load_rules_from_dir(dir.path());
+        assert!(rules.is_empty());
     }
 
     #[test]
