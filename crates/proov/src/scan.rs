@@ -208,7 +208,9 @@ fn tag_analysis_origin(artifact: &mut ArtifactReport) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::build_contract_payload;
     use serde_json::json;
+    use std::path::{Path, PathBuf};
 
     fn artifact_at(atype: &str, path: &str) -> ArtifactReport {
         let mut a = ArtifactReport::new(atype, 0.8);
@@ -324,5 +326,84 @@ mod tests {
         a.verification_status = "fail".into();
         tag_analysis_origin(&mut a);
         assert_eq!(a.metadata["analysis_origin"], "local");
+    }
+
+    fn fixture_dir(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("docker")
+            .join(name)
+    }
+
+    fn container_artifact<'a>(report: &'a ScanReport, suffix: &str) -> &'a ArtifactReport {
+        report
+            .artifacts
+            .iter()
+            .find(|artifact| {
+                artifact
+                    .metadata
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .and_then(|paths| paths.first())
+                    .and_then(|path| path.as_str())
+                    .map(|path| path.ends_with(suffix))
+                    .unwrap_or(false)
+            })
+            .expect("expected fixture artifact")
+    }
+
+    #[test]
+    fn fixture_plain_docker_stays_candidate_and_not_agentic_app() {
+        let fixture = fixture_dir("plain-image-definition");
+        let report = run_scan("workdir", Some(&fixture), None, true, None);
+        let docker = container_artifact(&report, "plain-image-definition/Dockerfile");
+
+        assert_eq!(docker.artifact_type, "container_candidate");
+        assert_eq!(docker.metadata["container_kind"], "image_definition");
+        assert_eq!(docker.metadata["direct_ai_evidence"], false);
+        assert_eq!(docker.metadata["direct_agentic_evidence"], false);
+
+        let payload = build_contract_payload(&report, 0);
+        assert!(payload.agentic_apps.is_empty());
+    }
+
+    #[test]
+    fn fixture_direct_agentic_compose_builds_agentic_app() {
+        let fixture = fixture_dir("direct-agentic-compose");
+        let report = run_scan("workdir", Some(&fixture), None, true, None);
+        let compose = container_artifact(&report, "direct-agentic-compose/docker-compose.yml");
+
+        assert_eq!(compose.artifact_type, "container_config");
+        assert_eq!(compose.metadata["container_kind"], "service_orchestration");
+        assert_eq!(compose.metadata["direct_ai_evidence"], true);
+        assert_eq!(compose.metadata["direct_agentic_evidence"], true);
+        assert_eq!(compose.metadata["services"], json!(["orchestrator"]));
+
+        let payload = build_contract_payload(&report, 0);
+        assert_eq!(payload.agentic_apps.len(), 1);
+        assert_eq!(payload.agentic_apps[0].agent_count, 0);
+        assert!(payload.agentic_apps[0]
+            .description
+            .contains("Service orchestration configuration"));
+    }
+
+    #[test]
+    fn fixture_colocated_agent_project_promotes_docker_candidate() {
+        let fixture = fixture_dir("colocated-agent-project");
+        let report = run_scan("workdir", Some(&fixture), None, true, None);
+        let docker = container_artifact(&report, "colocated-agent-project/Dockerfile");
+
+        assert_eq!(docker.artifact_type, "container_candidate");
+        assert_eq!(docker.metadata["container_kind"], "image_definition");
+        assert_eq!(docker.metadata["ai_artifact_proximity"], true);
+
+        let payload = build_contract_payload(&report, 0);
+        assert_eq!(payload.agents.len(), 1);
+        assert_eq!(payload.agentic_apps.len(), 1);
+        assert_eq!(payload.agentic_apps[0].agent_count, 1);
+        assert!(payload.agentic_apps[0]
+            .description
+            .contains("Container image definition"));
     }
 }
