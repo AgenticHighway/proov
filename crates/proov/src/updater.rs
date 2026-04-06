@@ -20,8 +20,8 @@ use sha2::{Digest, Sha256};
 // Constants
 // ---------------------------------------------------------------------------
 
-/// S3 bucket URL for release manifests and artifacts.
-const MANIFEST_URL: &str = "https://ah-scanner-releases.s3.amazonaws.com/latest.json";
+/// Vettd endpoint for release manifests (proxies S3, rewrites download URLs).
+const MANIFEST_URL: &str = "https://vettd.agentichighway.ai/api/scanner/latest";
 
 /// How long to cache a "no update" result before checking again.
 const CHECK_CACHE_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
