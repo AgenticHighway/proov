@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::contract::build_contract_payload;
+use crate::contract_sync;
 use crate::formatters::{print_human, print_overview, print_summary};
 use crate::models::ScanReport;
 use crate::submit::{
@@ -57,12 +58,11 @@ fn write_json_report(report: &ScanReport, scan_duration_ms: u64, maybe_path: &Op
     }
 }
 
-/// Resolve auth (from flags + config file) and POST the payload.
-pub fn do_submit(
-    payload_json: &str,
+/// Resolve auth (from flags + config file).
+pub fn resolve_submit_auth(
     submit_flag: &Option<Option<String>>,
     api_key_flag: Option<&str>,
-) {
+) -> Result<AuthConfig, String> {
     let saved = load_auth_config();
 
     let endpoint = match submit_flag {
@@ -77,23 +77,41 @@ pub fn do_submit(
         Some(k) => k.to_string(),
         None => match saved.as_ref().map(|c| c.api_key.clone()) {
             Some(k) => k,
-            None => {
-                eprintln!(
-                    "No API key provided. Pass --api-key or run `proov auth --key <your-key>`."
-                );
-                std::process::exit(1);
-            }
+            None => return Err(
+                "No API key provided. Pass --api-key for automation or run `proov auth` / `proov setup` to save credentials.".to_string(),
+            ),
         },
     };
 
-    let auth = AuthConfig { endpoint, api_key };
+    Ok(AuthConfig { endpoint, api_key })
+}
 
-    eprintln!("Submitting scan to {}...", auth.endpoint);
-    match submit_contract_payload(payload_json, &auth) {
-        Ok(()) => {}
-        Err(e) => {
-            eprintln!("Submission failed: {e}");
-            std::process::exit(1);
+fn preflight_submission(auth: &AuthConfig) -> Result<(), String> {
+    match contract_sync::sync_contract(&auth.endpoint) {
+        Ok(result) => {
+            if result.was_updated {
+                eprintln!("  Contract cache updated to v{}.", result.remote_version);
+            }
+            if !result.compiled_matches {
+                return Err(format!(
+                    "Contract mismatch: server expects v{}, this build produces v{}.\nRun `proov update` to get a compatible version.",
+                    result.remote_version,
+                    contract_sync::COMPILED_CONTRACT_VERSION
+                ));
+            }
+            Ok(())
         }
+        Err(contract_sync::SyncError::Unreachable(_))
+        | Err(contract_sync::SyncError::ServerError(_)) => Ok(()),
+    }
+}
+
+/// POST the payload using the resolved auth config.
+pub fn do_submit(payload_json: &str, auth: &AuthConfig) -> Result<(), String> {
+    preflight_submission(auth)?;
+    eprintln!("Submitting scan to {}...", auth.endpoint);
+    match submit_contract_payload(payload_json, auth) {
+        Ok(()) => Ok(()),
+        Err(e) => Err(format!("Submission failed: {e}")),
     }
 }

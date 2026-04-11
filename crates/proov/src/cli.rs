@@ -4,10 +4,9 @@ use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 
 use crate::contract::build_contract_payload;
-use crate::contract_sync;
 use crate::lite_mode::{limit_lite_mode_report, print_locked_summary, LITE_MODE_VISIBLE_RESULTS};
 use crate::models::ScanReport;
-use crate::output::{do_submit, emit};
+use crate::output::{do_submit, emit, resolve_submit_auth};
 use crate::scan::run_scan;
 use crate::submit::{save_auth_config, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT};
 
@@ -63,9 +62,9 @@ pub enum Commands {
     },
     /// Configure API credentials for scan submission
     Auth {
-        /// API key (e.g. ah_xxxx)
+        /// API key (e.g. ah_xxxx). If omitted, proov prompts securely.
         #[arg(long)]
-        key: String,
+        key: Option<String>,
         /// Ingest endpoint URL (defaults to production)
         #[arg(long)]
         endpoint: Option<String>,
@@ -132,7 +131,7 @@ pub struct OutputArgs {
     /// Submit scan results to the given URL (or the configured default)
     #[arg(long, value_name = "URL")]
     pub submit: Option<Option<String>>,
-    /// API key for submission (overrides config file)
+    /// API key for submission (overrides config file; useful for automation)
     #[arg(long, value_name = "KEY")]
     pub api_key: Option<String>,
 }
@@ -213,16 +212,6 @@ fn load_access_config() -> AccessConfig {
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
-
-/// Resolve the ingest endpoint from the `--submit` flag or saved config.
-fn resolve_ingest_endpoint(submit_flag: &Option<Option<String>>) -> String {
-    match submit_flag {
-        Some(Some(url)) => url.clone(),
-        _ => crate::submit::load_auth_config()
-            .map(|c| c.endpoint)
-            .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string()),
-    }
-}
 
 fn min_severity_score(level: &str) -> i32 {
     match level {
@@ -408,11 +397,20 @@ pub fn run() {
 
     // Handle auth command
     if let Commands::Auth { key, endpoint } = &cmd {
+        let api_key = match key {
+            Some(value) => value.clone(),
+            None => crate::wizard::ask_secret("API key"),
+        };
+        if api_key.is_empty() {
+            eprintln!("Error: API key cannot be empty.");
+            std::process::exit(1);
+        }
+
         let config = AuthConfig {
             endpoint: endpoint
                 .clone()
                 .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string()),
-            api_key: key.clone(),
+            api_key,
         };
         match save_auth_config(&config) {
             Ok(()) => {
@@ -450,33 +448,6 @@ pub fn run() {
     let params = resolve_scan_params(&cmd);
     let out = output_args(&cmd);
     let min_score = min_severity_score(&out.min_severity);
-
-    // Pre-scan contract version check — catch stale builds before doing work
-    let ingest_endpoint = resolve_ingest_endpoint(&out.submit);
-    match contract_sync::sync_contract(&ingest_endpoint) {
-        Ok(result) => {
-            if result.was_updated {
-                eprintln!(
-                    "  \x1b[2mContract cache updated to v{}\x1b[0m",
-                    result.remote_version
-                );
-            }
-            if !result.compiled_matches {
-                eprintln!();
-                eprintln!(
-                    "  \x1b[33mContract mismatch:\x1b[0m server expects v{}, \
-                     this build produces v{}.",
-                    result.remote_version,
-                    contract_sync::COMPILED_CONTRACT_VERSION
-                );
-                eprintln!("  Run \x1b[1mproov update\x1b[0m to get a compatible version.");
-                eprintln!();
-                std::process::exit(1);
-            }
-        }
-        Err(contract_sync::SyncError::Unreachable(_)) => {}
-        Err(contract_sync::SyncError::ServerError(_)) => {}
-    }
 
     let interactive = is_interactive();
     let scan_start = std::time::Instant::now();
@@ -550,7 +521,17 @@ pub fn run() {
         }
 
         if wants_submit {
-            do_submit(&json, &out.submit, out.api_key.as_deref());
+            let auth = match resolve_submit_auth(&out.submit, out.api_key.as_deref()) {
+                Ok(auth) => auth,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+            if let Err(e) = do_submit(&json, &auth) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
         }
     } else {
         let cmd_name = command_name(&cmd);
@@ -569,9 +550,6 @@ pub fn run() {
     if !wants_submit && !out.json && !out.contract && is_interactive() {
         prompt_submit(&report, scan_duration_ms);
     }
-
-    // Passive update check after scan completes
-    crate::updater::passive_update_check();
 }
 
 // ---------------------------------------------------------------------------
@@ -625,13 +603,12 @@ fn prompt_submit(report: &ScanReport, scan_duration_ms: u64) {
         api_key: api_key.clone(),
     };
 
-    eprintln!("  Submitting to {}...", auth.endpoint);
-    match crate::submit::submit_contract_payload(&json, &auth) {
+    match do_submit(&json, &auth) {
         Ok(()) => {
             let _ = crate::submit::save_auth_config(&auth);
         }
         Err(e) => {
-            eprintln!("  Submission failed: {e}");
+            eprintln!("  {e}");
             eprintln!("  You can retry later with: \x1b[1mproov scan --submit\x1b[0m");
         }
     }
@@ -659,7 +636,7 @@ fn collect_api_key() -> String {
     }
 
     eprintln!();
-    let key = crate::wizard::ask("Paste your API key", "");
+    let key = crate::wizard::ask_secret("Paste your API key");
     if key.is_empty() {
         return String::new();
     }
@@ -780,7 +757,7 @@ mod tests {
         let cli = Cli::parse_from(["proov", "auth", "--key", "ah_test123"]);
         match cli.command {
             Some(Commands::Auth { key, endpoint }) => {
-                assert_eq!(key, "ah_test123");
+                assert_eq!(key.as_deref(), Some("ah_test123"));
                 assert!(endpoint.is_none());
             }
             _ => panic!("Expected Auth command"),
@@ -799,8 +776,20 @@ mod tests {
         ]);
         match cli.command {
             Some(Commands::Auth { key, endpoint }) => {
-                assert_eq!(key, "ah_test");
+                assert_eq!(key.as_deref(), Some("ah_test"));
                 assert_eq!(endpoint.unwrap(), "https://example.com/api");
+            }
+            _ => panic!("Expected Auth command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_auth_without_key() {
+        let cli = Cli::parse_from(["proov", "auth"]);
+        match cli.command {
+            Some(Commands::Auth { key, endpoint }) => {
+                assert!(key.is_none());
+                assert!(endpoint.is_none());
             }
             _ => panic!("Expected Auth command"),
         }

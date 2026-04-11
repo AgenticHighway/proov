@@ -3,6 +3,7 @@
 //! Handles the parts that touch the outside world: reading/writing config
 //! files, writing audit logs, and posting contract payloads to the ingest API.
 
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -69,11 +70,20 @@ pub fn append_submission_audit(audit_path: &Path, event: &Value) {
 // Global auth config (~/.config/ahscan/config.json)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AuthConfig {
     pub endpoint: String,
     #[serde(rename = "apiKey")]
     pub api_key: String,
+}
+
+impl fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("endpoint", &self.endpoint)
+            .field("api_key", &"<redacted>")
+            .finish()
+    }
 }
 
 /// Return the path to `~/.config/ahscan/config.json`.
@@ -92,14 +102,47 @@ pub fn load_auth_config() -> Option<AuthConfig> {
 pub fn save_auth_config(config: &AuthConfig) -> Result<(), String> {
     let path =
         auth_config_path().ok_or_else(|| "Could not determine config directory".to_string())?;
+    save_auth_config_to_path(&path, config)
+}
+
+fn save_auth_config_to_path(path: &Path, config: &AuthConfig) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create config directory: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                .map_err(|e| format!("Failed to secure config directory: {e}"))?;
+        }
     }
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize config: {e}"))?;
-    fs::write(&path, json)
-        .map_err(|e| format!("Failed to write config to {}: {e}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| format!("Failed to open config file {}: {e}", path.display()))?;
+        file.write_all(json.as_bytes())
+            .map_err(|e| format!("Failed to write config to {}: {e}", path.display()))?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Failed to secure config file {}: {e}", path.display()))?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(path, json)
+            .map_err(|e| format!("Failed to write config to {}: {e}", path.display()))?;
+    }
+
     Ok(())
 }
 
@@ -267,5 +310,57 @@ mod tests {
         assert_eq!(arr.len(), 2);
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn auth_config_debug_redacts_api_key() {
+        let auth = AuthConfig {
+            endpoint: "https://example.com/api".to_string(),
+            api_key: "super-secret-key".to_string(),
+        };
+
+        let debug = format!("{auth:?}");
+        assert!(debug.contains("https://example.com/api"));
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("super-secret-key"));
+    }
+
+    #[test]
+    fn save_auth_config_to_custom_path_writes_valid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join("config");
+        let path = config_dir.join("config.json");
+        let auth = AuthConfig {
+            endpoint: "https://example.com/api".to_string(),
+            api_key: "ah_test".to_string(),
+        };
+
+        save_auth_config_to_path(&path, &auth).unwrap();
+
+        let saved = fs::read_to_string(&path).unwrap();
+        let loaded: AuthConfig = serde_json::from_str(&saved).unwrap();
+        assert_eq!(loaded.endpoint, auth.endpoint);
+        assert_eq!(loaded.api_key, auth.api_key);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_auth_config_to_custom_path_secures_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join("config");
+        let path = config_dir.join("config.json");
+        let auth = AuthConfig {
+            endpoint: "https://example.com/api".to_string(),
+            api_key: "ah_test".to_string(),
+        };
+
+        save_auth_config_to_path(&path, &auth).unwrap();
+
+        let dir_mode = fs::metadata(&config_dir).unwrap().permissions().mode() & 0o777;
+        let file_mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o700);
+        assert_eq!(file_mode, 0o600);
     }
 }

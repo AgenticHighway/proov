@@ -172,7 +172,7 @@ pub fn run_setup(force: bool) -> bool {
     eprintln!("  press Enter to run in local-only mode.{RESET}");
     eprintln!();
 
-    let key = ask("API key (or Enter to skip)", "");
+    let key = crate::wizard::ask_secret("API key (or Enter to skip)");
 
     if key.is_empty() {
         eprintln!();

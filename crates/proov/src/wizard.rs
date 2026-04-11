@@ -76,6 +76,47 @@ pub(crate) fn ask(prompt: &str, default: &str) -> String {
     }
 }
 
+pub(crate) fn ask_secret(prompt: &str) -> String {
+    if !is_tty() {
+        return ask(prompt, "");
+    }
+
+    eprint!("  {prompt}: ");
+    let _ = io::stderr().flush();
+
+    terminal::enable_raw_mode().ok();
+    let mut secret = String::new();
+
+    loop {
+        match event::read() {
+            Ok(Event::Key(KeyEvent {
+                code, modifiers, ..
+            })) => match code {
+                KeyCode::Enter => break,
+                KeyCode::Backspace => {
+                    secret.pop();
+                }
+                KeyCode::Esc => {
+                    terminal::disable_raw_mode().ok();
+                    graceful_exit();
+                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    terminal::disable_raw_mode().ok();
+                    graceful_exit();
+                }
+                KeyCode::Char(c) => secret.push(c),
+                _ => {}
+            },
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+
+    terminal::disable_raw_mode().ok();
+    eprintln!();
+    secret
+}
+
 pub(crate) fn confirm(prompt: &str, default: bool) -> bool {
     if !is_tty() {
         let hint = if default { "Y/n" } else { "y/N" };

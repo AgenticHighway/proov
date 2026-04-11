@@ -536,16 +536,27 @@ fn extract_and_replace(archive_path: &Path, dest: &Path) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn extract_and_replace(downloaded: &Path, dest: &Path) -> Result<(), String> {
-    // On Windows: rename current → .old, copy new → current, schedule .old delete
+    // Stage the new binary first so replacing the current executable leaves the
+    // smallest practical window where `dest` does not exist.
     let old = dest.with_extension("old.exe");
-    let _ = fs::remove_file(&old); // clean up any previous leftover
-
-    fs::rename(dest, &old).map_err(|e| format!("Cannot rename current binary: {e}"))?;
-    fs::copy(downloaded, dest).map_err(|e| format!("Cannot place new binary: {e}"))?;
-
-    // Best-effort cleanup of .old
+    let staged = dest.with_extension("new.exe");
     let _ = fs::remove_file(&old);
-    Ok(())
+    let _ = fs::remove_file(&staged);
+
+    fs::copy(downloaded, &staged).map_err(|e| format!("Cannot stage new binary: {e}"))?;
+    fs::rename(dest, &old).map_err(|e| format!("Cannot rename current binary: {e}"))?;
+
+    match fs::rename(&staged, dest) {
+        Ok(()) => {
+            let _ = fs::remove_file(&old);
+            Ok(())
+        }
+        Err(e) => {
+            let _ = fs::rename(&old, dest);
+            let _ = fs::remove_file(&staged);
+            Err(format!("Cannot replace current binary: {e}"))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
