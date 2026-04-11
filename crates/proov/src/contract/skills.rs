@@ -1,4 +1,4 @@
-//! Skill building for the AH-Verify contract.
+//! Skill building for the scanner data contract.
 
 use crate::models::ArtifactReport;
 

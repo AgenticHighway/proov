@@ -141,11 +141,11 @@
           },
           "name": {
             "type": "string",
-            "description": "Human-readable display name. Derive from filename, front-matter title, or containing folder. MUST NOT be a generic label like 'agents' \u2014 if the source file is 'agents.md', use the parent directory or a distinguishing qualifier (e.g. 'zeroclaw/agents', 'ah-verify/agents'). When multiple prompts share a source filename, prepend the project or parent directory name."
+            "description": "Human-readable display name. Derive from filename, front-matter title, or containing folder. MUST NOT be a generic label like 'agents' \u2014 if the source file is 'agents.md', use the parent directory or a distinguishing qualifier (e.g. 'zeroclaw/agents', 'example-backend/agents'). When multiple prompts share a source filename, prepend the project or parent directory name."
           },
           "sourceFilePath": {
             "type": "string",
-            "description": "Absolute path to the file where the prompt was found (e.g. '/Users/will/project/.github/copilot-instructions.md'). This is what the dashboard uses to distinguish items that would otherwise share a name."
+            "description": "Absolute path to the file where the prompt was found (e.g. '/Users/example/project/.github/copilot-instructions.md'). This is what the dashboard uses to distinguish items that would otherwise share a name."
           },
           "classification": {
             "type": "string",
@@ -642,7 +642,7 @@
           },
           "name": {
             "type": "string",
-            "description": "Human-readable display name. Derive from the filename, front-matter title, 'name' field in the agent config, or containing project directory. MUST NOT be a generic label like 'agents'. When the source file is 'AGENTS.md', use the project directory as a prefix (e.g. 'zeroclaw/agents', 'ah-verify/agents') or extract the agent's declared name from the file's content."
+            "description": "Human-readable display name. Derive from the filename, front-matter title, 'name' field in the agent config, or containing project directory. MUST NOT be a generic label like 'agents'. When the source file is 'AGENTS.md', use the project directory as a prefix (e.g. 'zeroclaw/agents', 'example-backend/agents') or extract the agent's declared name from the file's content."
           },
           "sourceFilePath": {
             "type": "string",
@@ -788,11 +788,11 @@
           },
           "name": {
             "type": "string",
-            "description": "Human-readable display name. Derive from the project directory + file (e.g. 'zeroclaw/Dockerfile', 'ah-verify/docker-compose'). MUST NOT be a bare generic like 'dockerfile' \u2014 always include the project context."
+            "description": "Human-readable display name. Derive from the project directory + file (e.g. 'zeroclaw/Dockerfile', 'example-backend/docker-compose'). MUST NOT be a bare generic like 'dockerfile' \u2014 always include the project context."
           },
           "sourceFilePath": {
             "type": "string",
-            "description": "Absolute path to the file that defines or anchors this app (e.g. '/Users/will/project/docker-compose.yml'). This replaces embedding the path inside the 'description' field."
+            "description": "Absolute path to the file that defines or anchors this app (e.g. '/Users/example/project/docker-compose.yml'). This replaces embedding the path inside the 'description' field."
           },
           "framework": {
             "type": "string",

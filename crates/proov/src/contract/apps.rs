@@ -1,4 +1,4 @@
-//! AgenticApp building for the AH-Verify contract.
+//! AgenticApp building for the scanner data contract.
 
 use crate::capabilities::derive_capabilities;
 use crate::models::ArtifactReport;

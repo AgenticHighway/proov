@@ -125,7 +125,7 @@ pub struct OutputArgs {
     /// Minimum severity: critical|high|medium|low|info
     #[arg(long, default_value = "info")]
     pub min_severity: String,
-    /// Output JSON conforming to the AH-Verify data contract
+    /// Output JSON conforming to the scanner data contract
     #[arg(long)]
     pub contract: bool,
     /// Submit scan results to the given URL (or the configured default)

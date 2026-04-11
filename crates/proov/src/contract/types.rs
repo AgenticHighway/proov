@@ -1,4 +1,4 @@
-//! Data types for the AH-Verify Scanner Data Contract (v2).
+//! Data types for the scanner data contract (v2).
 
 use serde::{Deserialize, Serialize};
 

@@ -1,4 +1,4 @@
-//! MCP server building for the AH-Verify contract.
+//! MCP server building for the scanner data contract.
 
 use crate::models::ArtifactReport;
 use crate::network_evidence;

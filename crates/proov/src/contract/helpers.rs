@@ -15,8 +15,8 @@ pub fn first_path(a: &ArtifactReport) -> &str {
 
 /// Build a project-qualified display name from an absolute path.
 ///
-/// E.g. `/Users/will/project/foo/agents.md` → `foo/agents`
-///      `/Users/will/bar/.cursorrules`      → `bar/.cursorrules`
+/// E.g. `/Users/example/project/foo/agents.md` → `foo/agents`
+///      `/Users/example/bar/.cursorrules`      → `bar/.cursorrules`
 pub fn qualified_name(path: &str) -> String {
     let p = std::path::Path::new(path);
     let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn qualified_name_regular_file() {
         assert_eq!(
-            qualified_name("/Users/will/project/agents.md"),
+            qualified_name("/Users/example/project/agents.md"),
             "project/agents"
         );
     }
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn qualified_name_dotfile() {
         assert_eq!(
-            qualified_name("/Users/will/bar/.cursorrules"),
+            qualified_name("/Users/example/bar/.cursorrules"),
             "bar/.cursorrules"
         );
     }

@@ -1,4 +1,4 @@
-//! Transforms a [`ScanReport`] into the AH-Verify Scanner Data Contract (v2).
+//! Transforms a [`ScanReport`] into the scanner data contract (v2).
 //!
 //! The contract defines the exact payload shape the ingestion endpoint
 //! expects:  `scanMeta`, `prompts`, `skills`, `mcpServers`, `agents`,
