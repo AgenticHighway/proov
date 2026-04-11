@@ -2,14 +2,14 @@
 
 ## Project relationship
 
-This is the **client/scanner side** of a two-repo client/server system:
+This is the **client/scanner side** of a scanner/backend system:
 
 | Role                   | Repo                             | Description                                                                                                                     |
 | ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **Client (this repo)** | `AgenticHighway/proov`           | System-level scanner that runs on target machines, produces scan reports, and submits them to the server ingest API.            |
-| **Server**             | `AgenticHighway/ah-verified-poc` | Next.js app + PostgreSQL (via Prisma). Exposes `POST /api/ingest`, stores scan results, and renders the verification dashboard. |
+| **Client (this repo)** | `AgenticHighway/proov` | System-level scanner that runs on target machines, produces scan reports, and can submit them to compatible ingest APIs. |
+| **Backend**            | e.g. Vettd              | Optional hosted ingestion + review surface for scan results. |
 
-The scanner is the data producer. The server is the data consumer, store, and reviewer. They communicate over HTTP.
+The scanner is the data producer. A connected backend is optional and communicates with proov over HTTP.
 
 This repository is a Rust workspace with one crate (`proov` CLI). Custom detection rules are declarative TOML files in `~/.ahscan/rules/`.
 

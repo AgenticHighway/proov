@@ -3,18 +3,35 @@
 # test-submit.sh — Build proov and submit a test scan to the server.
 #
 # Usage:
-#   ./scripts/test-submit.sh <API_KEY> [SCAN_TARGET] [ENDPOINT]
+#   ./scripts/test-submit.sh [API_KEY] [SCAN_TARGET] [ENDPOINT]
 #
 # Examples:
 #   ./scripts/test-submit.sh your-api-key
 #   ./scripts/test-submit.sh your-api-key ~/projects/my-app
 #   ./scripts/test-submit.sh your-api-key . http://localhost:3000/api/scans/ingest
+#   AH_TEST_API_KEY=your-api-key ./scripts/test-submit.sh
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-API_KEY="${1:?Usage: $0 <API_KEY> [SCAN_TARGET] [ENDPOINT]}"
-SCAN_TARGET="${2:-.}"
-ENDPOINT="${3:-https://vettd.agentichighway.ai/api/scans/ingest}"
+API_KEY="${AH_TEST_API_KEY:-}"
+if [ $# -gt 0 ]; then
+    API_KEY="$1"
+    shift
+fi
+
+if [ -z "$API_KEY" ] && [ -t 0 ]; then
+    read -rsp "API key: " API_KEY
+    echo ""
+fi
+
+if [ -z "$API_KEY" ]; then
+    echo "Usage: $0 [API_KEY] [SCAN_TARGET] [ENDPOINT]" >&2
+    echo "Set AH_TEST_API_KEY or provide the API key as the first argument." >&2
+    exit 1
+fi
+
+SCAN_TARGET="${1:-.}"
+ENDPOINT="${2:-https://vettd.agentichighway.ai/api/scans/ingest}"
 
 TIMESTAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
 OUT_DIR="test-runs"

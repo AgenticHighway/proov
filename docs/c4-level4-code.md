@@ -51,7 +51,6 @@ sequenceDiagram
     participant Sync as contract_sync::sync_contract()
     participant Con as contract::build_contract_payload()
     participant HTTP as submit::submit_contract_payload()
-    participant Audit as submit::append_submission_audit()
     participant Server as Vettd Server
 
     CLI->>Out: do_submit(report, duration, flags)
@@ -69,7 +68,6 @@ sequenceDiagram
         Server-->>HTTP: 200 OK / 429 / 5xx
     end
     HTTP-->>Out: Result
-    Out->>Audit: append_submission_audit(event)
 ```
 
 ## Self-Update Flow Sequence

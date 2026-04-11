@@ -4,20 +4,20 @@ This document explains how proov is built, how data flows through it, and how th
 
 ## System context
 
-proov is one half of a two-repo client/server system:
+proov is a scanner that can operate standalone or connect to a compatible backend:
 
 ```
 ┌──────────────────┐         HTTP POST          ┌──────────────────────┐
-│   proov          │ ──────────────────────────► │   ah-verified-poc    │
-│   (this repo)    │    /api/scans/ingest        │   (server repo)      │
+│   proov          │ ──────────────────────────► │ Compatible Backend   │
+│   (this repo)    │    /api/scans/ingest        │ (e.g. Vettd)         │
 │                  │                              │                      │
-│  Rust CLI binary │                              │  Next.js + Postgres  │
-│  Runs on target  │                              │  Stores results      │
-│  machines        │                              │  Renders dashboard   │
+│  Rust CLI binary │                              │  Stores results      │
+│  Runs on target  │                              │  Renders review UI   │
+│  machines        │                              │  Applies governance  │
 └──────────────────┘                              └──────────────────────┘
 ```
 
-The scanner runs locally on a developer's machine, discovers AI-related configuration files, analyzes them for risk, and optionally submits findings to the verification server.
+The scanner runs locally on a developer's machine, discovers AI-related configuration files, analyzes them for risk, and optionally submits findings to a connected backend.
 
 ## Workspace layout
 

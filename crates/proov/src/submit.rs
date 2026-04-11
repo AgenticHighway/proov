@@ -1,7 +1,7 @@
-//! Submission side-effects — config persistence, audit logging, HTTP dispatch.
+//! Submission side-effects — config persistence and HTTP dispatch.
 //!
 //! Handles the parts that touch the outside world: reading/writing config
-//! files, writing audit logs, and posting contract payloads to the ingest API.
+//! files and posting contract payloads to the ingest API.
 
 use std::fmt;
 use std::fs;

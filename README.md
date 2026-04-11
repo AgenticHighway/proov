@@ -6,7 +6,9 @@ proov is a Rust CLI tool that scans your system for AI-related configuration fil
 
 ## How it works
 
-The scanner runs fully offline by default. It walks your filesystem, identifies AI execution artifacts, scores them for risk, and outputs results locally. Optionally, you can submit findings to [AgenticHighway](https://agentichighway.com) for centralized verification and dashboard review.
+proov is local-first. It walks your filesystem, identifies AI execution artifacts, scores them for risk, and writes results locally. Network activity only happens when you explicitly opt into connected features such as `--submit`, `proov auth`, `proov setup`, or `proov update`.
+
+If you want a hosted review and governance surface, proov can submit to compatible ingest APIs, including [Vettd](https://vettd.agentichighway.ai).
 
 ## System requirements
 
@@ -15,7 +17,7 @@ The scanner runs fully offline by default. It walks your filesystem, identifies 
 | **OS**      | macOS (ARM64, x86_64), Linux (ARM64, x86_64), Windows (x86_64)       |
 | **Runtime** | None — proov is a single static binary with no dependencies          |
 | **Build**   | Rust 1.85.1+ (pinned via `rust-toolchain.toml`)                      |
-| **Network** | Optional — only needed for `--submit` and `proov update`             |
+| **Network** | Optional — only needed for connected features such as submission, setup/auth, and updates |
 | **Disk**    | ~15 MB for the binary; scans are read-only and produce no temp files |
 
 ## Install
@@ -53,8 +55,9 @@ proov full                 # Deep system-wide scan (slow, thorough)
 proov file <path>          # Scan a single file
 proov folder <path>        # Scan a directory
 proov repo <path>          # Deep-scan a git repository
-proov setup                # Interactive first-time setup (API key + endpoint)
-proov auth --key <key>     # Save API credentials directly
+proov setup                # Interactive connected-mode setup (API key + endpoint)
+proov auth                 # Prompt securely for an API key and save it
+proov auth --key <key>     # Save API credentials directly (useful for automation)
 proov update               # Check for and install updates
 proov rules list           # List installed custom detection rules
 proov rules add <file>     # Install a TOML rule file
@@ -119,26 +122,34 @@ mode = "licensed"
 license_key = "your-key-here"
 ```
 
-## Submitting to AgenticHighway
+## Submitting to Vettd or another endpoint
 
 With a licensed configuration and API key:
 
 ```bash
-# First-time setup (saves credentials)
+# First-time setup (saves credentials and endpoint)
 proov setup
 
-# Or set credentials directly
+# Or prompt securely for credentials
+proov auth
+
+# Or set credentials directly for automation
 proov auth --key your-api-key
 
 # Submit scan results
 proov repo . --submit --api-key your-key
+
+# Submit to a custom compatible endpoint
+proov repo . --submit https://example.com/api/scans/ingest --api-key your-key
 ```
 
 ### Safety defaults
 
-- Submissions go to the AgenticHighway ingestion endpoint
+- Scans stay local unless you explicitly opt into connected commands
+- The default hosted submission target is Vettd, but custom compatible endpoints are supported
+- Contract sync only runs during explicit submission flows, when the target endpoint exposes a compatible contract API
 - Retry logic handles transient failures (429, 502, 503, 504)
-- Audit log is written to `.ahscan-submissions.json` (tokens are never logged)
+- API keys saved by proov are written to `~/.config/ahscan/config.json` with private permissions on Unix-like systems
 
 ## Self-update
 
@@ -148,7 +159,7 @@ proov update --check   # Check only, don't install
 proov update --force   # Force update even if current
 ```
 
-The scanner checks S3 for the latest release, verifies SHA-256 checksums, and replaces itself.
+`proov update` explicitly checks for the latest release, verifies SHA-256 checksums, and replaces the local binary.
 
 ## Privacy
 
@@ -182,7 +193,7 @@ proov/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                # PR checks: fmt, clippy, test, audit
-│   │   └── release.yml           # Build + GitHub Release + S3 upload
+│   │   └── release.yml           # Build + GitHub Release + artifact publishing
 │   ├── dependabot.yml            # Automated dependency updates
 │   └── CODEOWNERS                # Required reviewers for security-sensitive files
 ├── agents.md                     # Project guidelines for AI coding agents
@@ -220,21 +231,10 @@ For security vulnerability reports: [SECURITY.md](SECURITY.md)
 | `~/.ahscan/scanner_uuid`       | Persistent scanner identity (auto-generated)  |
 | `~/.ahscan/rules/*.toml`       | Custom detection rules                        |
 
-Full `.ahscan.toml` options:
+Example `.ahscan.toml`:
 
 ```toml
 [access]
 mode = "lite"                   # lite | licensed
 license_key = ""                # required for licensed mode
-
-[submit]
-endpoint = ""                  # AgenticHighway endpoint (set via proov setup)
-token = ""
-scanner_uuid = ""               # auto-generated if empty
-scanner_account_uuid = ""       # auto-generated if empty
-timeout_seconds = 10
-include_informational = false
-allow_public_endpoint = false
-audit_log_enabled = true
-audit_log_path = ".ahscan-submissions.json"
 ```

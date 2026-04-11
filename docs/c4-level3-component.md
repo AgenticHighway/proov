@@ -87,7 +87,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph SideEffects["Side-Effect Modules"]
-        submit["submit.rs\n(HTTP POST with retry,\naudit logging, auth config)"]
+        submit["submit.rs\n(HTTP POST with retry,\nauth config)"]
         network["network.rs\n(endpoint validation,\nprivate/local host checks)"]
         network_evidence["network_evidence.rs\n(firewall rules, MCP transport,\nenv var refs, log scanning)"]
         updater["updater.rs\n(version check, download,\nSHA-256 verify, binary swap)"]
@@ -98,12 +98,12 @@ flowchart LR
     subgraph UserInteraction["User Interaction"]
         cli["cli.rs\n(Cli, Commands, OutputArgs —\nclap definitions + run())"]
         wizard["wizard.rs\n(interactive scan mode\nselection with crossterm)"]
-        setup["setup.rs\n(first-run auth setup\nwizard flow)"]
+        setup["setup.rs\n(connected-mode auth setup\nwizard flow)"]
         progress["progress.rs\n(terminal progress\nindicator)"]
     end
 
     cli -->|"interactive fallback"| wizard
-    cli -->|"first-run check"| setup
+    cli -->|"setup command"| setup
     cli -->|"submission dispatch"| submit
     submit -->|"validates endpoint"| network
     cli -->|"update commands"| updater
