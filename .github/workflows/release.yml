@@ -38,7 +38,8 @@ env:
     CARGO_TERM_COLOR: always
     BINARY_NAME: proov
     UPDATE_HOST: https://vettd.agentichighway.ai
-    PROOV_UPDATE_PUBLIC_KEY: ${{ vars.PROOV_UPDATE_PUBLIC_KEY }}
+    UPDATE_SIGNING_KEY_ID: alias/proov-release-signing
+    PROOV_UPDATE_PUBLIC_KEY_DER_B64: ${{ vars.PROOV_UPDATE_PUBLIC_KEY_DER_B64 }}
 
 jobs:
     # ── Build ────────────────────────────────────────────────────────
@@ -72,8 +73,8 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  if [ -z "${PROOV_UPDATE_PUBLIC_KEY:-}" ]; then
-                    echo "::error::Missing repo variable PROOV_UPDATE_PUBLIC_KEY. Official releases must embed the public update verification key."
+                  if [ -z "${PROOV_UPDATE_PUBLIC_KEY_DER_B64:-}" ]; then
+                    echo "::error::Missing repo variable PROOV_UPDATE_PUBLIC_KEY_DER_B64. Official releases must embed the KMS public verification key."
                     exit 1
                   fi
 
@@ -155,8 +156,8 @@ jobs:
     # ── S3 Upload ────────────────────────────────────────────────────
     # Publishes binaries + a signed latest.json manifest to S3 for the self-updater.
     # Uses OIDC federation — no long-lived AWS keys stored in secrets.
-    # Official builds embed the public verification key at compile time and
-    # releases publish a detached minisign signature alongside the manifest.
+    # Official builds embed the public KMS verification key at compile time and
+    # releases publish a detached signature envelope alongside the manifest.
     upload-s3:
         needs: build
         runs-on: blacksmith-2vcpu-ubuntu-2204
@@ -178,28 +179,26 @@ jobs:
                   done
 
             - name: Validate signing configuration
-              env:
-                  PROOV_UPDATE_SIGNING_SECRET_KEY: ${{ secrets.PROOV_UPDATE_SIGNING_SECRET_KEY }}
-                  PROOV_UPDATE_SIGNING_PASSWORD: ${{ secrets.PROOV_UPDATE_SIGNING_PASSWORD }}
               run: |
                   set -euo pipefail
-                  if [ -z "${PROOV_UPDATE_PUBLIC_KEY:-}" ]; then
-                    echo "::error::Missing repo variable PROOV_UPDATE_PUBLIC_KEY."
+                  if [ -z "${PROOV_UPDATE_PUBLIC_KEY_DER_B64:-}" ]; then
+                    echo "::error::Missing repo variable PROOV_UPDATE_PUBLIC_KEY_DER_B64."
                     exit 1
                   fi
-                  if [ -z "${PROOV_UPDATE_SIGNING_SECRET_KEY:-}" ]; then
-                    echo "::error::Missing secret PROOV_UPDATE_SIGNING_SECRET_KEY."
-                    exit 1
-                  fi
-                  if [ -z "${PROOV_UPDATE_SIGNING_PASSWORD:-}" ]; then
-                    echo "::error::Missing secret PROOV_UPDATE_SIGNING_PASSWORD."
+                  if [ -z "${UPDATE_SIGNING_KEY_ID:-}" ]; then
+                    echo "::error::Missing UPDATE_SIGNING_KEY_ID."
                     exit 1
                   fi
 
-            - name: Install minisign
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y minisign
+                  KMS_PUBLIC_KEY_DER_B64=$(aws kms get-public-key \
+                    --key-id "${UPDATE_SIGNING_KEY_ID}" \
+                    --query 'PublicKey' \
+                    --output text)
+
+                  if [ "${KMS_PUBLIC_KEY_DER_B64}" != "${PROOV_UPDATE_PUBLIC_KEY_DER_B64}" ]; then
+                    echo "::error::PROOV_UPDATE_PUBLIC_KEY_DER_B64 does not match the current KMS public key for ${UPDATE_SIGNING_KEY_ID}."
+                    exit 1
+                  fi
 
             # OIDC federation: the runner exchanges a GitHub JWT for
             # short-lived AWS credentials scoped to SCANNER_RELEASE_ROLE_ARN.
@@ -237,9 +236,6 @@ jobs:
                   done
 
             - name: Write signed latest.json manifest
-              env:
-                  PROOV_UPDATE_SIGNING_SECRET_KEY: ${{ secrets.PROOV_UPDATE_SIGNING_SECRET_KEY }}
-                  PROOV_UPDATE_SIGNING_PASSWORD: ${{ secrets.PROOV_UPDATE_SIGNING_PASSWORD }}
               run: |
                   set -euo pipefail
                   TAG="${{ steps.tag.outputs.TAG }}"
@@ -286,21 +282,27 @@ jobs:
                   }
                   EOF
 
-                  printf '%s\n' "$PROOV_UPDATE_SIGNING_SECRET_KEY" > /tmp/proov-update-signing.key
-                  chmod 600 /tmp/proov-update-signing.key
-                  printf '%s\n' "$PROOV_UPDATE_SIGNING_PASSWORD" | \
-                    minisign -S \
-                      -s /tmp/proov-update-signing.key \
-                      -m /tmp/latest.json \
-                      -x /tmp/latest.json.minisig \
-                      -q \
-                      -t "version:${TAG} file:latest.json"
+                  SIGNATURE_B64=$(aws kms sign \
+                    --key-id "${UPDATE_SIGNING_KEY_ID}" \
+                    --signing-algorithm ECDSA_SHA_256 \
+                    --message-type RAW \
+                    --message fileb:///tmp/latest.json \
+                    --query 'Signature' \
+                    --output text)
+
+                  cat > /tmp/latest.signature.json <<EOF
+                  {
+                    "algorithm": "ECDSA_SHA_256",
+                    "keyId": "${UPDATE_SIGNING_KEY_ID}",
+                    "signature": "${SIGNATURE_B64}"
+                  }
+                  EOF
 
                   aws s3 cp /tmp/latest.json s3://ah-scanner-releases/latest.json \
                       --content-type application/json
-                  aws s3 cp /tmp/latest.json.minisig s3://ah-scanner-releases/latest.json.minisig \
-                      --content-type "text/plain; charset=utf-8"
+                  aws s3 cp /tmp/latest.signature.json s3://ah-scanner-releases/latest.signature.json \
+                      --content-type application/json
                   aws s3 cp /tmp/latest.json s3://ah-scanner-releases/manifests/${TAG}/latest.json \
                       --content-type application/json
-                  aws s3 cp /tmp/latest.json.minisig s3://ah-scanner-releases/manifests/${TAG}/latest.json.minisig \
-                      --content-type "text/plain; charset=utf-8"
+                  aws s3 cp /tmp/latest.signature.json s3://ah-scanner-releases/manifests/${TAG}/latest.signature.json \
+                      --content-type application/json

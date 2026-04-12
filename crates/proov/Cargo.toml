@@ -26,7 +26,8 @@ hostname = "0.4"
 ureq = { version = "2", features = ["json"] }
 flate2 = "1"
 tar = "0.4"
-minisign-verify = "0.2.5"
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8"] }
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

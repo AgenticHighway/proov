@@ -1,8 +1,8 @@
 //! Self-update mechanism — check for new versions and replace the binary.
 //!
 //! Architecture:
-//!   1. `check_for_update()` — GET the manifest and detached signature
-//!   2. Verify the manifest with the embedded minisign public key
+//!   1. `check_for_update()` — GET the manifest and detached signature envelope
+//!   2. Verify the manifest with the embedded KMS-backed public key
 //!   3. Compare semver and return the matching artifact
 //!   4. `perform_update()` — download, verify SHA-256, backup, replace
 //!
@@ -15,7 +15,11 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use minisign_verify::{PublicKey, Signature};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
+use p256::ecdsa::signature::Verifier;
+use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
+use p256::pkcs8::DecodePublicKey;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -26,11 +30,14 @@ use sha2::{Digest, Sha256};
 /// Vettd endpoint for the current signed release manifest.
 const MANIFEST_URL: &str = "https://vettd.agentichighway.ai/api/scanner/latest";
 
-/// Detached minisign signature for the current release manifest.
+/// Detached AWS KMS signature envelope for the current release manifest.
 const MANIFEST_SIGNATURE_URL: &str = "https://vettd.agentichighway.ai/api/scanner/latest/signature";
 
-/// Build-time public key used to verify official update manifests.
-const UPDATE_PUBLIC_KEY_B64: Option<&str> = option_env!("PROOV_UPDATE_PUBLIC_KEY");
+/// Build-time SPKI DER public key used to verify official update manifests.
+const UPDATE_PUBLIC_KEY_DER_B64: Option<&str> = option_env!("PROOV_UPDATE_PUBLIC_KEY_DER_B64");
+
+/// Signing algorithm emitted by the AWS KMS release signer.
+const KMS_SIGNATURE_ALGORITHM: &str = "ECDSA_SHA_256";
 
 /// How long to cache a "no update" result before checking again.
 const CHECK_CACHE_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
@@ -63,6 +70,15 @@ pub struct ArtifactInfo {
     pub sha256: String,
     #[serde(default)]
     pub size: Option<u64>,
+}
+
+/// Detached signature envelope stored alongside the signed manifest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ManifestSignatureEnvelope {
+    pub algorithm: String,
+    #[serde(rename = "keyId", default)]
+    pub key_id: Option<String>,
+    pub signature: String,
 }
 
 /// Result of comparing the manifest version to the running binary.
@@ -193,14 +209,14 @@ fn is_cache_fresh() -> bool {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-fn update_public_key_b64() -> Result<&'static str, String> {
-    UPDATE_PUBLIC_KEY_B64
+fn update_public_key_der_b64() -> Result<&'static str, String> {
+    UPDATE_PUBLIC_KEY_DER_B64
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
             "This build does not include an embedded Proov update verification \
              key. Self-update is only available in official signed builds. \
-             Rebuild with PROOV_UPDATE_PUBLIC_KEY set or install an official \
+             Rebuild with PROOV_UPDATE_PUBLIC_KEY_DER_B64 set or install an official \
              release."
                 .to_string()
         })
@@ -230,27 +246,46 @@ fn fetch_manifest_bytes(timeout_secs: u64) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Failed to fetch update manifest: {e}"))
 }
 
-fn fetch_manifest_signature(timeout_secs: u64) -> Result<String, String> {
+fn fetch_manifest_signature(timeout_secs: u64) -> Result<ManifestSignatureEnvelope, String> {
     let bytes = fetch_url_bytes(MANIFEST_SIGNATURE_URL, timeout_secs)
         .map_err(|e| format!("Failed to fetch manifest signature: {e}"))?;
-    String::from_utf8(bytes).map_err(|e| format!("Manifest signature was not valid UTF-8: {e}"))
+    serde_json::from_slice(&bytes)
+        .map_err(|e| format!("Manifest signature envelope was not valid JSON: {e}"))
+}
+
+fn decode_update_public_key(public_key_der_b64: &str) -> Result<VerifyingKey, String> {
+    let public_key_der = BASE64_STANDARD
+        .decode(public_key_der_b64.trim())
+        .map_err(|e| format!("Embedded update verification key was not valid base64: {e}"))?;
+    VerifyingKey::from_public_key_der(&public_key_der)
+        .map_err(|e| format!("Embedded update verification key is invalid: {e}"))
 }
 
 fn verify_manifest_signature(
     manifest_bytes: &[u8],
-    signature_text: &str,
-    public_key_b64: &str,
+    envelope: &ManifestSignatureEnvelope,
+    public_key_der_b64: &str,
 ) -> Result<(), String> {
-    let public_key = PublicKey::from_base64(public_key_b64.trim())
-        .map_err(|e| format!("Embedded update verification key is invalid: {e}"))?;
-    let signature = Signature::decode(signature_text)
-        .map_err(|e| format!("Manifest signature could not be decoded: {e}"))?;
-    public_key
-        .verify(manifest_bytes, &signature, false)
+    if envelope.algorithm != KMS_SIGNATURE_ALGORITHM {
+        return Err(format!(
+            "Unsupported manifest signature algorithm: {}. Expected {}.",
+            envelope.algorithm, KMS_SIGNATURE_ALGORITHM
+        ));
+    }
+
+    let verifying_key = decode_update_public_key(public_key_der_b64)?;
+    let signature_bytes = BASE64_STANDARD
+        .decode(envelope.signature.trim())
+        .map_err(|e| format!("Manifest signature was not valid base64: {e}"))?;
+    let signature = EcdsaSignature::from_der(&signature_bytes)
+        .map_err(|e| format!("Manifest signature was not valid DER: {e}"))?;
+
+    verifying_key
+        .verify(manifest_bytes, &signature)
         .map_err(|e| {
             format!(
-                "The update manifest signature did not verify: {e}. Refusing to trust update metadata."
-            )
+            "The update manifest signature did not verify: {e}. Refusing to trust update metadata."
+        )
         })
 }
 
@@ -260,11 +295,11 @@ fn parse_manifest_bytes(manifest_bytes: &[u8]) -> Result<UpdateManifest, String>
 }
 
 fn fetch_manifest(timeout_secs: u64) -> Result<UpdateManifest, String> {
-    let public_key_b64 = update_public_key_b64()?;
+    let public_key_der_b64 = update_public_key_der_b64()?;
     let manifest_bytes = fetch_manifest_bytes(timeout_secs)?;
-    let signature_text = fetch_manifest_signature(timeout_secs)?;
+    let signature_envelope = fetch_manifest_signature(timeout_secs)?;
 
-    verify_manifest_signature(&manifest_bytes, &signature_text, public_key_b64)?;
+    verify_manifest_signature(&manifest_bytes, &signature_envelope, public_key_der_b64)?;
     parse_manifest_bytes(&manifest_bytes)
 }
 
@@ -655,6 +690,24 @@ fn atty_stdout() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use p256::ecdsa::signature::Signer;
+    use p256::ecdsa::SigningKey;
+    use p256::pkcs8::EncodePublicKey;
+
+    fn test_signature_fixture(message: &[u8]) -> (String, ManifestSignatureEnvelope) {
+        let signing_key = SigningKey::from_bytes((&[7u8; 32]).into()).unwrap();
+        let public_key_der = signing_key.verifying_key().to_public_key_der().unwrap();
+        let signature: EcdsaSignature = signing_key.sign(message);
+
+        (
+            BASE64_STANDARD.encode(public_key_der.as_ref()),
+            ManifestSignatureEnvelope {
+                algorithm: KMS_SIGNATURE_ALGORITHM.to_string(),
+                key_id: Some("alias/proov-release-signing".to_string()),
+                signature: BASE64_STANDARD.encode(signature.to_der().as_bytes()),
+            },
+        )
+    }
 
     #[test]
     fn test_parse_semver_basic() {
@@ -809,25 +862,17 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_manifest_signature_accepts_valid_prehashed_signature() {
-        let public_key_b64 = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
-        let signature = "untrusted comment: signature from minisign secret key
-RUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=
-trusted comment: timestamp:1556193335\tfile:test
-y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==";
+    fn test_verify_manifest_signature_accepts_valid_ecdsa_signature() {
+        let (public_key_der_b64, envelope) = test_signature_fixture(b"test");
 
-        assert!(verify_manifest_signature(b"test", signature, public_key_b64).is_ok());
+        assert!(verify_manifest_signature(b"test", &envelope, &public_key_der_b64).is_ok());
     }
 
     #[test]
     fn test_verify_manifest_signature_rejects_tampered_manifest() {
-        let public_key_b64 = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
-        let signature = "untrusted comment: signature from minisign secret key
-RUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=
-trusted comment: timestamp:1556193335\tfile:test
-y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==";
+        let (public_key_der_b64, envelope) = test_signature_fixture(b"test");
 
-        let result = verify_manifest_signature(b"Test", signature, public_key_b64);
+        let result = verify_manifest_signature(b"Test", &envelope, &public_key_der_b64);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -835,13 +880,36 @@ y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+b
     }
 
     #[test]
-    fn test_verify_manifest_signature_rejects_invalid_signature_encoding() {
-        let public_key_b64 = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
-        let result = verify_manifest_signature(b"test", "not a minisign signature", public_key_b64);
+    fn test_verify_manifest_signature_rejects_unsupported_algorithm() {
+        let (public_key_der_b64, mut envelope) = test_signature_fixture(b"test");
+        envelope.algorithm = "RSA_SHA_256".to_string();
+
+        let result = verify_manifest_signature(b"test", &envelope, &public_key_der_b64);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
-            .contains("Manifest signature could not be decoded"));
+            .contains("Unsupported manifest signature algorithm"));
+    }
+
+    #[test]
+    fn test_verify_manifest_signature_rejects_invalid_signature_encoding() {
+        let (public_key_der_b64, mut envelope) = test_signature_fixture(b"test");
+        envelope.signature = "!not-base64!".to_string();
+
+        let result = verify_manifest_signature(b"test", &envelope, &public_key_der_b64);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Manifest signature was not valid base64"));
+    }
+
+    #[test]
+    fn test_decode_update_public_key_rejects_invalid_key() {
+        let result = decode_update_public_key("not-base64");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Embedded update verification key was not valid base64"));
     }
 
     #[test]

@@ -10,8 +10,8 @@ Before releasing, make sure:
 - [ ] You have access to the [GitHub Actions](https://github.com/AgenticHighway/proov/actions) dashboard to monitor builds
 - [ ] All CI checks on `main` are green
 - [ ] You've tested the changes locally with `cargo test` and `cargo clippy --all-targets -- -D warnings`
-- [ ] GitHub repo variable `PROOV_UPDATE_PUBLIC_KEY` is set to the official minisign public key (base64 payload)
-- [ ] GitHub secrets `PROOV_UPDATE_SIGNING_SECRET_KEY` and `PROOV_UPDATE_SIGNING_PASSWORD` are set for the release signer
+- [ ] GitHub repo variable `PROOV_UPDATE_PUBLIC_KEY_DER_B64` is set to the official KMS public key (base64-encoded DER/SPKI blob)
+- [ ] The `SCANNER_RELEASE_ROLE_ARN` OIDC role can call `kms:Sign` on the Proov release signing key
 
 ## Release process
 
@@ -84,7 +84,7 @@ Go to [GitHub Actions](https://github.com/AgenticHighway/proov/actions) and watc
 
 2. **release** — Downloads all 5 artifacts and creates a GitHub Release with auto-generated release notes
 
-3. **upload-s3** — Uploads binaries to `s3://ah-scanner-releases/vX.Y.Z/`, generates SHA-256 checksums, writes `latest.json`, signs it with minisign, and uploads both `latest.json` and `latest.json.minisig`
+3. **upload-s3** — Uploads binaries to `s3://ah-scanner-releases/vX.Y.Z/`, generates SHA-256 checksums, writes `latest.json`, asks AWS KMS to sign it, and uploads both `latest.json` and `latest.signature.json`
 
 ### 7. Verify the release
 
@@ -127,7 +127,7 @@ Tag push (v*)
 │                 │  │ SHA-256 checksums│
 │                 │  │ write latest.json│
 │                 │  │ sign manifest    │
-│                 │  │ upload .minisig  │
+│                 │  │ upload signature │
 └─────────────────┘  └──────────────────┘
 ```
 
@@ -136,7 +136,7 @@ Tag push (v*)
 - All Actions are pinned to full commit SHAs (not mutable tags)
 - AWS credentials use OIDC federation — no long-lived keys in secrets
 - Official release builds embed the public update verification key at compile time
-- `latest.json` is signed with minisign and verified by official Proov binaries before hashes are trusted
+- `latest.json` is signed by AWS KMS and verified by official Proov binaries before hashes are trusted
 - SHA-256 checksums remain embedded in `latest.json` for per-artifact integrity verification after the manifest signature passes
 
 ## Pre-release checklist
@@ -149,8 +149,8 @@ Tag push (v*)
 □ cargo audit                                no known vulnerabilities
 □ Version bumped in workspace Cargo.toml
 □ COMPILED_CONTRACT_VERSION correct (if schema changed)
-□ PROOV_UPDATE_PUBLIC_KEY repo variable configured
-□ Release signing key + password secrets configured
+□ PROOV_UPDATE_PUBLIC_KEY_DER_B64 repo variable configured
+□ Release OIDC role allowed to call kms:Sign
 □ All changes committed, working tree clean
 □ CI green on main
 ```
@@ -246,12 +246,12 @@ git push origin --tags
 
 - OIDC token exchange failed (transient GitHub/AWS issue)
 - The `SCANNER_RELEASE_ROLE_ARN` secret is misconfigured
-- The minisign release signing secrets are missing or malformed
+- The release role is missing `kms:Sign` permission or the signing key alias is wrong
 
 **Resolution:**
 
 1. Check the "Configure AWS credentials (OIDC)" step logs for the error
-2. Check the signing step logs for minisign errors or missing signing config
+2. Check the signing step logs for `aws kms sign` errors or missing signing config
 3. Re-run the `upload-s3` job from the Actions UI
 4. If OIDC is persistently failing, verify the IAM role trust policy allows the repo's OIDC subject
 
@@ -323,11 +323,11 @@ git commit -m "chore: release vX.Y.Z"
 
 If a release is broken and users are affected:
 
-1. **Immediate:** Re-upload the previous version's manifest and detached signature so `proov update` trusts the previous release again:
+1. **Immediate:** Re-upload the previous version's manifest and detached signature envelope so `proov update` trusts the previous release again:
 
     ```bash
     aws s3 cp s3://ah-scanner-releases/manifests/vPREVIOUS/latest.json s3://ah-scanner-releases/latest.json
-    aws s3 cp s3://ah-scanner-releases/manifests/vPREVIOUS/latest.json.minisig s3://ah-scanner-releases/latest.json.minisig
+    aws s3 cp s3://ah-scanner-releases/manifests/vPREVIOUS/latest.signature.json s3://ah-scanner-releases/latest.signature.json
     ```
 
 2. **Thorough:** Follow the "re-release" steps above to publish a fixed version.
