@@ -178,6 +178,15 @@ jobs:
                     cp "$dir/$name" "release/$name"
                   done
 
+            # OIDC federation: the runner exchanges a GitHub JWT for
+            # short-lived AWS credentials scoped to SCANNER_RELEASE_ROLE_ARN.
+            # No long-lived AWS keys are stored in GitHub Secrets.
+            - name: Configure AWS credentials (OIDC)
+              uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+              with:
+                  role-to-assume: ${{ secrets.SCANNER_RELEASE_ROLE_ARN }}
+                  aws-region: us-east-1
+
             - name: Validate signing configuration
               run: |
                   set -euo pipefail
@@ -199,15 +208,6 @@ jobs:
                     echo "::error::PROOV_UPDATE_PUBLIC_KEY_DER_B64 does not match the current KMS public key for ${UPDATE_SIGNING_KEY_ID}."
                     exit 1
                   fi
-
-            # OIDC federation: the runner exchanges a GitHub JWT for
-            # short-lived AWS credentials scoped to SCANNER_RELEASE_ROLE_ARN.
-            # No long-lived AWS keys are stored in GitHub Secrets.
-            - name: Configure AWS credentials (OIDC)
-              uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
-              with:
-                  role-to-assume: ${{ secrets.SCANNER_RELEASE_ROLE_ARN }}
-                  aws-region: us-east-1
 
             - name: Extract tag
               id: tag
