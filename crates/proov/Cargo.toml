@@ -26,6 +26,7 @@ hostname = "0.4"
 ureq = { version = "2", features = ["json"] }
 flate2 = "1"
 tar = "0.4"
+minisign-verify = "0.2.5"
 
 [dev-dependencies]
 tempfile = "3"

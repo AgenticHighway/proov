@@ -536,19 +536,21 @@ section "Self-update system"
 # update --help should work
 expect_ok "proov update --help" $RUN update --help
 
-# update --check should fail gracefully (S3 manifest may not be reachable)
+# update --check should fail gracefully if the network is unavailable or the
+# current build doesn't include an embedded official verification key.
 UPDATE_CHECK_OUT=$($RUN update --check 2>&1) && UPDATE_CHECK_OK=true || UPDATE_CHECK_OK=false
 if [ "$UPDATE_CHECK_OK" = true ]; then
     pass "update --check succeeded"
-elif echo "$UPDATE_CHECK_OUT" | grep -qE "latest version|Update available|Failed to fetch"; then
+elif echo "$UPDATE_CHECK_OUT" | grep -qE "latest version|Update available|Failed to fetch|verification key"; then
     pass "update --check reports status or network error correctly"
 else
     fail "update --check unexpected output: $UPDATE_CHECK_OUT"
 fi
 
-# update without --force should not crash (will fail on missing manifest, that's ok)
+# update without --force should not crash (it may fail on network or signature
+# prerequisites in dev/source builds, which is ok)
 UPDATE_OUT=$($RUN update 2>&1) || true
-if echo "$UPDATE_OUT" | grep -qE "latest version|Update available|Failed to fetch|update manifest"; then
+if echo "$UPDATE_OUT" | grep -qE "latest version|Update available|Failed to fetch|update manifest|verification key"; then
     pass "update reports status or error gracefully"
 else
     fail "update unexpected output: $UPDATE_OUT"

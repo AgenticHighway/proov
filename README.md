@@ -159,7 +159,14 @@ proov update --check   # Check only, don't install
 proov update --force   # Force update even if current
 ```
 
-`proov update` explicitly checks for the latest release, verifies SHA-256 checksums, and replaces the local binary.
+`proov update` explicitly checks for the latest release, verifies the signed
+manifest, checks the matching artifact SHA-256, and replaces the local binary.
+
+Official release binaries verify a detached minisign signature on the update
+manifest before trusting artifact URLs or hashes.
+
+Source builds remain fully functional, but `proov update` will fail explicitly
+unless the binary was built with `PROOV_UPDATE_PUBLIC_KEY` set at compile time.
 
 ## Privacy
 

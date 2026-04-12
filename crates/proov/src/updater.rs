@@ -1,18 +1,21 @@
 //! Self-update mechanism — check for new versions and replace the binary.
 //!
 //! Architecture:
-//!   1. `check_for_update()` — GET latest.json, compare semver, return result
-//!   2. `passive_update_check()` — cached TTY-only hint after scans
-//!   3. `perform_update()` — download, verify SHA-256, backup, replace
+//!   1. `check_for_update()` — GET the manifest and detached signature
+//!   2. Verify the manifest with the embedded minisign public key
+//!   3. Compare semver and return the matching artifact
+//!   4. `perform_update()` — download, verify SHA-256, backup, replace
 //!
-//! All downloads are over HTTPS.  The binary is never executed during the
-//! update — only extracted, verified, and placed.
+//! All downloads are over HTTPS. The manifest must verify before Proov trusts
+//! artifact hashes or URLs. The binary is never executed during the update —
+//! only extracted, verified, and placed.
 
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use minisign_verify::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -20,8 +23,14 @@ use sha2::{Digest, Sha256};
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Vettd endpoint for release manifests (proxies S3, rewrites download URLs).
+/// Vettd endpoint for the current signed release manifest.
 const MANIFEST_URL: &str = "https://vettd.agentichighway.ai/api/scanner/latest";
+
+/// Detached minisign signature for the current release manifest.
+const MANIFEST_SIGNATURE_URL: &str = "https://vettd.agentichighway.ai/api/scanner/latest/signature";
+
+/// Build-time public key used to verify official update manifests.
+const UPDATE_PUBLIC_KEY_B64: Option<&str> = option_env!("PROOV_UPDATE_PUBLIC_KEY");
 
 /// How long to cache a "no update" result before checking again.
 const CHECK_CACHE_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
@@ -39,6 +48,8 @@ const DOWNLOAD_TIMEOUT_SECS: u64 = 300;
 /// The expanded `latest.json` manifest served from S3.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateManifest {
+    #[serde(rename = "manifestVersion", default)]
+    pub manifest_version: Option<u32>,
     pub version: String,
     pub date: String,
     #[serde(default)]
@@ -50,6 +61,8 @@ pub struct UpdateManifest {
 pub struct ArtifactInfo {
     pub url: String,
     pub sha256: String,
+    #[serde(default)]
+    pub size: Option<u64>,
 }
 
 /// Result of comparing the manifest version to the running binary.
@@ -180,20 +193,79 @@ fn is_cache_fresh() -> bool {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-fn fetch_manifest(timeout_secs: u64) -> Result<UpdateManifest, String> {
+fn update_public_key_b64() -> Result<&'static str, String> {
+    UPDATE_PUBLIC_KEY_B64
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "This build does not include an embedded Proov update verification \
+             key. Self-update is only available in official signed builds. \
+             Rebuild with PROOV_UPDATE_PUBLIC_KEY set or install an official \
+             release."
+                .to_string()
+        })
+}
+
+fn fetch_url_bytes(url: &str, timeout_secs: u64) -> Result<Vec<u8>, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(timeout_secs))
         .build();
 
     let response = agent
-        .get(MANIFEST_URL)
+        .get(url)
         .set("User-Agent", &user_agent_string())
         .call()
-        .map_err(|e| format!("Failed to fetch update manifest: {e}"))?;
+        .map_err(|e| format!("Failed to fetch {url}: {e}"))?;
 
-    response
-        .into_json::<UpdateManifest>()
+    let mut reader = response.into_reader();
+    let mut buf = Vec::new();
+    reader
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("Failed to read {url}: {e}"))?;
+    Ok(buf)
+}
+
+fn fetch_manifest_bytes(timeout_secs: u64) -> Result<Vec<u8>, String> {
+    fetch_url_bytes(MANIFEST_URL, timeout_secs)
+        .map_err(|e| format!("Failed to fetch update manifest: {e}"))
+}
+
+fn fetch_manifest_signature(timeout_secs: u64) -> Result<String, String> {
+    let bytes = fetch_url_bytes(MANIFEST_SIGNATURE_URL, timeout_secs)
+        .map_err(|e| format!("Failed to fetch manifest signature: {e}"))?;
+    String::from_utf8(bytes).map_err(|e| format!("Manifest signature was not valid UTF-8: {e}"))
+}
+
+fn verify_manifest_signature(
+    manifest_bytes: &[u8],
+    signature_text: &str,
+    public_key_b64: &str,
+) -> Result<(), String> {
+    let public_key = PublicKey::from_base64(public_key_b64.trim())
+        .map_err(|e| format!("Embedded update verification key is invalid: {e}"))?;
+    let signature = Signature::decode(signature_text)
+        .map_err(|e| format!("Manifest signature could not be decoded: {e}"))?;
+    public_key
+        .verify(manifest_bytes, &signature, false)
+        .map_err(|e| {
+            format!(
+                "The update manifest signature did not verify: {e}. Refusing to trust update metadata."
+            )
+        })
+}
+
+fn parse_manifest_bytes(manifest_bytes: &[u8]) -> Result<UpdateManifest, String> {
+    serde_json::from_slice::<UpdateManifest>(manifest_bytes)
         .map_err(|e| format!("Failed to parse update manifest: {e}"))
+}
+
+fn fetch_manifest(timeout_secs: u64) -> Result<UpdateManifest, String> {
+    let public_key_b64 = update_public_key_b64()?;
+    let manifest_bytes = fetch_manifest_bytes(timeout_secs)?;
+    let signature_text = fetch_manifest_signature(timeout_secs)?;
+
+    verify_manifest_signature(&manifest_bytes, &signature_text, public_key_b64)?;
+    parse_manifest_bytes(&manifest_bytes)
 }
 
 fn download_to_file(url: &str, dest: &Path) -> Result<u64, String> {
@@ -703,16 +775,19 @@ mod tests {
     #[test]
     fn test_manifest_deserialization() {
         let json = r#"{
+            "manifestVersion": 1,
             "version": "v0.4.0",
             "date": "2026-03-21T00:00:00Z",
             "artifacts": {
                 "darwin-arm64": {
                     "url": "https://example.com/proov-darwin-arm64.tar.gz",
-                    "sha256": "abcdef1234567890"
+                    "sha256": "abcdef1234567890",
+                    "size": 1234
                 }
             }
         }"#;
         let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.manifest_version, Some(1));
         assert_eq!(manifest.version, "v0.4.0");
         assert_eq!(manifest.artifacts.len(), 1);
         assert!(manifest.artifacts.contains_key("darwin-arm64"));
@@ -720,6 +795,7 @@ mod tests {
             manifest.artifacts["darwin-arm64"].sha256,
             "abcdef1234567890"
         );
+        assert_eq!(manifest.artifacts["darwin-arm64"].size, Some(1234));
     }
 
     #[test]
@@ -727,8 +803,54 @@ mod tests {
         // Backwards-compatible with old latest.json format
         let json = r#"{"version":"v0.3.0","date":"2026-03-20T00:00:00Z"}"#;
         let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.manifest_version, None);
         assert_eq!(manifest.version, "v0.3.0");
         assert!(manifest.artifacts.is_empty());
+    }
+
+    #[test]
+    fn test_verify_manifest_signature_accepts_valid_prehashed_signature() {
+        let public_key_b64 = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+        let signature = "untrusted comment: signature from minisign secret key
+RUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=
+trusted comment: timestamp:1556193335\tfile:test
+y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==";
+
+        assert!(verify_manifest_signature(b"test", signature, public_key_b64).is_ok());
+    }
+
+    #[test]
+    fn test_verify_manifest_signature_rejects_tampered_manifest() {
+        let public_key_b64 = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+        let signature = "untrusted comment: signature from minisign secret key
+RUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=
+trusted comment: timestamp:1556193335\tfile:test
+y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==";
+
+        let result = verify_manifest_signature(b"Test", signature, public_key_b64);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("update manifest signature did not verify"));
+    }
+
+    #[test]
+    fn test_verify_manifest_signature_rejects_invalid_signature_encoding() {
+        let public_key_b64 = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+        let result = verify_manifest_signature(b"test", "not a minisign signature", public_key_b64);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Manifest signature could not be decoded"));
+    }
+
+    #[test]
+    fn test_parse_manifest_bytes_rejects_invalid_json() {
+        let result = parse_manifest_bytes(br#"{"version":"v1.0.0""#);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Failed to parse update manifest"));
     }
 
     #[test]
