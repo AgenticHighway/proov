@@ -24,7 +24,7 @@ regex = "1"
 dirs = "6"
 crossterm = "0.29"
 hostname = "0.4"
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "3", features = ["json"] }
 flate2 = "1"
 tar = "0.4"
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8"] }
