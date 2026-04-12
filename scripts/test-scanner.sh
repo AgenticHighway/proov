@@ -153,7 +153,7 @@ expect_ok    "proov full --help"    $RUN full --help
 expect_ok    "proov file --help"    $RUN file --help
 expect_ok    "proov folder --help"  $RUN folder --help
 expect_ok    "proov repo --help"    $RUN repo --help
-expect_ok    "proov plugins --help" $RUN plugins --help
+expect_ok    "proov rules --help"   $RUN rules --help
 expect_ok    "proov auth --help"    $RUN auth --help
 expect_ok    "proov setup --help"   $RUN setup --help
 expect_ok    "proov update --help"  $RUN update --help
@@ -236,10 +236,10 @@ expect_ok "quick --min-severity=high"      $RUN quick --min-severity high --summ
 expect_ok "quick --min-severity=medium"    $RUN quick --min-severity medium --summary
 expect_ok "quick --min-severity=low"       $RUN quick --min-severity low --summary
 
-# ── 8. Plugin management ────────────────────────────────────────────
+# ── 8. Rules management ─────────────────────────────────────────────
 
-section "Plugin management"
-expect_ok    "plugins list"                $RUN plugins list
+section "Rules management"
+expect_ok    "rules list"                  $RUN rules list
 
 # ── 9. Contract payload validation ──────────────────────────────────
 
