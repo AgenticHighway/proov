@@ -4,7 +4,8 @@ Zooms into key data flows and type relationships at the code level.
 
 ## Scan Pipeline Sequence
 
-The core scan execution from CLI invocation through to output.
+The core scan execution from CLI invocation through to output, including the
+interactive post-scan next-step menu for local terminal runs.
 
 ```mermaid
 sequenceDiagram
@@ -15,12 +16,14 @@ sequenceDiagram
     participant Det as detectors
     participant Risk as risk_engine
     participant Ver as verifier
-    participant Con as contract::build_contract_payload()
     participant Out as output::emit()
+    participant Wiz as wizard
+    participant Con as contract::build_contract_payload()
+    participant File as output::write_json_report()
 
-    User->>CLI: proov scan --json
-    CLI->>Scan: run_scan("home", None, None, false)
-    Scan->>Disc: discover_home_surfaces()
+    User->>CLI: proov file agents.md
+    CLI->>Scan: run_scan("file", Some(path), None, false)
+    Scan->>Disc: discover_file_surface(path)
     Disc-->>Scan: Vec<Candidate>
     loop for each Detector
         Scan->>Det: detector.detect(candidates, deep)
@@ -33,10 +36,23 @@ sequenceDiagram
         Ver-->>Scan: verified artifact
     end
     Scan-->>CLI: ScanReport
-    CLI->>Con: build_contract_payload(report, duration_ms)
-    Con-->>CLI: ContractPayload
     CLI->>Out: emit(report, ...)
-    Out-->>User: JSON / human output
+    Out-->>User: Human / summary / JSON output
+    alt interactive TTY and no --json/--contract/--submit
+        CLI->>Wiz: pick("Next step")
+        alt Write report to disk
+            Wiz-->>CLI: SaveReport + path
+            CLI->>File: write_json_report(report, duration_ms, path)
+            File->>Con: build_contract_payload(report, duration_ms)
+            Con-->>File: ContractPayload
+            File-->>User: Report written to disk
+        else Submit results to Vettd
+            Wiz-->>CLI: SubmitToVettd
+            CLI-->>User: Continue into submission flow
+        else Do nothing
+            Wiz-->>CLI: DoNothing
+        end
+    end
 ```
 
 ## Submission Flow Sequence

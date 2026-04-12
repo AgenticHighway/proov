@@ -60,7 +60,8 @@ flowchart TD
     end
 
     subgraph OutputLayer["Output Layer"]
-        output["output.rs\n(emit — dispatch to\nJSON/human/file output)"]
+        output["output.rs\n(emit — dispatch to\nJSON/human/post-scan output)"]
+        write_json["output.rs\n(write_json_report —\npersist report JSON)"]
         formatters["formatters.rs\n(print_overview, print_human,\nprint_summary — ANSI terminal)"]
         lite_mode["lite_mode.rs\n(local policy scoring,\nresult limiting)"]
     end
@@ -76,8 +77,10 @@ flowchart TD
     contract_mod -->|"delegates to"| apps
     contract_mod -->|"uses types from"| types
     output -->|"builds payload via"| contract_mod
+    output -->|"writes report via"| write_json
     output -->|"human output via"| formatters
     output -->|"lite filtering via"| lite_mode
+    write_json -->|"builds payload via"| contract_mod
     contract_mod -->|"reads"| models
     formatters -->|"reads"| models
 ```
@@ -96,13 +99,13 @@ flowchart LR
     end
 
     subgraph UserInteraction["User Interaction"]
-        cli["cli.rs\n(Cli, Commands, OutputArgs —\nclap definitions + run())"]
-        wizard["wizard.rs\n(interactive scan mode\nselection with crossterm)"]
+        cli["cli.rs\n(Cli, Commands, OutputArgs —\nclap definitions, run(),\npost-scan next-step prompt)"]
+        wizard["wizard.rs\n(interactive scan mode\nselection and pick/ask prompts)"]
         setup["setup.rs\n(connected-mode auth setup\nwizard flow)"]
         progress["progress.rs\n(terminal progress\nindicator)"]
     end
 
-    cli -->|"interactive fallback"| wizard
+    cli -->|"interactive fallback + next-step menu"| wizard
     cli -->|"setup command"| setup
     cli -->|"submission dispatch"| submit
     submit -->|"validates endpoint"| network

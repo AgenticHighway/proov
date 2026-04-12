@@ -19,6 +19,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Keep the suite non-interactive even when launched from a TTY.
+exec </dev/null
+
 # Load .env if present (values from environment always take precedence)
 if [[ -f "$REPO_ROOT/.env" ]]; then
     while IFS='=' read -r key value; do

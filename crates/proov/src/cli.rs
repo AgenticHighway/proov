@@ -546,28 +546,56 @@ pub fn run() {
         );
     }
 
-    // Offer interactive submission for local-only scans (not --submit, not --json)
+    // Offer interactive follow-up actions for local-only scans.
     if !wants_submit && !out.json && !out.contract && is_interactive() {
-        prompt_submit(&report, scan_duration_ms);
+        prompt_post_scan_action(&report, scan_duration_ms);
     }
 }
 
 // ---------------------------------------------------------------------------
-// Interactive submit prompt
+// Interactive post-scan actions
 // ---------------------------------------------------------------------------
 
 const VETTD_SETTINGS_URL: &str = "https://vettd.agentichighway.ai/settings";
+
+enum PostScanAction {
+    SaveReport,
+    SubmitToVettd,
+    DoNothing,
+}
 
 fn is_interactive() -> bool {
     io::stdin().is_terminal()
 }
 
+fn prompt_post_scan_action(report: &ScanReport, scan_duration_ms: u64) {
+    let options = [
+        "Write report to disk",
+        "Submit results to Vettd",
+        "Do nothing",
+    ];
+
+    let action = match crate::wizard::pick("Next step", &options, 2) {
+        0 => PostScanAction::SaveReport,
+        1 => PostScanAction::SubmitToVettd,
+        _ => PostScanAction::DoNothing,
+    };
+
+    match action {
+        PostScanAction::SaveReport => save_report_interactively(report, scan_duration_ms),
+        PostScanAction::SubmitToVettd => prompt_submit(report, scan_duration_ms),
+        PostScanAction::DoNothing => {}
+    }
+}
+
+fn save_report_interactively(report: &ScanReport, scan_duration_ms: u64) {
+    let path = crate::wizard::ask("Report path", "proov-report.json");
+    let maybe_path = Some(PathBuf::from(path));
+    crate::output::write_json_report(report, scan_duration_ms, &maybe_path);
+}
+
 /// After a scan, ask the user if they want to submit results to Vettd.
 fn prompt_submit(report: &ScanReport, scan_duration_ms: u64) {
-    if !crate::wizard::confirm("Submit results to Vettd?", false) {
-        return;
-    }
-
     // Resolve or collect API key
     let saved = crate::submit::load_auth_config();
     let api_key = match saved.as_ref().filter(|a| !a.api_key.is_empty()) {
