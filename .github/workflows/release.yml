@@ -368,6 +368,7 @@ jobs:
               if: github.ref_type == 'tag'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_REPO: ${{ github.repository }}
               run: |
                   gh release upload "${{ steps.tag.outputs.TAG }}" \
                     release/checksums.txt \
