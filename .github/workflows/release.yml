@@ -380,17 +380,24 @@ jobs:
     # token is absent so releases still publish their binaries normally.
     update-homebrew-tap:
         needs: release
-        if: ${{ github.ref_type == 'tag' && secrets.HOMEBREW_TAP_TOKEN != '' }}
         runs-on: blacksmith-2vcpu-ubuntu-2204
         permissions:
             contents: read
+        env:
+            HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         steps:
+            - name: Skip when tap token is not configured
+              if: env.HOMEBREW_TAP_TOKEN == ''
+              run: echo "HOMEBREW_TAP_TOKEN not configured; skipping Homebrew tap refresh."
+
             - name: Download all artifacts
+              if: env.HOMEBREW_TAP_TOKEN != ''
               uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
               with:
                   path: artifacts
 
             - name: Collect binaries
+              if: env.HOMEBREW_TAP_TOKEN != ''
               run: |
                   mkdir -p release
                   for dir in artifacts/proov-*; do
@@ -399,20 +406,23 @@ jobs:
                   done
 
             - name: Extract release metadata
+              if: env.HOMEBREW_TAP_TOKEN != ''
               id: release_meta
               run: |
                   echo "TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
                   echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
             - name: Checkout Homebrew tap
+              if: env.HOMEBREW_TAP_TOKEN != ''
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: AgenticHighway/homebrew-tap
                   ref: main
-                  token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+                  token: ${{ env.HOMEBREW_TAP_TOKEN }}
                   path: homebrew-tap
 
             - name: Update Formula/proov.rb
+              if: env.HOMEBREW_TAP_TOKEN != ''
               working-directory: homebrew-tap
               env:
                   VERSION: ${{ steps.release_meta.outputs.VERSION }}
@@ -447,6 +457,7 @@ jobs:
                   git --no-pager diff -- Formula/proov.rb
 
             - name: Commit and push formula
+              if: env.HOMEBREW_TAP_TOKEN != ''
               working-directory: homebrew-tap
               env:
                   VERSION: ${{ steps.release_meta.outputs.VERSION }}
