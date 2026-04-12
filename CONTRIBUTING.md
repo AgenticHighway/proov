@@ -265,12 +265,12 @@ gh pr update-branch <PR_NUMBER> --rebase
 To test submitting scan results to a server:
 
 ```bash
-# Uses Vettd by default, or any compatible ingest endpoint you provide
+# Uses your configured default endpoint, or any compatible ingest endpoint you provide
 ./scripts/test-submit.sh [API_KEY] [SCAN_TARGET] [ENDPOINT]
 
 # Examples
 ./scripts/test-submit.sh your-api-key
-./scripts/test-submit.sh your-api-key ~/my-project
+./scripts/test-submit.sh your-api-key ./path/to/project
 ./scripts/test-submit.sh your-api-key . http://localhost:3000/api/scans/ingest
 
 # Or use an environment variable / secure prompt
@@ -280,7 +280,7 @@ AH_TEST_API_KEY=your-api-key ./scripts/test-submit.sh
 You can also run the full test suite with submission tests enabled:
 
 ```bash
-AH_TEST_API_KEY=your_key ./scripts/test-scanner.sh
+AH_TEST_API_KEY=your-api-key ./scripts/test-scanner.sh
 ```
 
 ## Getting help
