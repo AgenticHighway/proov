@@ -60,10 +60,10 @@ flowchart TD
     end
 
     subgraph OutputLayer["Output Layer"]
-        output["output.rs\n(emit — dispatch to\nJSON/human/post-scan output)"]
+        output["output.rs\n(emit, do_submit — local output\nand submission orchestration)"]
         write_json["output.rs\n(write_json_report —\npersist report JSON)"]
         formatters["formatters.rs\n(print_overview, print_human,\nprint_summary — ANSI terminal)"]
-        lite_mode["lite_mode.rs\n(local policy scoring,\nresult limiting)"]
+        lite_mode["lite_mode.rs\n(access-gated result limiting\nfor lite mode)"]
     end
 
     subgraph Models["Core Data Models"]
@@ -90,18 +90,18 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph SideEffects["Side-Effect Modules"]
-        submit["submit.rs\n(HTTP POST with retry,\nauth config)"]
+        submit["submit.rs\n(auth config persistence,\nHTTP POST with retry)"]
         network["network.rs\n(endpoint validation,\nprivate/local host checks)"]
         network_evidence["network_evidence.rs\n(firewall rules, MCP transport,\nenv var refs, log scanning)"]
-        updater["updater.rs\n(version check, download,\nSHA-256 verify, binary swap)"]
+        updater["updater.rs\n(signed manifest verify,\ndownload, SHA-256 verify,\nbinary swap)"]
         contract_sync["contract_sync.rs\n(fetch/cache contract schema,\nversion mismatch detection)"]
         identity["identity.rs\n(scanner_uuid persistence,\naccount_uuid resolution)"]
     end
 
     subgraph UserInteraction["User Interaction"]
-        cli["cli.rs\n(Cli, Commands, OutputArgs —\nclap definitions, run(),\npost-scan next-step prompt)"]
+        cli["cli.rs\n(Cli, Commands, OutputArgs —\ncommand dispatch, access gate,\npost-scan next-step prompt)"]
         wizard["wizard.rs\n(interactive scan mode\nselection and pick/ask prompts)"]
-        setup["setup.rs\n(connected-mode auth setup\nwizard flow)"]
+        setup["setup.rs\n(optional auth + endpoint\nsetup wizard)"]
         progress["progress.rs\n(terminal progress\nindicator)"]
     end
 
@@ -118,9 +118,9 @@ flowchart LR
 
 | Module                            | Layer            | Responsibility                                  |
 | --------------------------------- | ---------------- | ----------------------------------------------- |
-| `cli.rs`                          | User Interaction | CLI argument parsing, command dispatch          |
+| `cli.rs`                          | User Interaction | CLI argument parsing, command dispatch, access gating |
 | `wizard.rs`                       | User Interaction | Interactive scan mode picker                    |
-| `setup.rs`                        | User Interaction | First-run auth configuration                    |
+| `setup.rs`                        | User Interaction | Optional auth and endpoint setup                |
 | `progress.rs`                     | User Interaction | Terminal progress indicator                     |
 | `discovery.rs`                    | Discovery        | Filesystem candidate enumeration                |
 | `detectors/base.rs`               | Detection        | `Detector` trait definition                     |
@@ -136,13 +136,13 @@ flowchart LR
 | `models.rs`                       | Core             | `ArtifactReport`, `ScanReport` types            |
 | `scan.rs`                         | Orchestration    | Scan pipeline coordinator                       |
 | `contract/`                       | Contract         | Raw artifacts → v2 contract payload             |
-| `output.rs`                       | Output           | JSON/human/file emission dispatch               |
+| `output.rs`                       | Output           | Local output, JSON files, and submission orchestration |
 | `formatters.rs`                   | Output           | ANSI terminal formatters                        |
 | `lite_mode.rs`                    | Output           | Result limiting and local scoring               |
 | `payload.rs`                      | Output           | Legacy v1 payload builder                       |
-| `submit.rs`                       | Side-Effect      | HTTP submission with retry + audit              |
+| `submit.rs`                       | Side-Effect      | Auth config persistence and HTTP submission     |
 | `network.rs`                      | Side-Effect      | Endpoint validation                             |
 | `network_evidence.rs`             | Side-Effect      | Host network evidence gathering                 |
-| `updater.rs`                      | Side-Effect      | Self-update mechanism                           |
+| `updater.rs`                      | Side-Effect      | Signed self-update verification and swap        |
 | `contract_sync.rs`                | Side-Effect      | Contract schema fetch/cache                     |
 | `identity.rs`                     | Side-Effect      | Scanner UUID persistence                        |

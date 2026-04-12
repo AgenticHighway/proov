@@ -1,10 +1,14 @@
 # Architecture
 
-This document explains how proov is built, how data flows through it, and how the modules connect. Read this before diving into the source code.
+This document explains how proov is built, how data flows through it, and how
+the modules connect. Read this before diving into the source code.
+
+For public-facing CLI journeys, see [user-flows.md](user-flows.md).
 
 ## System context
 
-proov is a scanner that can operate standalone or connect to a compatible backend:
+proov is a local-first scanner that can operate standalone or connect to a
+compatible backend when you explicitly opt into submission:
 
 ```
 ┌──────────────────┐         HTTP POST          ┌──────────────────────┐
@@ -53,8 +57,8 @@ proov/
 │   │       ├── network_evidence.rs # Firewall + network metadata
 │   │       ├── formatters.rs # Terminal output rendering
 │   │       ├── wizard.rs     # Interactive mode UI
-│   │       ├── setup.rs      # First-run configuration
-│   │       ├── updater.rs    # Self-update from S3
+│   │       ├── setup.rs      # Optional auth + endpoint setup
+│   │       ├── updater.rs    # Signed manifest update flow
 │   │       ├── lite_mode.rs  # Free-tier output limiting
 │   │       ├── capabilities.rs # Signal-to-capability mapping
 │   │       └── progress.rs   # Progress indicator
@@ -66,7 +70,7 @@ proov/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml            # PR checks: fmt, clippy, test, audit
-│   │   └── release.yml       # Build + GitHub Release + S3 upload
+│   │   └── release.yml       # Build + GitHub Release + signed update metadata
 │   ├── dependabot.yml        # Automated dependency updates
 │   └── CODEOWNERS            # Required reviewers
 ├── scanner-data-contract.json # JSON Schema for the ingest API
@@ -76,7 +80,8 @@ proov/
 
 ## Data flow
 
-Here is the complete path data takes through the scanner, from CLI invocation to output:
+Here is the complete path data takes through the scanner, from CLI invocation
+to local output or optional submission:
 
 ```
  ┌─────────────┐
@@ -86,8 +91,8 @@ Here is the complete path data takes through the scanner, from CLI invocation to
         │
         ▼
  ┌─────────────┐   Parses arguments, loads .ahscan.toml for access tier
- │   cli.rs     │   (lite vs licensed), dispatches to scan or wizard
- └──────┬───────┘
+ │   cli.rs     │   (lite vs licensed), dispatches to scan, wizard,
+ └──────┬───────┘   setup/auth/rules/update, and post-scan actions
         │
         ▼
  ┌─────────────┐   Picks discovery mode based on subcommand:
@@ -124,12 +129,16 @@ Here is the complete path data takes through the scanner, from CLI invocation to
            │
            ▼  ScanReport
     ┌─────────────┐
-    │ Output stage │   Branching depending on flags:
-    └──┬───┬───┬──┘
-       │   │   │
-       │   │   └──► formatters.rs → terminal output (human/overview/summary)
-       │   └──────► contract/ → JSON file (--out, --json, --contract)
-       └──────────► submit.rs → HTTP POST to server (--submit)
+    │ Output stage │   Local-first branching depending on flags + TTY:
+    └──┬───┬───┬───┬──┘
+       │   │   │   │
+       │   │   │   └──► post-scan next step (TTY + no --json/--contract/--submit)
+       │   │   │         ├─ write report to disk
+       │   │   │         ├─ continue into submission
+       │   │   │         └─ do nothing
+       │   │   └──────► formatters.rs → terminal output (overview/full/summary)
+       │   └──────────► output.rs → JSON stdout or file (--json, --out, --contract)
+       └──────────────► output.rs + submit.rs → contract sync + HTTP POST (--submit)
 ```
 
 ## Module responsibilities
@@ -158,7 +167,7 @@ These modules interact with the outside world:
 | `submit.rs`           | HTTP POST, read/write config files                                        |
 | `identity.rs`         | Read/write UUID files in ~/.ahscan/                                       |
 | `network_evidence.rs` | Runs macOS firewall commands                                              |
-| `updater.rs`          | HTTP GET to S3 for update manifests                                       |
+| `updater.rs`          | HTTP GET to hosted signed release metadata + artifact download            |
 | `contract_sync.rs`    | HTTP GET contract version from server, local cache in ~/.ahscan/contract/ |
 | `setup.rs`            | Interactive prompts + config file writes                                  |
 | `wizard.rs`           | Interactive terminal UI                                                   |
@@ -168,7 +177,7 @@ These modules interact with the outside world:
 
 | Module             | Role                                                                                                                              |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `cli.rs`           | Entry point: argument parsing, dispatch, output mode selection                                                                    |
+| `cli.rs`           | Entry point: argument parsing, dispatch, access gating, and post-scan decision flow                                              |
 | `scan.rs`          | Pipeline: discovery → detection → scoring → verification                                                                          |
 | `contract/`        | Transform `ScanReport` → scanner data contract v2.1.0 format (split into type-specific builders: prompts, skills, agents, mcp, apps) |
 | `contract_sync.rs` | Sync contract schema version from server, cache locally in `~/.ahscan/contract/`, warn on version mismatch                        |
@@ -281,6 +290,10 @@ This is calculated in `models.rs` via `content_digest()` → `compute_hash()` �
 
 Access is controlled via `.ahscan.toml` in the working directory.
 
+At runtime, `cli.rs` loads this file before output is rendered. In `lite`
+mode, proov keeps local scanning and scoring but limits the visible artifact
+set before formatting or JSON emission.
+
 ## Configuration files
 
 | File                             | Purpose                     | Created by                         |
@@ -328,8 +341,8 @@ The scanner enforces strict endpoint validation in `network.rs`:
 3. Tag: `git tag vX.Y.Z`
 4. Push: `git push origin main --tags`
 5. GitHub Actions builds binaries for 5 targets (macOS arm64/x86, Linux arm64/x86, Windows x86)
-6. Uploads to GitHub Releases + S3 bucket
-7. Generates `latest.json` manifest with SHA-256 checksums for self-update
+6. Publishes GitHub release assets and refreshes the hosted signed update metadata
+7. Serves the signed manifest + signature used by official self-updating clients
 
 ## CI/CD
 
@@ -344,7 +357,7 @@ The project uses two GitHub Actions workflows, both running on [Blacksmith](http
 
 - Cross-platform builds (5 targets)
 - GitHub Release creation
-- S3 upload with SHA-256 checksums
+- Signed manifest publication for self-update
 
 **Supply chain hardening:**
 

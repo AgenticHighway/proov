@@ -55,62 +55,122 @@ sequenceDiagram
     end
 ```
 
+## Access Gate & Output Branching
+
+How access settings, output flags, and TTY detection shape the user-visible
+result after a scan completes.
+
+```mermaid
+flowchart TD
+    Report["ScanReport returned from scan.rs"]
+    Access["cli.rs\nload_access_config()"]
+    Gate{"Access mode"}
+    Lite["lite_mode.rs\nlimit_lite_mode_report()"]
+    Full["Keep full artifact set"]
+    Severity["filter_by_severity()"]
+    Flags{"Output / submit flags?"}
+    Human["formatters.rs\nprint overview / full / summary"]
+    Json["output.rs\nprint JSON to stdout"]
+    Contract["cli.rs + contract/\nbuild contract payload"]
+    Save["write_json_report() /\nwrite contract file"]
+    Submit["resolve auth → contract sync →\nsubmit_contract_payload()"]
+    Prompt{"TTY and no\n--json / --contract / --submit?"}
+    Next["wizard::pick(\"Next step\")"]
+    Done["Exit"]
+
+    Report --> Access --> Gate
+    Gate -->|"lite"| Lite --> Severity
+    Gate -->|"licensed / default"| Full --> Severity
+    Severity --> Flags
+    Flags -->|"default / --full / --summary"| Human --> Prompt
+    Flags -->|"--json"| Json --> Done
+    Flags -->|"--out"| Human
+    Human -->|"optional --out"| Save
+    Flags -->|"--contract"| Contract
+    Contract -->|"optional --out"| Save
+    Contract -->|"--submit"| Submit --> Done
+    Prompt -->|"yes"| Next
+    Prompt -->|"no"| Done
+    Next -->|"Write report to disk"| Save --> Done
+    Next -->|"Submit results"| Submit
+    Next -->|"Do nothing"| Done
+```
+
 ## Submission Flow Sequence
 
-The HTTP submission path when `--submit` is used.
+The submission path when `--submit` is used or the interactive post-scan prompt
+continues into submission.
 
 ```mermaid
 sequenceDiagram
     participant CLI as cli::run()
     participant Out as output::do_submit()
-    participant Auth as submit::load_auth_config()
+    participant Auth as saved config / flags
     participant Sync as contract_sync::sync_contract()
     participant Con as contract::build_contract_payload()
     participant HTTP as submit::submit_contract_payload()
-    participant Server as Vettd Server
+    participant Backend as Compatible Backend
 
-    CLI->>Out: do_submit(report, duration, flags)
-    Out->>Auth: load_auth_config()
+    CLI->>Con: build_contract_payload(report, duration)
+    Con-->>CLI: ContractPayload JSON
+    CLI->>Out: do_submit(payload_json, auth)
+    Out->>Auth: resolve auth from flags or config
     Auth-->>Out: AuthConfig (key + endpoint)
     Out->>Sync: sync_contract(endpoint)
-    Sync->>Server: GET /api/contract?version=true
-    Server-->>Sync: version response
-    Sync-->>Out: ok / warn / exit
-    Out->>Con: build_contract_payload(report, duration)
-    Con-->>Out: ContractPayload
-    Out->>HTTP: submit_contract_payload(payload, key, endpoint)
-    loop up to 3 retries (5s / 30s / 120s)
-        HTTP->>Server: POST /api/scans/ingest (Bearer token)
-        Server-->>HTTP: 200 OK / 429 / 5xx
+    Sync->>Backend: GET /api/contract?version=true
+    Backend-->>Sync: version response
+    alt compiled contract mismatch
+        Sync-->>Out: explicit error + update guidance
+        Out-->>CLI: submission blocked
+    else compatible / unreachable / server error
+        Sync-->>Out: continue
+        Out->>HTTP: submit_contract_payload(payload, key, endpoint)
+        loop up to 3 retries (5s / 30s / 120s)
+            HTTP->>Backend: POST /api/scans/ingest (Bearer token)
+            Backend-->>HTTP: 201 / 409 / 429 / 5xx
+        end
+        HTTP-->>Out: success / explicit error
     end
-    HTTP-->>Out: Result
 ```
 
 ## Self-Update Flow Sequence
 
-Binary update check, download, and replacement.
+Binary update check, confirmation, download, and replacement.
 
 ```mermaid
 sequenceDiagram
     participant User
     participant CLI as cli::run()
     participant Upd as updater
-    participant S3 as S3 Release Bucket
+    participant Meta as Hosted Release Metadata API
+    participant Host as GitHub Releases / artifact host
 
-    User->>CLI: proov update
+    User->>CLI: proov update / proov update --check
     CLI->>Upd: check_for_update()
-    Upd->>S3: GET /api/scanner/latest (latest.json)
-    S3-->>Upd: UpdateManifest (version, artifacts, sha256)
-    Upd->>Upd: compare semver (current vs latest)
+    Upd->>Meta: GET latest manifest
+    Upd->>Meta: GET latest signature
+    Meta-->>Upd: manifest + signature envelope
+    Upd->>Upd: verify ECDSA signature
+    Upd->>Upd: compare semver + resolve platform artifact
     Upd-->>CLI: UpdateCheckResult (is_newer)
-    alt is_newer = true
-        CLI->>Upd: perform_update(manifest)
-        Upd->>S3: GET artifact URL (tar.gz)
-        S3-->>Upd: binary archive
-        Upd->>Upd: SHA-256 verify
-        Upd->>Upd: backup current binary
-        Upd->>Upd: extract and replace
-        Upd-->>CLI: success
+    alt --check only
+        CLI-->>User: print update status
+    else is_newer = true
+        alt force = false
+            CLI-->>User: Proceed with update? [Y/n]
+            User-->>CLI: confirm / cancel
+        end
+        alt confirmed
+            CLI->>Upd: perform_update(force)
+            Upd->>Host: GET artifact URL
+            Host-->>Upd: platform archive
+            Upd->>Upd: SHA-256 verify
+            Upd->>Upd: backup current binary
+            Upd->>Upd: extract and replace
+            Upd-->>CLI: success
+        else cancelled
+            CLI-->>User: update cancelled
+        end
     else is_newer = false
         CLI-->>User: already up to date
     end

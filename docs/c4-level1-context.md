@@ -4,29 +4,38 @@ Shows how the **proov** scanner relates to external actors and systems.
 
 ```mermaid
 flowchart TD
-    User["👤 Security Engineer / DevOps\n(runs scans on target machines)"]
+    User["👤 Operator / Security Reviewer\n(runs scans and reviews results)"]
+    Terminal["🖥️ Local Terminal UX\nwizard, progress, reports,\npost-scan next steps"]
     Proov["🔍 proov Scanner\n(Rust CLI — detects, analyzes,\nand reports AI execution artifacts)"]
-    Vettd["🌐 Vettd Server\n(Next.js + PostgreSQL — ingests\nscans, renders verification dashboard)"]
-    S3["☁️ S3 Release Bucket\n(hosts binary releases\nand update manifests)"]
+    Backend["🌐 Compatible Backend\n(optional ingest + hosted review UI)\ncurrent hosted example: Vettd"]
+    Contract["📄 Contract Endpoint\n(compatible /api/contract\nfor version negotiation)"]
+    ReleaseAPI["📄 Hosted Release Metadata API\nmanifest + signature endpoints"]
+    Releases["📦 Release Artifact Host\nGitHub Releases archives"]
+    Browser["🌍 Hosted Review UI\n(optional browser workflow)"]
     FS["💻 Target Machine Filesystem\n(AI config files, prompts,\nMCP configs, containers, rules)"]
-    Contract["📄 Contract Endpoint\n(/api/contract — schema\nversion negotiation)"]
 
-    User -->|"runs scan commands"| Proov
+    User -->|"runs commands"| Terminal
+    Terminal -->|"invokes"| Proov
     Proov -->|"reads files & directories"| FS
-    Proov -->|"POST /api/scans/ingest\n(Bearer token auth)"| Vettd
-    Proov -->|"GET /api/contract\n(version check)"| Contract
-    Contract -.->|"hosted by"| Vettd
-    Proov -->|"GET latest.json\n(self-update check)"| S3
-    User -->|"reviews scan results"| Vettd
+    Proov -->|"renders local results"| Terminal
+    Proov -->|"POST /api/scans/ingest\n(Bearer token auth)"| Backend
+    Proov -->|"GET /api/contract\n(version negotiation)"| Contract
+    Contract -.->|"exposed by"| Backend
+    Proov -->|"GET latest + signature"| ReleaseAPI
+    ReleaseAPI -.->|"currently served by"| Backend
+    Proov -->|"downloads platform archive"| Releases
+    User -->|"reviews hosted results"| Browser
+    Browser -->|"connects to"| Backend
 ```
 
 ## Key Relationships
 
-| From  | To           | Protocol           | Purpose                                 |
-| ----- | ------------ | ------------------ | --------------------------------------- |
-| User  | proov        | CLI (stdin/stdout) | Run scans, manage rules, configure auth |
-| proov | Filesystem   | OS read            | Discover and analyze AI artifacts       |
-| proov | Vettd Server | HTTPS POST         | Submit scan contract payloads           |
-| proov | Vettd Server | HTTPS GET          | Contract version negotiation            |
-| proov | S3 Bucket    | HTTPS GET          | Check for binary updates                |
-| User  | Vettd Server | Browser            | Review verification dashboard           |
+| From  | To                  | Protocol           | Purpose                                           |
+| ----- | ------------------- | ------------------ | ------------------------------------------------- |
+| User  | Local Terminal UX   | CLI (stdin/stdout) | Run scans, inspect local results, choose next steps |
+| proov | Filesystem          | OS read            | Discover and analyze AI artifacts                 |
+| proov | Compatible Backend  | HTTPS POST         | Submit scan contract payloads                     |
+| proov | Contract Endpoint   | HTTPS GET          | Contract version negotiation                      |
+| proov | Release Metadata API | HTTPS GET         | Fetch signed update metadata                      |
+| proov | Release Artifact Host | HTTPS GET        | Download platform archives for self-update        |
+| User  | Hosted Review UI    | Browser            | Review submitted results in a backend UI          |
