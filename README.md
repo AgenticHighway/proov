@@ -4,6 +4,12 @@
 
 proov is a Rust CLI tool that scans your system for AI-related configuration files — things like `.cursorrules`, MCP server configs, prompt files, and container definitions — analyzes them for risk, and produces structured reports.
 
+## Support Proov
+
+If Proov helps your team, you can support ongoing open source development with a donation via Stripe:
+
+[Donate to Proov](https://donate.stripe.com/fZu00cdxZcxAbHH2Ya2ZO00)
+
 ## How it works
 
 proov is local-first. It walks your filesystem, identifies AI execution artifacts, scores them for risk, and writes results locally. Network activity only happens when you explicitly opt into submission-related flows or `proov update`. `proov auth` and `proov setup` only save local configuration.
