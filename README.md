@@ -330,4 +330,7 @@ mode = "lite"                   # limit visible findings to the top three artifa
 
 ## License
 
-`proov` is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE).
+Copyright (C) 2026 Agentic Highway.
+
+`proov` is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE) and
+[COPYRIGHT](COPYRIGHT).
