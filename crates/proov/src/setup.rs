@@ -11,6 +11,7 @@ use crossterm::{
     terminal,
 };
 
+use crate::network::ensure_endpoint_allowed;
 use crate::submit::{load_auth_config, save_auth_config, AuthConfig, DEFAULT_PRODUCTION_ENDPOINT};
 
 // ── ANSI constants ──────────────────────────────────────────────────────
@@ -198,6 +199,16 @@ pub fn run_setup(force: bool) -> bool {
         endpoint: endpoint.clone(),
         api_key: key,
     };
+    // Both preset options (Vettd Cloud and localhost) are explicitly chosen by
+    // the user — validate for defence in depth, allowing public since the
+    // Vettd choice is a known, intentional opt-in.
+    if let Err(e) = ensure_endpoint_allowed(&endpoint, true) {
+        eprintln!();
+        eprintln!("  Error: endpoint validation failed: {e}");
+        eprintln!("  {DIM}Continuing in local-only mode.{RESET}");
+        eprintln!();
+        return false;
+    }
     match save_auth_config(&config) {
         Ok(()) => {
             eprintln!();

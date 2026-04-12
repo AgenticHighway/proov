@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────
-# CI — runs on every PR and push to main.
+# CI — runs on every PR, push to main, and weekly on a schedule.
 #
 # PURPOSE:
 #   Gate merges behind automated checks: lint, test, and security
@@ -9,9 +9,9 @@
 # JOBS (run in parallel where possible):
 #   changes       — detects which files changed (dorny/paths-filter)
 #   check         — fmt → clippy → test (skipped for docs-only changes)
-#   supply-chain  — cargo-deny + cargo-audit (skipped if no dep changes)
+#   supply-chain  — cargo-deny + cargo-audit (dep changes OR schedule)
 #   secrets       — gitleaks (always runs — any file can contain secrets)
-#   unsafe-audit  — cargo-geiger (skipped if no dep changes)
+#   unsafe-audit  — cargo-geiger (dep changes OR schedule)
 #
 # OPTIMIZATIONS:
 #   • Path filtering: dorny/paths-filter skips expensive Rust jobs when
@@ -28,6 +28,10 @@
 #   • `gitleaks` scans for accidentally committed secrets.
 #   • `cargo-geiger` audits unsafe code surface area.
 #   • Minimal permissions — only `contents: read` for checkout.
+#   • Audit tool versions are pinned and verified via SHA-256 checksums
+#     before execution — no silent upgrades from upstream `latest`.
+#   • Scheduled weekly run ensures new advisories are caught even when
+#     no dependency files changed.
 #
 # RUNNERS:
 #   • Blacksmith runners for Linux (2× faster, colocated cache).
@@ -41,13 +45,17 @@ on:
     pull_request:
     push:
         branches: [main]
+    schedule:
+        # Weekly on Monday at 06:00 UTC — catches new advisories even
+        # when no dependency files have changed since the last PR.
+        - cron: '0 6 * * 1'
 
 # Cancel in-progress runs when a new push arrives on the same branch.
 # This prevents wasted compute when you push rapid fixes, and deduplicates
 # the push + pull_request events that GitHub fires simultaneously.
-# On main, use run_id so pushes don't cancel each other (each merge matters).
+# On main/schedule, use run_id so runs don't cancel each other.
 concurrency:
-    group: ci-${{ github.event_name == 'push' && github.run_id || github.head_ref }}
+    group: ci-${{ (github.event_name == 'push' || github.event_name == 'schedule') && github.run_id || github.head_ref }}
     cancel-in-progress: true
 
 # Least-privilege: CI only needs to read the repo
@@ -135,31 +143,38 @@ jobs:
     supply-chain:
         name: Supply chain audit
         needs: changes
-        if: needs.changes.outputs.deps == 'true'
+        if: needs.changes.outputs.deps == 'true' || github.event_name == 'schedule'
         runs-on: blacksmith-2vcpu-ubuntu-2204
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Download pre-built binaries (~2s each) instead of
             # `cargo install` which compiles from source (~60s+).
-            # cargo-deny releases include the version in the asset name,
-            # so we must fetch the tag first, then construct the URL.
+            # Versions are pinned; SHA-256 checksums are verified before
+            # extraction to detect tampering or download corruption.
             - name: Install cargo-deny
               run: |
-                  DENY_TAG=$(curl -sSL https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/latest | grep '"tag_name"' | sed 's/.*"\(.*\)".*/\1/')
-                  curl -sSL "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_TAG}/cargo-deny-${DENY_TAG}-x86_64-unknown-linux-musl.tar.gz" \
-                    | tar xzf - --strip-components=1 -C /usr/local/bin
+                  DENY_VERSION="0.19.1"
+                  DENY_SHA256="baa0d618ce06bd1fb352115de47e31acba439c3e639b990dc43429c948364d70"
+                  curl -sSL "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}/cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+                    -o cargo-deny.tar.gz
+                  echo "${DENY_SHA256}  cargo-deny.tar.gz" | sha256sum --check --strict
+                  tar xzf cargo-deny.tar.gz --strip-components=1 -C /usr/local/bin
+                  rm cargo-deny.tar.gz
                   cargo-deny --version
 
-            # rustsec/rustsec is a monorepo — /releases/latest returns
-            # whichever crate released most recently (often not cargo-audit).
-            # We search for the latest cargo-audit release specifically.
+            # rustsec/rustsec is a monorepo; cargo-audit releases don't
+            # include a checksums file, so the SHA-256 is embedded here
+            # (computed from the official release asset at pin time).
             - name: Install cargo-audit
               run: |
-                  AUDIT_TAG=$(curl -sSL "https://api.github.com/repos/rustsec/rustsec/releases?per_page=20" \
-                    | grep '"tag_name": "cargo-audit/' | head -1 | sed 's/.*"cargo-audit\/v\(.*\)".*/\1/')
-                  curl -sSL "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${AUDIT_TAG}/cargo-audit-x86_64-unknown-linux-musl-v${AUDIT_TAG}.tgz" \
-                    | tar xzf - --strip-components=1 -C /usr/local/bin
+                  AUDIT_VERSION="0.22.1"
+                  AUDIT_SHA256="c32506f338bdcdaef5a17fb9f33abb6ecf9561324cfd34237fd335f9283a1eab"
+                  curl -sSL "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${AUDIT_VERSION}/cargo-audit-x86_64-unknown-linux-musl-v${AUDIT_VERSION}.tgz" \
+                    -o cargo-audit.tgz
+                  echo "${AUDIT_SHA256}  cargo-audit.tgz" | sha256sum --check --strict
+                  tar xzf cargo-audit.tgz --strip-components=1 -C /usr/local/bin
+                  rm cargo-audit.tgz
                   cargo-audit --version
 
             # cargo-deny checks: advisories, licenses, bans, sources
@@ -185,9 +200,13 @@ jobs:
 
             - name: Install gitleaks
               run: |
-                  GL_TAG=$(curl -sSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/')
-                  curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_TAG}/gitleaks_${GL_TAG}_linux_x64.tar.gz" \
-                    | tar xzf - -C /usr/local/bin gitleaks
+                  GL_VERSION="8.30.1"
+                  GL_SHA256="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+                  curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}/gitleaks_${GL_VERSION}_linux_x64.tar.gz" \
+                    -o gitleaks.tar.gz
+                  echo "${GL_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict
+                  tar xzf gitleaks.tar.gz -C /usr/local/bin gitleaks
+                  rm gitleaks.tar.gz
                   gitleaks version
 
             # Scan the full repo history for secrets. On PRs, you could
@@ -205,7 +224,7 @@ jobs:
     unsafe-audit:
         name: Unsafe code audit
         needs: changes
-        if: needs.changes.outputs.deps == 'true'
+        if: needs.changes.outputs.deps == 'true' || github.event_name == 'schedule'
         runs-on: blacksmith-4vcpu-ubuntu-2204
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

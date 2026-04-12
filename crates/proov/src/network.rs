@@ -87,6 +87,22 @@ pub fn ensure_endpoint_allowed(endpoint: &str, allow_public: bool) -> Result<(),
     Ok(())
 }
 
+/// Extract the `host` (and optional `:port`) portion of an endpoint URL for
+/// display — strips the scheme and any trailing path.
+///
+/// ```
+/// # use proov::network::endpoint_display_host;
+/// assert_eq!(endpoint_display_host("https://vettd.example.com/api/scans"), "vettd.example.com");
+/// assert_eq!(endpoint_display_host("http://localhost:3000/ingest"), "localhost:3000");
+/// ```
+pub fn endpoint_display_host(endpoint: &str) -> &str {
+    let rest = match endpoint.split_once("://") {
+        Some((_, r)) => r,
+        None => endpoint,
+    };
+    rest.split('/').next().unwrap_or(rest)
+}
+
 /// Remove an optional `:port` suffix, handling IPv6 bracket notation.
 fn strip_port(authority: &str) -> &str {
     // [::1]:8080 → ::1
@@ -179,5 +195,24 @@ mod tests {
     #[test]
     fn empty_hostname() {
         assert!(ensure_endpoint_allowed("http:///path", false).is_err());
+    }
+
+    // ---- endpoint_display_host ----
+
+    #[test]
+    fn display_host_strips_scheme_and_path() {
+        assert_eq!(
+            endpoint_display_host("https://vettd.agentichighway.ai/api/scans/ingest"),
+            "vettd.agentichighway.ai"
+        );
+        assert_eq!(
+            endpoint_display_host("http://localhost:3000/api/ingest"),
+            "localhost:3000"
+        );
+    }
+
+    #[test]
+    fn display_host_no_scheme() {
+        assert_eq!(endpoint_display_host("localhost:3000"), "localhost:3000");
     }
 }

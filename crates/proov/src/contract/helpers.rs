@@ -68,6 +68,8 @@ pub fn compute_file_hash(path: &str) -> String {
 }
 
 /// Try to find the git remote origin URL for a file path.
+///
+/// The raw URL is sanitized before being returned — see [`sanitize_git_remote_url`].
 pub fn detect_source_repo(file_path: &str) -> String {
     let mut dir = std::path::Path::new(file_path).parent();
     while let Some(d) = dir {
@@ -77,10 +79,8 @@ pub fn detect_source_repo(file_path: &str) -> String {
                 for line in content.lines() {
                     let trimmed = line.trim();
                     if trimmed.starts_with("url = ") {
-                        return trimmed
-                            .strip_prefix("url = ")
-                            .unwrap_or("unknown")
-                            .to_string();
+                        let raw = trimmed.strip_prefix("url = ").unwrap_or("");
+                        return sanitize_git_remote_url(raw);
                     }
                 }
             }
@@ -88,6 +88,59 @@ pub fn detect_source_repo(file_path: &str) -> String {
         dir = d.parent();
     }
     "unknown".to_string()
+}
+
+/// Strip credentials and normalize a raw Git remote URL so it is safe to include
+/// in emitted/submitted payloads.
+///
+/// Rules applied:
+/// - **HTTPS/HTTP**: remove any `user:password@` or `token@` userinfo component.
+/// - **SSH SCP syntax** (`git@host:org/repo.git`): convert to `ssh://host/org/repo.git`
+///   (no userinfo leaked).
+/// - **`ssh://` URL**: strip any userinfo.
+/// - **`git://` URL**: pass through unchanged (no credentials possible in this scheme).
+/// - **Local paths or unrecognised formats**: return `"unknown"` to avoid leaking
+///   internal filesystem layout.
+pub fn sanitize_git_remote_url(url: &str) -> String {
+    let url = url.trim();
+    if url.is_empty() {
+        return "unknown".to_string();
+    }
+
+    // SSH SCP-like syntax has no "://" — e.g. git@github.com:org/repo.git
+    if !url.contains("://") {
+        if let Some(rest) = url.strip_prefix("git@") {
+            if let Some(colon_pos) = rest.find(':') {
+                let host = &rest[..colon_pos];
+                let path = rest[colon_pos + 1..].trim_start_matches('/');
+                return format!("ssh://{host}/{path}");
+            }
+        }
+        // Local path or unknown format — do not emit.
+        return "unknown".to_string();
+    }
+
+    // Standard scheme://[userinfo@]host/path form
+    let scheme_end = url.find("://").unwrap();
+    let scheme = &url[..scheme_end];
+    let after_scheme = &url[scheme_end + 3..];
+
+    // Strip userinfo (everything up to and including the first '@' that precedes the
+    // first path separator, if any).
+    let authority_and_path = {
+        let slash_pos = after_scheme.find('/').unwrap_or(after_scheme.len());
+        let at_pos = after_scheme[..slash_pos].find('@');
+        match at_pos {
+            Some(pos) => &after_scheme[pos + 1..],
+            None => after_scheme,
+        }
+    };
+
+    match scheme {
+        "https" | "http" | "ssh" | "git" => format!("{scheme}://{authority_and_path}"),
+        // Reject any other scheme (e.g. file://, custom internal schemes).
+        _ => "unknown".to_string(),
+    }
 }
 
 /// Check if two directories share the same tool scope.
@@ -296,5 +349,124 @@ mod tests {
     #[test]
     fn humanize_capability_unknown_replaces_underscores() {
         assert_eq!(humanize_capability("my_custom_thing"), "my custom thing");
+    }
+
+    // ── sanitize_git_remote_url ──────────────────────────────────────────────
+
+    #[test]
+    fn sanitize_https_strips_user_and_password() {
+        assert_eq!(
+            sanitize_git_remote_url("https://user:s3cr3t@github.com/org/repo.git"),
+            "https://github.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_https_strips_token_credential() {
+        assert_eq!(
+            sanitize_git_remote_url("https://ghp_token123@github.com/org/repo.git"),
+            "https://github.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_https_no_credentials_unchanged() {
+        assert_eq!(
+            sanitize_git_remote_url("https://github.com/org/repo.git"),
+            "https://github.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_http_strips_credentials() {
+        assert_eq!(
+            sanitize_git_remote_url("http://admin:pass@internal.corp/org/repo.git"),
+            "http://internal.corp/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_ssh_scp_git_at_syntax() {
+        assert_eq!(
+            sanitize_git_remote_url("git@github.com:org/repo.git"),
+            "ssh://github.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_ssh_scp_internal_host() {
+        assert_eq!(
+            sanitize_git_remote_url("git@gitlab.internal.corp:team/project.git"),
+            "ssh://gitlab.internal.corp/team/project.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_ssh_url_strips_userinfo() {
+        assert_eq!(
+            sanitize_git_remote_url("ssh://git@github.com/org/repo.git"),
+            "ssh://github.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_ssh_url_no_userinfo_unchanged() {
+        assert_eq!(
+            sanitize_git_remote_url("ssh://github.com/org/repo.git"),
+            "ssh://github.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_git_protocol_passthrough() {
+        assert_eq!(
+            sanitize_git_remote_url("git://github.com/org/repo.git"),
+            "git://github.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_local_path_returns_unknown() {
+        assert_eq!(sanitize_git_remote_url("/home/user/repo.git"), "unknown");
+    }
+
+    #[test]
+    fn sanitize_relative_path_returns_unknown() {
+        assert_eq!(sanitize_git_remote_url("../sibling/repo.git"), "unknown");
+    }
+
+    #[test]
+    fn sanitize_file_scheme_returns_unknown() {
+        assert_eq!(
+            sanitize_git_remote_url("file:///home/user/repo.git"),
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn sanitize_empty_string_returns_unknown() {
+        assert_eq!(sanitize_git_remote_url(""), "unknown");
+    }
+
+    #[test]
+    fn sanitize_whitespace_only_returns_unknown() {
+        assert_eq!(sanitize_git_remote_url("   "), "unknown");
+    }
+
+    #[test]
+    fn sanitize_https_internal_host_strips_credentials() {
+        assert_eq!(
+            sanitize_git_remote_url("https://ci-bot:token@git.internal.corp/team/repo.git"),
+            "https://git.internal.corp/team/repo.git"
+        );
+    }
+
+    #[test]
+    fn sanitize_at_sign_in_path_not_treated_as_userinfo() {
+        // '@' appearing only after the first '/' is path data, not userinfo.
+        assert_eq!(
+            sanitize_git_remote_url("https://github.com/org/repo@v2.git"),
+            "https://github.com/org/repo@v2.git"
+        );
     }
 }

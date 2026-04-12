@@ -63,18 +63,44 @@ pub(crate) fn write_json_report(
 }
 
 /// Resolve auth (from flags + config file).
+///
+/// When `submit_flag` contains an explicit URL (i.e. `--submit <URL>`), that URL is
+/// validated via [`crate::network::ensure_endpoint_allowed`] and `allow_public`
+/// controls whether public (non-local) hosts are permitted.
+///
+/// When the endpoint comes from the saved config file or the built-in default
+/// (no explicit URL flag), it is assumed the user already opted in when they
+/// ran `proov auth` or `proov setup`, so public hosts are allowed without
+/// requiring the flag again.
 pub fn resolve_submit_auth(
     submit_flag: &Option<Option<String>>,
     api_key_flag: Option<&str>,
+    allow_public: bool,
 ) -> Result<AuthConfig, String> {
     let saved = load_auth_config();
 
     let endpoint = match submit_flag {
-        Some(Some(url)) => url.clone(),
-        _ => saved
-            .as_ref()
-            .map(|c| c.endpoint.clone())
-            .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string()),
+        Some(Some(url)) => {
+            // Explicit URL supplied via --submit <URL> — enforce the flag.
+            crate::network::ensure_endpoint_allowed(url, allow_public).map_err(|e| {
+                format!(
+                    "{e}\nPass --allow-public-endpoint to permit public endpoints."
+                )
+            })?;
+            url.clone()
+        }
+        _ => {
+            // From saved config or built-in default — trust the prior opt-in;
+            // still validate scheme/hostname format for defence in depth.
+            let ep = saved
+                .as_ref()
+                .map(|c| c.endpoint.clone())
+                .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string());
+            crate::network::ensure_endpoint_allowed(&ep, true).map_err(|e| {
+                format!("Saved endpoint is invalid: {e}")
+            })?;
+            ep
+        }
     };
 
     let api_key = match api_key_flag {
@@ -117,5 +143,40 @@ pub fn do_submit(payload_json: &str, auth: &AuthConfig) -> Result<(), String> {
     match submit_contract_payload(payload_json, auth) {
         Ok(()) => Ok(()),
         Err(e) => Err(format!("Submission failed: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_submit_auth_explicit_public_url_blocked_by_default() {
+        let submit_flag = Some(Some("https://example.com/api".to_string()));
+        let result = resolve_submit_auth(&submit_flag, Some("ah_test"), false);
+        assert!(
+            result.is_err(),
+            "public URL without --allow-public-endpoint should be rejected"
+        );
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("allow-public-endpoint"),
+            "error should mention --allow-public-endpoint, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn resolve_submit_auth_explicit_public_url_allowed_with_flag() {
+        let submit_flag = Some(Some("https://example.com/api".to_string()));
+        let result = resolve_submit_auth(&submit_flag, Some("ah_test"), true);
+        assert!(result.is_ok(), "public URL with allow_public=true should pass");
+        assert_eq!(result.unwrap().endpoint, "https://example.com/api");
+    }
+
+    #[test]
+    fn resolve_submit_auth_explicit_local_url_always_allowed() {
+        let submit_flag = Some(Some("http://localhost:8080/ingest".to_string()));
+        let result = resolve_submit_auth(&submit_flag, Some("ah_test"), false);
+        assert!(result.is_ok(), "local URL should pass without flag");
     }
 }

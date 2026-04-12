@@ -49,6 +49,26 @@ tar xzf proov-linux-amd64.tar.gz
 ./proov quick
 ```
 
+#### Verifying downloads
+
+Each GitHub Release includes `checksums.txt` (SHA-256 hashes for all
+release assets) and `checksums.txt.sig` (a KMS ECDSA signature over
+`checksums.txt`, using the same key that `proov update` trusts).
+
+```bash
+# Download the binary and checksums for your platform, then:
+
+# Linux — verify SHA-256
+sha256sum --check --ignore-missing checksums.txt
+
+# macOS — verify SHA-256
+shasum -a 256 --check --ignore-missing checksums.txt
+```
+
+For the full signature-verification procedure (including how to verify
+`checksums.txt.sig` with the embedded public key), see
+[docs/release-verification.md](docs/release-verification.md).
+
 ### From source
 
 ```bash
@@ -157,12 +177,41 @@ proov auth
 # Or set credentials directly for automation
 proov auth --key your-api-key
 
-# Submit scan results
+# Submit scan results (uses saved endpoint)
 proov repo . --submit --api-key your-key
 
-# Submit to a custom compatible endpoint
-proov repo . --submit https://example.com/api/scans/ingest --api-key your-key
+# Submit to a custom public endpoint — requires --allow-public-endpoint
+proov repo . --submit https://example.com/api/scans/ingest \
+  --allow-public-endpoint --api-key your-key
+
+# Save a custom public endpoint for future use — also requires the flag
+proov auth --key your-api-key \
+  --endpoint https://example.com/api/scans/ingest \
+  --allow-public-endpoint
 ```
+
+### What is included in a submission
+
+Each submission payload contains:
+
+- **Scan root paths** — the filesystem paths where the scan ran (e.g. `/Users/you`)
+- **Machine hostname** — the host's reported hostname
+- **AI artifact metadata** — file paths, content hashes, capability signals, and risk scores for detected artifacts
+- **MCP server config metadata** — server commands, tool names, and env-var names (values are never transmitted)
+- **Host security context** — macOS firewall state on macOS; empty on other platforms
+- **Scanner metadata** — version, OS, and architecture
+
+No file contents, secret values, or credential material are transmitted.
+
+In **interactive flows** (`proov scan` / `proov quick` / etc. from a terminal), proov displays this summary and asks for confirmation before sending.
+
+In **automation flows** (`--submit --api-key …`), the submission proceeds without a prompt. Review the data categories above before embedding `proov` in CI/CD pipelines.
+
+### `--allow-public-endpoint`
+
+By default, proov blocks submission to public (non-localhost, non-private-network) endpoints at the flag level. This prevents accidental data exfiltration in scripts that omit an explicit endpoint. Pass `--allow-public-endpoint` when you intentionally want to submit to or save a public endpoint.
+
+Local endpoints (`localhost`, `127.0.0.1`, `::1`, RFC-1918 addresses) are always allowed without the flag.
 
 ### Safety defaults
 
