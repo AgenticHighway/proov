@@ -87,19 +87,22 @@ pub fn derive_contract_url(ingest_endpoint: &str) -> String {
 /// Fetch only the version string from the server.
 fn fetch_remote_version(contract_url: &str) -> Result<String, SyncError> {
     let url = format!("{contract_url}?version=true");
-    let response = ureq::get(&url)
-        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .set("User-Agent", &crate::updater::user_agent_string())
+    let mut response = ureq::get(&url)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS)))
+        .build()
+        .header("User-Agent", &crate::updater::user_agent_string())
         .call()
         .map_err(|e| match &e {
-            ureq::Error::Transport(_) => SyncError::Unreachable(format!("{e}")),
-            ureq::Error::Status(code, _) => {
+            ureq::Error::StatusCode(code) => {
                 SyncError::ServerError(format!("contract endpoint returned {code}"))
             }
+            _ => SyncError::Unreachable(format!("{e}")),
         })?;
 
     let vr: VersionResponse = response
-        .into_json()
+        .body_mut()
+        .read_json()
         .map_err(|e| SyncError::ServerError(format!("invalid version response: {e}")))?;
 
     Ok(vr.version)
@@ -107,24 +110,29 @@ fn fetch_remote_version(contract_url: &str) -> Result<String, SyncError> {
 
 /// Fetch the full contract JSON schema from the server.
 fn fetch_remote_contract(contract_url: &str) -> Result<(String, String), SyncError> {
-    let response = ureq::get(contract_url)
-        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .set("User-Agent", &crate::updater::user_agent_string())
+    let mut response = ureq::get(contract_url)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS)))
+        .build()
+        .header("User-Agent", &crate::updater::user_agent_string())
         .call()
         .map_err(|e| match &e {
-            ureq::Error::Transport(_) => SyncError::Unreachable(format!("{e}")),
-            ureq::Error::Status(code, _) => {
+            ureq::Error::StatusCode(code) => {
                 SyncError::ServerError(format!("contract endpoint returned {code}"))
             }
+            _ => SyncError::Unreachable(format!("{e}")),
         })?;
 
     let version = response
-        .header("X-Contract-Version")
+        .headers()
+        .get("x-contract-version")
+        .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown")
         .to_string();
 
     let body = response
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(|e| SyncError::ServerError(format!("failed to read contract body: {e}")))?;
 
     Ok((version, body))

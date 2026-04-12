@@ -114,23 +114,30 @@ fn is_retryable(status: u16) -> bool {
 pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<(), String> {
     let mut last_err = String::new();
 
+    // All HTTP responses (including 4xx/5xx) come through Ok so we can read bodies.
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into();
+
     for (attempt, &backoff) in BACKOFF_SECONDS.iter().enumerate().take(MAX_ATTEMPTS) {
         if attempt > 0 {
             eprintln!("  Attempt {}/{MAX_ATTEMPTS}...", attempt + 1);
         }
 
-        let result = ureq::post(&auth.endpoint)
-            .set("Content-Type", "application/json")
-            .set("Authorization", &format!("Bearer {}", auth.api_key))
-            .set("User-Agent", &crate::updater::user_agent_string())
-            .send_string(payload_json);
+        let result = agent
+            .post(&auth.endpoint)
+            .header("Content-Type", "application/json")
+            .header("Authorization", &format!("Bearer {}", auth.api_key))
+            .header("User-Agent", &crate::updater::user_agent_string())
+            .send(payload_json.as_bytes());
 
         match result {
-            Ok(response) => {
-                let status = response.status();
+            Ok(mut response) => {
+                let status = response.status().as_u16();
                 match status {
                     201 => {
-                        let body: Value = response.into_json().unwrap_or(json!({}));
+                        let body: Value = response.body_mut().read_json().unwrap_or(json!({}));
                         let scan_id = body
                             .get("scanId")
                             .or_else(|| body.get("scan_id"))
@@ -140,20 +147,16 @@ pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<
                         eprintln!("Scan accepted: {scan_id}");
                         return Ok(());
                     }
-                    _ => {
-                        // Any other 2xx — treat as success
+                    200 | 202..=208 | 226 => {
+                        // Other 2xx — treat as success
                         return Ok(());
                     }
-                }
-            }
-            Err(ureq::Error::Status(status, response)) => {
-                match status {
                     409 => {
                         eprintln!("Scan already submitted (duplicate).");
                         return Ok(());
                     }
                     400 => {
-                        let body = response.into_string().unwrap_or_default();
+                        let body = response.body_mut().read_to_string().unwrap_or_default();
                         return Err(format!(
                             "Server rejected payload (400): {body}\n\
                              This is likely a scanner bug — the payload doesn't match the contract."
@@ -175,13 +178,15 @@ pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<
                         let wait = if s == 429 {
                             // Respect Retry-After header if present
                             response
-                                .header("Retry-After")
+                                .headers()
+                                .get("retry-after")
+                                .and_then(|v| v.to_str().ok())
                                 .and_then(|v| v.parse::<u64>().ok())
                                 .unwrap_or(backoff)
                         } else {
                             backoff
                         };
-                        let body = response.into_string().unwrap_or_default();
+                        let body = response.body_mut().read_to_string().unwrap_or_default();
                         let detail = if body.trim().is_empty() {
                             "no details provided".to_string()
                         } else {
@@ -195,7 +200,7 @@ pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<
                         }
                     }
                     _ => {
-                        let body = response.into_string().unwrap_or_default();
+                        let body = response.body_mut().read_to_string().unwrap_or_default();
                         let detail = if body.trim().is_empty() {
                             "no details provided".to_string()
                         } else {
@@ -205,7 +210,7 @@ pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<
                     }
                 }
             }
-            Err(ureq::Error::Transport(e)) => {
+            Err(e) => {
                 last_err = format!("Connection error: {e}");
                 if attempt < MAX_ATTEMPTS - 1 {
                     let wait = BACKOFF_SECONDS[attempt];

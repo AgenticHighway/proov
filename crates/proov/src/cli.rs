@@ -68,6 +68,9 @@ pub enum Commands {
         /// Ingest endpoint URL (defaults to production)
         #[arg(long)]
         endpoint: Option<String>,
+        /// Allow saving a public (non-local/private) endpoint
+        #[arg(long)]
+        allow_public_endpoint: bool,
     },
     /// Run (or re-run) the interactive setup wizard
     Setup,
@@ -134,6 +137,9 @@ pub struct OutputArgs {
     /// API key for submission (overrides config file; useful for automation)
     #[arg(long, value_name = "KEY")]
     pub api_key: Option<String>,
+    /// Allow submission to public (non-local/private) endpoints
+    #[arg(long)]
+    pub allow_public_endpoint: bool,
 }
 
 impl Default for OutputArgs {
@@ -147,6 +153,7 @@ impl Default for OutputArgs {
             contract: false,
             submit: None,
             api_key: None,
+            allow_public_endpoint: false,
         }
     }
 }
@@ -396,7 +403,12 @@ pub fn run() {
     }
 
     // Handle auth command
-    if let Commands::Auth { key, endpoint } = &cmd {
+    if let Commands::Auth {
+        key,
+        endpoint,
+        allow_public_endpoint,
+    } = &cmd
+    {
         let api_key = match key {
             Some(value) => value.clone(),
             None => crate::wizard::ask_secret("API key"),
@@ -406,10 +418,33 @@ pub fn run() {
             std::process::exit(1);
         }
 
+        let resolved_endpoint = endpoint
+            .clone()
+            .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string());
+
+        // Only enforce the public-endpoint gate when the caller supplied a
+        // custom --endpoint.  The built-in production endpoint is always
+        // trusted; requiring --allow-public-endpoint for the normal hosted
+        // flow would be needlessly hostile.
+        let is_custom_endpoint = endpoint.is_some();
+        if is_custom_endpoint {
+            if let Err(e) =
+                crate::network::ensure_endpoint_allowed(&resolved_endpoint, *allow_public_endpoint)
+            {
+                eprintln!("Error: {e}");
+                eprintln!("  Pass --allow-public-endpoint to permit public endpoints.");
+                std::process::exit(1);
+            }
+        } else if let Err(e) =
+            crate::network::ensure_endpoint_allowed(&resolved_endpoint, true)
+        {
+            // Default endpoint: still validate scheme/format, but allow public.
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+
         let config = AuthConfig {
-            endpoint: endpoint
-                .clone()
-                .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string()),
+            endpoint: resolved_endpoint,
             api_key,
         };
         match save_auth_config(&config) {
@@ -521,7 +556,7 @@ pub fn run() {
         }
 
         if wants_submit {
-            let auth = match resolve_submit_auth(&out.submit, out.api_key.as_deref()) {
+            let auth = match resolve_submit_auth(&out.submit, out.api_key.as_deref(), out.allow_public_endpoint) {
                 Ok(auth) => auth,
                 Err(e) => {
                     eprintln!("Error: {e}");
@@ -569,9 +604,17 @@ fn is_interactive() -> bool {
 }
 
 fn prompt_post_scan_action(report: &ScanReport, scan_duration_ms: u64) {
+    let saved = crate::submit::load_auth_config();
+    let endpoint = saved
+        .as_ref()
+        .map(|a| a.endpoint.as_str())
+        .unwrap_or(DEFAULT_PRODUCTION_ENDPOINT);
+    let submit_host = crate::network::endpoint_display_host(endpoint);
+    let submit_label = format!("Submit results to {submit_host}");
+
     let options = [
         "Write report to disk",
-        "Submit results to Vettd",
+        submit_label.as_str(),
         "Do nothing",
     ];
 
@@ -594,7 +637,26 @@ fn save_report_interactively(report: &ScanReport, scan_duration_ms: u64) {
     crate::output::write_json_report(report, scan_duration_ms, &maybe_path);
 }
 
-/// After a scan, ask the user if they want to submit results to Vettd.
+/// Print a concise summary of the data categories included in a submission.
+///
+/// Called in interactive flows immediately before asking for consent.  The
+/// summary is intentionally short — it names the data categories without
+/// reproducing actual values.
+fn print_submit_disclosure(report: &ScanReport) {
+    let artifact_count = report.artifacts.len();
+    eprintln!("  This submission will include:");
+    eprintln!("    • Scan root paths and machine hostname");
+    eprintln!(
+        "    • {} AI artifact record(s): file paths, content hashes, capability signals, risk scores",
+        artifact_count
+    );
+    eprintln!("    • MCP server config metadata: commands, tool names, env-var names (not values)");
+    eprintln!("    • Host security context (macOS firewall state on macOS; empty elsewhere)");
+    eprintln!("    • Scanner version, OS, and architecture");
+    eprintln!("  No file contents, secret values, or credential material are transmitted.");
+}
+
+/// After a scan, ask the user if they want to submit results.
 fn prompt_submit(report: &ScanReport, scan_duration_ms: u64) {
     // Resolve or collect API key
     let saved = crate::submit::load_auth_config();
@@ -615,6 +677,20 @@ fn prompt_submit(report: &ScanReport, scan_duration_ms: u64) {
         .map(|a| a.endpoint)
         .filter(|e| !e.is_empty())
         .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string());
+
+    // Always show the actual destination before submitting.
+    eprintln!(
+        "  Destination: {}",
+        crate::network::endpoint_display_host(&endpoint)
+    );
+
+    // Show a concise data-disclosure summary, then ask for consent.
+    print_submit_disclosure(report);
+    let confirmed = crate::wizard::confirm("Send this data?", false);
+    if !confirmed {
+        eprintln!("  Submission cancelled.");
+        return;
+    }
 
     // Build and submit
     let payload = build_contract_payload(report, scan_duration_ms);
@@ -649,7 +725,9 @@ fn collect_api_key() -> String {
 
     // Quick reachability check
     match ureq::get(VETTD_SETTINGS_URL)
-        .timeout(std::time::Duration::from_secs(5))
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(5)))
+        .build()
         .call()
     {
         Ok(_) => {
@@ -675,6 +753,22 @@ fn collect_api_key() -> String {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn print_submit_disclosure_runs_without_panic() {
+        // Smoke-test: disclosure function must not panic for empty or non-empty reports.
+        let empty = ScanReport::new("/test");
+        print_submit_disclosure(&empty);
+
+        let mut with_artifacts = ScanReport::new("/test");
+        with_artifacts
+            .artifacts
+            .push(crate::models::ArtifactReport::new("mcp_config", 0.9));
+        with_artifacts
+            .artifacts
+            .push(crate::models::ArtifactReport::new("prompt_config", 0.5));
+        print_submit_disclosure(&with_artifacts);
+    }
 
     #[test]
     fn min_severity_score_critical() {
@@ -784,9 +878,14 @@ mod tests {
     fn parse_cli_auth() {
         let cli = Cli::parse_from(["proov", "auth", "--key", "ah_test123"]);
         match cli.command {
-            Some(Commands::Auth { key, endpoint }) => {
+            Some(Commands::Auth {
+                key,
+                endpoint,
+                allow_public_endpoint,
+            }) => {
                 assert_eq!(key.as_deref(), Some("ah_test123"));
                 assert!(endpoint.is_none());
+                assert!(!allow_public_endpoint);
             }
             _ => panic!("Expected Auth command"),
         }
@@ -803,9 +902,39 @@ mod tests {
             "https://example.com/api",
         ]);
         match cli.command {
-            Some(Commands::Auth { key, endpoint }) => {
+            Some(Commands::Auth {
+                key,
+                endpoint,
+                allow_public_endpoint,
+            }) => {
                 assert_eq!(key.as_deref(), Some("ah_test"));
                 assert_eq!(endpoint.unwrap(), "https://example.com/api");
+                assert!(!allow_public_endpoint);
+            }
+            _ => panic!("Expected Auth command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_auth_with_allow_public_endpoint() {
+        let cli = Cli::parse_from([
+            "proov",
+            "auth",
+            "--key",
+            "ah_test",
+            "--endpoint",
+            "https://example.com/api",
+            "--allow-public-endpoint",
+        ]);
+        match cli.command {
+            Some(Commands::Auth {
+                key,
+                endpoint,
+                allow_public_endpoint,
+            }) => {
+                assert_eq!(key.as_deref(), Some("ah_test"));
+                assert_eq!(endpoint.as_deref(), Some("https://example.com/api"));
+                assert!(allow_public_endpoint);
             }
             _ => panic!("Expected Auth command"),
         }
@@ -815,11 +944,38 @@ mod tests {
     fn parse_cli_auth_without_key() {
         let cli = Cli::parse_from(["proov", "auth"]);
         match cli.command {
-            Some(Commands::Auth { key, endpoint }) => {
+            Some(Commands::Auth {
+                key,
+                endpoint,
+                allow_public_endpoint,
+            }) => {
                 assert!(key.is_none());
                 assert!(endpoint.is_none());
+                assert!(!allow_public_endpoint);
             }
             _ => panic!("Expected Auth command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_allow_public_endpoint_in_scan() {
+        let cli = Cli::parse_from(["proov", "scan", "--submit", "--allow-public-endpoint"]);
+        match cli.command {
+            Some(Commands::Scan { output, .. }) => {
+                assert!(output.allow_public_endpoint);
+            }
+            _ => panic!("Expected Scan command"),
+        }
+    }
+
+    #[test]
+    fn parse_cli_allow_public_endpoint_defaults_false() {
+        let cli = Cli::parse_from(["proov", "scan"]);
+        match cli.command {
+            Some(Commands::Scan { output, .. }) => {
+                assert!(!output.allow_public_endpoint);
+            }
+            _ => panic!("Expected Scan command"),
         }
     }
 
@@ -899,6 +1055,7 @@ mod tests {
                 contract: false,
                 submit: None,
                 api_key: None,
+                allow_public_endpoint: false,
             },
         };
         let params = resolve_scan_params(&cmd);
@@ -919,6 +1076,7 @@ mod tests {
                 contract: false,
                 submit: None,
                 api_key: None,
+                allow_public_endpoint: false,
             },
         };
         let params = resolve_scan_params(&cmd);
@@ -938,6 +1096,7 @@ mod tests {
                 contract: false,
                 submit: None,
                 api_key: None,
+                allow_public_endpoint: false,
             },
         };
         let params = resolve_scan_params(&cmd);
@@ -959,6 +1118,7 @@ mod tests {
                 contract: false,
                 submit: None,
                 api_key: None,
+                allow_public_endpoint: false,
             },
         };
         let params = resolve_scan_params(&cmd);

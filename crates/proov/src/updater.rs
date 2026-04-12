@@ -163,22 +163,21 @@ fn update_public_key_der_b64() -> Result<&'static str, String> {
 }
 
 fn fetch_url_bytes(url: &str, timeout_secs: u64) -> Result<Vec<u8>, String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(timeout_secs))
-        .build();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(timeout_secs)))
+        .build()
+        .into();
 
-    let response = agent
+    let mut response = agent
         .get(url)
-        .set("User-Agent", &user_agent_string())
+        .header("User-Agent", &user_agent_string())
         .call()
         .map_err(|e| format!("Failed to fetch {url}: {e}"))?;
 
-    let mut reader = response.into_reader();
-    let mut buf = Vec::new();
-    reader
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("Failed to read {url}: {e}"))?;
-    Ok(buf)
+    response
+        .body_mut()
+        .read_to_vec()
+        .map_err(|e| format!("Failed to read {url}: {e}"))
 }
 
 fn fetch_manifest_bytes(timeout_secs: u64) -> Result<Vec<u8>, String> {
@@ -244,13 +243,14 @@ fn fetch_manifest(timeout_secs: u64) -> Result<UpdateManifest, String> {
 }
 
 fn download_to_file(url: &str, dest: &Path) -> Result<u64, String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
-        .build();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS)))
+        .build()
+        .into();
 
-    let response = agent
+    let mut response = agent
         .get(url)
-        .set("User-Agent", &user_agent_string())
+        .header("User-Agent", &user_agent_string())
         .call()
         .map_err(|e| format!("Download failed: {e}"))?;
 
@@ -262,21 +262,9 @@ fn download_to_file(url: &str, dest: &Path) -> Result<u64, String> {
     let mut file =
         fs::File::create(dest).map_err(|e| format!("Failed to create download file: {e}"))?;
 
-    let mut reader = response.into_reader();
-    let mut buf = [0u8; 8192];
-    let mut total: u64 = 0;
-
-    loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| format!("Read error during download: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        file.write_all(&buf[..n])
-            .map_err(|e| format!("Write error during download: {e}"))?;
-        total += n as u64;
-    }
+    let mut reader = response.body_mut().as_reader();
+    let total = io::copy(&mut reader, &mut file)
+        .map_err(|e| format!("Write error during download: {e}"))?;
 
     Ok(total)
 }
