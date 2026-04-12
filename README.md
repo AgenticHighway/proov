@@ -24,6 +24,17 @@ setup or pass one directly at submission time.
 
 ## Install
 
+### Homebrew (recommended on macOS)
+
+```bash
+brew tap AgenticHighway/tap
+brew install proov
+proov quick
+```
+
+Homebrew is the smoothest install path on macOS while direct-download
+artifacts are not yet signed and notarized.
+
 ### From a release binary
 
 Download the latest binary for your platform from [GitHub Releases](https://github.com/AgenticHighway/proov/releases).
