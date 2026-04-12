@@ -97,6 +97,11 @@ shape used for compatible ingest APIs and local automation.
 
 ## What it detects
 
+The table below is representative, not exhaustive. proov combines built-in
+detectors, packaged TOML rules, and optional custom rules, so additional file
+names and patterns may be detected beyond these common examples. For deeper
+detector details, see [docs/detectors.md](docs/detectors.md).
+
 | Detector              | Files                                                         | What it looks for                                                                                    |
 | --------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Cursor / editor rules | `.cursorrules`, `agents.md`, `AGENTS.md`                      | AI instruction files with capability keywords (TOML rule)                                            |
@@ -165,7 +170,8 @@ proov repo . --submit https://example.com/api/scans/ingest --api-key your-key
 - Compatible submission endpoints are supported, whether configured ahead of time or passed on the command line
 - Contract sync only runs during explicit submission flows, when the target endpoint exposes a compatible contract API
 - Retry logic handles transient failures (429, 502, 503, 504)
-- API keys saved by proov are written to `~/.config/ahscan/config.json` with private permissions on Unix-like systems
+- On Unix-like systems, saved API keys are written to `~/.config/ahscan/config.json` and proov explicitly tightens directory/file permissions to `0700` / `0600`
+- On Windows, saved API keys are written under the current user's config directory, typically `%APPDATA%\\ahscan\\config.json`, and currently rely on the default per-user profile ACLs rather than explicit ACL hardening by proov
 
 ## Self-update
 
