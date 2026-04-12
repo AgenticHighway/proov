@@ -8,7 +8,9 @@ proov is a Rust CLI tool that scans your system for AI-related configuration fil
 
 proov is local-first. It walks your filesystem, identifies AI execution artifacts, scores them for risk, and writes results locally. Network activity only happens when you explicitly opt into submission-related flows or `proov update`. `proov auth` and `proov setup` only save local configuration.
 
-If you want a hosted review, policy, and governance surface, **[Vettd](https://vettd.agentichighway.ai)** is the recommended destination for Proov. Proov can also submit to compatible ingest APIs when you need a custom endpoint.
+If you want a hosted review, policy, and governance surface, proov can
+submit to compatible ingest APIs. You can configure an endpoint during
+setup or pass one directly at submission time.
 
 ## System requirements
 
@@ -121,11 +123,11 @@ mode = "lite"
 
 When `.ahscan.toml` is absent, proov keeps full output enabled.
 
-## Submitting to Vettd or another endpoint
+## Submitting to a compatible endpoint
 
-Vettd is the default and recommended hosted destination for Proov.
-Compatible custom endpoints are still supported for self-hosting,
-testing, or interoperability.
+proov supports hosted submission flows through compatible ingest APIs.
+You can configure an endpoint during setup or pass one directly for
+self-hosting, testing, or interoperability.
 
 With an API key configured:
 
@@ -149,7 +151,7 @@ proov repo . --submit https://example.com/api/scans/ingest --api-key your-key
 ### Safety defaults
 
 - Scans stay local unless you explicitly opt into connected commands
-- The default hosted submission target is Vettd, and compatible custom endpoints are supported
+- Compatible submission endpoints are supported, whether configured ahead of time or passed on the command line
 - Contract sync only runs during explicit submission flows, when the target endpoint exposes a compatible contract API
 - Retry logic handles transient failures (429, 502, 503, 504)
 - API keys saved by proov are written to `~/.config/ahscan/config.json` with private permissions on Unix-like systems
