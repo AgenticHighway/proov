@@ -373,3 +373,92 @@ jobs:
                     release/checksums.txt \
                     release/checksums.txt.sig \
                     --clobber
+
+    # ── Homebrew Tap Refresh ───────────────────────────────────────────
+    # Keeps AgenticHighway/homebrew-tap in sync with each tagged release
+    # when a cross-repo token is configured. The job is skipped if the
+    # token is absent so releases still publish their binaries normally.
+    update-homebrew-tap:
+        needs: release
+        if: ${{ github.ref_type == 'tag' && secrets.HOMEBREW_TAP_TOKEN != '' }}
+        runs-on: blacksmith-2vcpu-ubuntu-2204
+        permissions:
+            contents: read
+        steps:
+            - name: Download all artifacts
+              uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+              with:
+                  path: artifacts
+
+            - name: Collect binaries
+              run: |
+                  mkdir -p release
+                  for dir in artifacts/proov-*; do
+                    name=$(basename "$dir")
+                    cp "$dir/$name" "release/$name"
+                  done
+
+            - name: Extract release metadata
+              id: release_meta
+              run: |
+                  echo "TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+                  echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+            - name: Checkout Homebrew tap
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  repository: AgenticHighway/homebrew-tap
+                  ref: main
+                  token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+                  path: homebrew-tap
+
+            - name: Update Formula/proov.rb
+              working-directory: homebrew-tap
+              env:
+                  VERSION: ${{ steps.release_meta.outputs.VERSION }}
+              run: |
+                  set -euo pipefail
+                  export DARWIN_ARM64_SHA=$(sha256sum ../release/proov-darwin-arm64.tar.gz | awk '{print $1}')
+                  export DARWIN_AMD64_SHA=$(sha256sum ../release/proov-darwin-amd64.tar.gz | awk '{print $1}')
+                  export LINUX_ARM64_SHA=$(sha256sum ../release/proov-linux-arm64.tar.gz | awk '{print $1}')
+                  export LINUX_AMD64_SHA=$(sha256sum ../release/proov-linux-amd64.tar.gz | awk '{print $1}')
+
+                  ruby <<'RUBY'
+                  path = "Formula/proov.rb"
+                  text = File.read(path)
+
+                  replacements = {
+                    /version "\d+\.\d+\.\d+"/ => %(version "#{ENV.fetch("VERSION")}"),
+                    /(proov-darwin-arm64\.tar\.gz"\n\s+sha256 ")([0-9a-f]+)"/ => "\\1#{ENV.fetch("DARWIN_ARM64_SHA")}\"",
+                    /(proov-darwin-amd64\.tar\.gz"\n\s+sha256 ")([0-9a-f]+)"/ => "\\1#{ENV.fetch("DARWIN_AMD64_SHA")}\"",
+                    /(proov-linux-arm64\.tar\.gz"\n\s+sha256 ")([0-9a-f]+)"/ => "\\1#{ENV.fetch("LINUX_ARM64_SHA")}\"",
+                    /(proov-linux-amd64\.tar\.gz"\n\s+sha256 ")([0-9a-f]+)"/ => "\\1#{ENV.fetch("LINUX_AMD64_SHA")}\""
+                  }
+
+                  replacements.each do |pattern, replacement|
+                    updated = text.sub(pattern, replacement)
+                    raise "failed to update #{pattern.inspect}" if updated == text
+                    text = updated
+                  end
+
+                  File.write(path, text)
+                  RUBY
+
+                  git --no-pager diff -- Formula/proov.rb
+
+            - name: Commit and push formula
+              working-directory: homebrew-tap
+              env:
+                  VERSION: ${{ steps.release_meta.outputs.VERSION }}
+              run: |
+                  set -euo pipefail
+                  if git diff --quiet -- Formula/proov.rb; then
+                    echo "Formula already up to date."
+                    exit 0
+                  fi
+
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git add Formula/proov.rb
+                  git commit -m "proov ${VERSION}"
+                  git push origin HEAD:main

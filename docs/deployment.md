@@ -12,6 +12,7 @@ Before releasing, make sure:
 - [ ] You've tested the changes locally with `cargo test` and `cargo clippy --all-targets -- -D warnings`
 - [ ] GitHub repo variable `PROOV_UPDATE_PUBLIC_KEY_DER_B64` is set to the official KMS public key (base64-encoded DER/SPKI blob)
 - [ ] The `SCANNER_RELEASE_ROLE_ARN` OIDC role can call `kms:Sign` on the Proov release signing key
+- [ ] GitHub repo secret `HOMEBREW_TAP_TOKEN` is set if releases should auto-refresh `AgenticHighway/homebrew-tap`
 
 ## Release process
 
@@ -73,7 +74,7 @@ git push origin main --tags
 
 ### 6. Monitor the release
 
-Go to [GitHub Actions](https://github.com/AgenticHighway/proov/actions) and watch the Release workflow. It runs three jobs:
+Go to [GitHub Actions](https://github.com/AgenticHighway/proov/actions) and watch the Release workflow. It always runs three jobs, plus a fourth when `HOMEBREW_TAP_TOKEN` is configured:
 
 1. **build** — Cross-compiles for 5 targets (runs in parallel):
     - `aarch64-apple-darwin` (macOS ARM64) — GitHub-hosted runner
@@ -86,6 +87,8 @@ Go to [GitHub Actions](https://github.com/AgenticHighway/proov/actions) and watc
 
 3. **upload-s3** — Uploads binaries to `s3://ah-scanner-releases/vX.Y.Z/`, generates SHA-256 checksums, writes `latest.json`, asks AWS KMS to sign it, and uploads both `latest.json` and `latest.signature.json`
 
+4. **update-homebrew-tap** — Computes the macOS/Linux SHA-256 hashes from the release artifacts and pushes the matching `Formula/proov.rb` update to `AgenticHighway/homebrew-tap`
+
 ### 7. Verify the release
 
 After the workflow completes:
@@ -93,6 +96,9 @@ After the workflow completes:
 ```bash
 # Check the GitHub Release page exists with all 5 binaries
 open https://github.com/AgenticHighway/proov/releases/tag/vX.Y.Z
+
+# Check the Homebrew tap formula was refreshed
+open https://github.com/AgenticHighway/homebrew-tap/blob/main/Formula/proov.rb
 
 # Check the public hosted manifest and detached signature
 curl -s https://vettd.agentichighway.ai/api/scanner/latest | python3 -m json.tool
