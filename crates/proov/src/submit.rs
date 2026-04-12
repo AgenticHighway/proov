@@ -15,58 +15,6 @@ use serde_json::{json, Value};
 pub const DEFAULT_PRODUCTION_ENDPOINT: &str = "https://vettd.agentichighway.ai/api/scans/ingest";
 
 // ---------------------------------------------------------------------------
-// Audit logging
-// ---------------------------------------------------------------------------
-
-/// Append `event` to an audit log file.
-///
-/// - `.json`  → reads an existing JSON array, appends, writes back.
-/// - anything else (`.jsonl` default) → appends a single line.
-pub fn append_submission_audit(audit_path: &Path, event: &Value) {
-    let line = serde_json::to_string(event).unwrap_or_else(|_| "{}".to_string());
-
-    let is_json_array = audit_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e == "json")
-        .unwrap_or(false);
-
-    if is_json_array {
-        let mut entries: Vec<Value> = if audit_path.exists() {
-            fs::read_to_string(audit_path)
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        entries.push(event.clone());
-        let _ = fs::write(
-            audit_path,
-            serde_json::to_string_pretty(&entries).unwrap_or_else(|_| "[]".to_string()),
-        );
-    } else {
-        use std::io::Write;
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(audit_path)
-            .unwrap_or_else(|e| {
-                eprintln!(
-                    "Warning: cannot open audit log {}: {e}",
-                    audit_path.display()
-                );
-                // Fall back to /dev/null so caller doesn't panic.
-                fs::OpenOptions::new()
-                    .write(true)
-                    .open(if cfg!(windows) { "NUL" } else { "/dev/null" })
-                    .expect("open /dev/null")
-            });
-        let _ = writeln!(file, "{line}");
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Global auth config (~/.config/ahscan/config.json)
 // ---------------------------------------------------------------------------
 
@@ -279,38 +227,6 @@ pub fn submit_contract_payload(payload_json: &str, auth: &AuthConfig) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn append_audit_jsonl() {
-        let dir = std::env::temp_dir().join(format!("ah_audit_test_{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("audit.jsonl");
-
-        append_submission_audit(&path, &json!({"a": 1}));
-        append_submission_audit(&path, &json!({"b": 2}));
-
-        let content = fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> = content.lines().collect();
-        assert_eq!(lines.len(), 2);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn append_audit_json_array() {
-        let dir = std::env::temp_dir().join(format!("ah_audit_test_{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("audit.json");
-
-        append_submission_audit(&path, &json!({"a": 1}));
-        append_submission_audit(&path, &json!({"b": 2}));
-
-        let content = fs::read_to_string(&path).unwrap();
-        let arr: Vec<Value> = serde_json::from_str(&content).unwrap();
-        assert_eq!(arr.len(), 2);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
 
     #[test]
     fn auth_config_debug_redacts_api_key() {

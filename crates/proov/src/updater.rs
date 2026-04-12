@@ -13,7 +13,7 @@
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -39,11 +39,8 @@ const UPDATE_PUBLIC_KEY_DER_B64: Option<&str> = option_env!("PROOV_UPDATE_PUBLIC
 /// Signing algorithm emitted by the AWS KMS release signer.
 const KMS_SIGNATURE_ALGORITHM: &str = "ECDSA_SHA_256";
 
-/// How long to cache a "no update" result before checking again.
-const CHECK_CACHE_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
-
-/// HTTP timeout for the passive (background) check — keep it short.
-const PASSIVE_CHECK_TIMEOUT_SECS: u64 = 3;
+/// HTTP timeout for update-check requests.
+const CHECK_TIMEOUT_SECS: u64 = 3;
 
 /// HTTP timeout for the active download.
 const DOWNLOAD_TIMEOUT_SECS: u64 = 300;
@@ -88,14 +85,6 @@ pub struct UpdateCheckResult {
     pub latest_version: String,
     pub is_newer: bool,
     pub artifact: Option<ArtifactInfo>,
-}
-
-/// On-disk cache written after a successful check.
-#[derive(Debug, Serialize, Deserialize)]
-struct CheckCache {
-    checked_at_epoch: u64,
-    latest_version: String,
-    is_newer: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -148,61 +137,12 @@ fn ahscan_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "Cannot determine home directory".to_string())
 }
 
-fn check_cache_path() -> Result<PathBuf, String> {
-    Ok(ahscan_dir()?.join("last_update_check.json"))
-}
-
 fn downloads_dir() -> Result<PathBuf, String> {
     Ok(ahscan_dir()?.join("downloads"))
 }
 
 fn backup_path() -> Result<PathBuf, String> {
     Ok(ahscan_dir()?.join("proov.backup"))
-}
-
-// ---------------------------------------------------------------------------
-// Check cache
-// ---------------------------------------------------------------------------
-
-fn read_check_cache() -> Option<CheckCache> {
-    let path = check_cache_path().ok()?;
-    let content = fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&content).ok()
-}
-
-fn write_check_cache(result: &UpdateCheckResult) {
-    let epoch = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let cache = CheckCache {
-        checked_at_epoch: epoch,
-        latest_version: result.latest_version.clone(),
-        is_newer: result.is_newer,
-    };
-
-    if let Ok(path) = check_cache_path() {
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let _ = fs::write(
-            &path,
-            serde_json::to_string_pretty(&cache).unwrap_or_default(),
-        );
-    }
-}
-
-fn is_cache_fresh() -> bool {
-    let cache = match read_check_cache() {
-        Some(c) => c,
-        None => return false,
-    };
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    now.saturating_sub(cache.checked_at_epoch) < CHECK_CACHE_TTL_SECS
 }
 
 // ---------------------------------------------------------------------------
@@ -406,50 +346,7 @@ pub fn check_for_update(timeout_secs: u64) -> Result<UpdateCheckResult, String> 
         is_newer,
         artifact,
     };
-
-    write_check_cache(&result);
     Ok(result)
-}
-
-/// Called after a scan completes.  Only prints a hint if:
-///   - stdout is a TTY
-///   - the cache is stale (>24h since last check)
-///   - a newer version exists
-pub fn passive_update_check() {
-    // Only when interactive
-    if !atty_stdout() {
-        return;
-    }
-
-    // Check cache first — avoid network entirely if fresh
-    if is_cache_fresh() {
-        if let Some(cache) = read_check_cache() {
-            // Re-evaluate against the running version: the binary may have been
-            // upgraded since the cache was written, so trusting the cached
-            // `is_newer` flag alone would produce a false positive.
-            let still_newer = is_version_newer(env!("CARGO_PKG_VERSION"), &cache.latest_version);
-            if still_newer {
-                eprintln!(
-                    "\n  A newer version of proov is available ({}).",
-                    cache.latest_version
-                );
-                eprintln!("  Run `proov update` to upgrade.\n");
-            }
-        }
-        return;
-    }
-
-    // Stale or no cache — do a quick network check
-    match check_for_update(PASSIVE_CHECK_TIMEOUT_SECS) {
-        Ok(result) if result.is_newer => {
-            eprintln!(
-                "\n  proov {} is available (you have {}).",
-                result.latest_version, result.current_version
-            );
-            eprintln!("  Run `proov update` to upgrade.\n");
-        }
-        _ => {} // silently ignore errors and up-to-date
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +355,7 @@ pub fn passive_update_check() {
 
 /// Download, verify, backup, and replace the running binary.
 pub fn perform_update(force: bool) -> Result<(), String> {
-    let result = check_for_update(PASSIVE_CHECK_TIMEOUT_SECS)?;
+    let result = check_for_update(CHECK_TIMEOUT_SECS)?;
 
     if !result.is_newer {
         eprintln!(
@@ -672,15 +569,6 @@ fn extract_and_replace(downloaded: &Path, dest: &Path) -> Result<(), String> {
 
 pub fn print_version() {
     println!("proov {}", env!("CARGO_PKG_VERSION"));
-}
-
-// ---------------------------------------------------------------------------
-// TTY detection (simple, no extra deps)
-// ---------------------------------------------------------------------------
-
-fn atty_stdout() -> bool {
-    // crossterm is already a dependency; use it for TTY detection
-    crossterm::tty::IsTty::is_tty(&io::stderr())
 }
 
 // ---------------------------------------------------------------------------
@@ -919,20 +807,6 @@ mod tests {
         assert!(result
             .unwrap_err()
             .contains("Failed to parse update manifest"));
-    }
-
-    #[test]
-    fn test_check_cache_roundtrip() {
-        let result = UpdateCheckResult {
-            current_version: "0.3.0".into(),
-            latest_version: "v0.4.0".into(),
-            is_newer: true,
-            artifact: None,
-        };
-        // write_check_cache writes to ~/.ahscan/ — just verify it doesn't panic
-        write_check_cache(&result);
-        // And reading should return something (or None if dir doesn't exist)
-        let _ = read_check_cache();
     }
 
     #[test]

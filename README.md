@@ -6,19 +6,19 @@ proov is a Rust CLI tool that scans your system for AI-related configuration fil
 
 ## How it works
 
-proov is local-first. It walks your filesystem, identifies AI execution artifacts, scores them for risk, and writes results locally. Network activity only happens when you explicitly opt into connected features such as `--submit`, `proov auth`, `proov setup`, or `proov update`.
+proov is local-first. It walks your filesystem, identifies AI execution artifacts, scores them for risk, and writes results locally. Network activity only happens when you explicitly opt into submission-related flows or `proov update`. `proov auth` and `proov setup` only save local configuration.
 
-If you want a hosted review and governance surface, proov can submit to compatible ingest APIs, including [Vettd](https://vettd.agentichighway.ai).
+If you want a hosted review, policy, and governance surface, **[Vettd](https://vettd.agentichighway.ai)** is the recommended destination for Proov. Proov can also submit to compatible ingest APIs when you need a custom endpoint.
 
 ## System requirements
 
 | Requirement | Detail                                                               |
 | ----------- | -------------------------------------------------------------------- |
 | **OS**      | macOS (ARM64, x86_64), Linux (ARM64, x86_64), Windows (x86_64)       |
-| **Runtime** | None — proov is a single static binary with no dependencies          |
+| **Runtime** | None — official releases are single binaries with no sidecar service |
 | **Build**   | Rust 1.85.1+ (pinned via `rust-toolchain.toml`)                      |
-| **Network** | Optional — only needed for connected features such as submission, setup/auth, and updates |
-| **Disk**    | ~15 MB for the binary; scans are read-only and produce no temp files |
+| **Network** | Optional — only needed for submission-related flows and self-update |
+| **Disk**    | ~15-25 MB for the binary depending on platform; reports are only written when requested |
 
 ## Install
 
@@ -71,13 +71,16 @@ proov rules validate <f>   # Validate a rule file without installing
 proov quick              # Overview with risk bars (default)
 proov quick --full       # Detailed per-artifact breakdown
 proov quick --summary    # Compact statistics only
-proov quick --json       # JSON to stdout
-proov quick --out        # JSON to ./ahscan-report.json
-proov quick --out r.json # JSON to custom path
-proov quick --contract   # AH data contract JSON to stdout
+proov quick --json       # JSON report to stdout
+proov quick --out        # JSON report to ./proov-report.json
+proov quick --out r.json # JSON report to a custom path
+proov quick --contract   # Scanner data contract JSON to stdout
 proov quick --contract --out r.json  # Contract JSON to file
 proov quick --contract --submit --api-key <key>  # Contract to file + submit
 ```
+
+`--json`, `--out`, and `--contract` all emit the scanner data contract
+shape used for compatible ingest APIs and local automation.
 
 ## What it detects
 
@@ -104,27 +107,27 @@ Every artifact gets a risk score from 0–100:
 
 Scores are based on: artifact type, detected capability keywords (shell, network, filesystem, etc.), dangerous keywords (exfiltrate, steal, bypass, etc.), and whether capabilities are explicitly declared.
 
-## Access tiers
+## Optional local access mode
 
-| Feature           | Lite (default) | Licensed |
-| ----------------- | :------------: | :------: |
-| Local scanning    |       ✅       |    ✅    |
-| Risk scoring      |       ✅       |    ✅    |
-| Visible artifacts |     Top 3      |   All    |
-| JSON export       |       ❌       |    ✅    |
-| Server submission |       ❌       |    ✅    |
+By default, proov shows the full local report.
 
-Configure in `.ahscan.toml`:
+If you want to locally limit emitted findings to the top three visible
+artifacts, add an `.ahscan.toml` file in your project root:
 
 ```toml
 [access]
-mode = "licensed"
-license_key = "your-key-here"
+mode = "lite"
 ```
+
+When `.ahscan.toml` is absent, proov keeps full output enabled.
 
 ## Submitting to Vettd or another endpoint
 
-With a licensed configuration and API key:
+Vettd is the default and recommended hosted destination for Proov.
+Compatible custom endpoints are still supported for self-hosting,
+testing, or interoperability.
+
+With an API key configured:
 
 ```bash
 # First-time setup (saves credentials and endpoint)
@@ -146,7 +149,7 @@ proov repo . --submit https://example.com/api/scans/ingest --api-key your-key
 ### Safety defaults
 
 - Scans stay local unless you explicitly opt into connected commands
-- The default hosted submission target is Vettd, but custom compatible endpoints are supported
+- The default hosted submission target is Vettd, and compatible custom endpoints are supported
 - Contract sync only runs during explicit submission flows, when the target endpoint exposes a compatible contract API
 - Retry logic handles transient failures (429, 502, 503, 504)
 - API keys saved by proov are written to `~/.config/ahscan/config.json` with private permissions on Unix-like systems
@@ -186,7 +189,7 @@ proov/
 │   └── proov/                    # CLI binary (scanning, detection, submission)
 │       └── src/
 │           ├── detectors/         # Built-in artifact detectors
-│           └── contract/          # AH contract format builders
+│           └── contract/          # Scanner data contract builders
 ├── rules/                        # Built-in TOML detection rules (compiled into binary)
 ├── examples/
 │   └── rules/                    # Example custom detection rules (.toml)
@@ -204,6 +207,8 @@ proov/
 │   │   └── release.yml           # Build + GitHub Release + artifact publishing
 │   ├── dependabot.yml            # Automated dependency updates
 │   └── CODEOWNERS                # Required reviewers for security-sensitive files
+├── CODE_OF_CONDUCT.md            # Community expectations and reporting path
+├── LICENSE                       # AGPL-3.0-only license text
 ├── agents.md                     # Project guidelines for AI coding agents
 ├── deny.toml                     # Supply chain policy (licenses, advisories)
 ├── rust-toolchain.toml           # Pinned Rust compiler version
@@ -217,7 +222,7 @@ proov/
 cargo build                         # Debug build
 cargo fmt --check                   # Formatting check
 cargo clippy --all-targets -- -D warnings  # Lint (must be 0 warnings)
-cargo test                          # Run all 337+ tests
+cargo test                          # Run the full test suite
 cargo deny check                    # License + advisory audit
 cargo audit                         # RustSec vulnerability scan
 ./scripts/test-scanner.sh           # Exercise all CLI subcommands
@@ -228,6 +233,7 @@ cargo audit                         # RustSec vulnerability scan
 For detailed development instructions: [CONTRIBUTING.md](CONTRIBUTING.md)
 For architecture and code walkthrough: [docs/architecture.md](docs/architecture.md)
 For the plain-English output spec: [docs/output-spec.md](docs/output-spec.md)
+For community expectations: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 For security vulnerability reports: [SECURITY.md](SECURITY.md)
 
 ## Configuration reference
@@ -235,14 +241,17 @@ For security vulnerability reports: [SECURITY.md](SECURITY.md)
 | File                           | Purpose                                       |
 | ------------------------------ | --------------------------------------------- |
 | `~/.config/ahscan/config.json` | API key + endpoint (created by `proov setup`) |
-| `.ahscan.toml`                 | Access tier + license key (project-level)     |
+| `.ahscan.toml`                 | Optional local access-mode settings           |
 | `~/.ahscan/scanner_uuid`       | Persistent scanner identity (auto-generated)  |
 | `~/.ahscan/rules/*.toml`       | Custom detection rules                        |
 
-Example `.ahscan.toml`:
+Optional `.ahscan.toml`:
 
 ```toml
 [access]
-mode = "lite"                   # lite | licensed
-license_key = ""                # required for licensed mode
+mode = "lite"                   # limit visible findings to the top three artifacts
 ```
+
+## License
+
+`proov` is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE).

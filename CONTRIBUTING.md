@@ -1,5 +1,8 @@
 # Contributing to proov
 
+Please review [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before
+participating in project discussions or reviews.
+
 ## Getting started
 
 ### Prerequisites

@@ -18,7 +18,7 @@ ignore = []
 
 [licenses]
 # Only allow these licenses (covers 99% of the Rust ecosystem).
-# Copyleft licenses (GPL, AGPL) are denied by omission.
+# Copyleft licenses (GPL, AGPL) are denied by omission for dependencies.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -32,12 +32,8 @@ allow = [
     "Unicode-DFS-2016",
     "Zlib",
 ]
-# proov itself is proprietary / unlicensed — exempt it from checks
-exceptions = [
-    { allow = ["LicenseRef-Proprietary"], crate = "proov" },
-]
 confidence-threshold = 0.8
-# Treat unlicensed workspace crates as private rather than erroring
+# Treat private workspace crates as private rather than erroring
 private = { ignore = true }
 
 [bans]
