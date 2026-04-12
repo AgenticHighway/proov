@@ -147,6 +147,19 @@ jobs:
                   done
                   ls -lh release/
 
+            # Plain SHA-256 checksums for manual download verification.
+            # Uploaded as a release asset so users can verify binaries with:
+            #   sha256sum --check checksums.txt   (Linux)
+            #   shasum -a 256 --check checksums.txt  (macOS)
+            # A KMS-signed counterpart (checksums.txt.sig) is added by the
+            # upload-s3 job, which shares the same trust chain as `proov update`.
+            - name: Generate SHA-256 checksums
+              run: |
+                  cd release
+                  sha256sum proov-* | sort > checksums.txt
+                  echo "checksums.txt:"
+                  cat checksums.txt
+
             - name: Create GitHub Release
               uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
               with:
@@ -159,11 +172,13 @@ jobs:
     # Official builds embed the public KMS verification key at compile time and
     # releases publish a detached signature envelope alongside the manifest.
     upload-s3:
-        needs: build
+        # Depends on `release` so the GitHub Release exists before we try to
+        # attach the KMS-signed checksums to it via `gh release upload`.
+        needs: [build, release]
         runs-on: blacksmith-2vcpu-ubuntu-2204
         permissions:
             id-token: write # OIDC token for AWS assume-role
-            contents: read
+            contents: write # upload additional release assets (signed checksums)
         steps:
             - name: Download all artifacts
               uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -182,7 +197,7 @@ jobs:
             # short-lived AWS credentials scoped to SCANNER_RELEASE_ROLE_ARN.
             # No long-lived AWS keys are stored in GitHub Secrets.
             - name: Configure AWS credentials (OIDC)
-              uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
                   role-to-assume: ${{ secrets.SCANNER_RELEASE_ROLE_ARN }}
                   aws-region: us-east-1
@@ -234,6 +249,10 @@ jobs:
                     key=$(echo "$name" | sed 's/[^a-zA-Z0-9]/_/g')
                     echo "${key}=${hash}" >> "$GITHUB_OUTPUT"
                   done
+                  # Write a standard checksums file for signing and S3 upload.
+                  # This matches the file generated in the `release` job so
+                  # `checksums.txt` and `checksums.txt.sig` cover identical content.
+                  (cd release && sha256sum proov-* | sort) > release/checksums.txt
 
             - name: Write signed latest.json manifest
               run: |
@@ -306,3 +325,51 @@ jobs:
                       --content-type application/json
                   aws s3 cp /tmp/latest.signature.json s3://ah-scanner-releases/manifests/${TAG}/latest.signature.json \
                       --content-type application/json
+
+            # Sign the plain-text checksums file with the same KMS key used for
+            # the update manifest. Users can verify manual downloads against the
+            # same public key that `proov update` trusts.
+            # See docs/release-verification.md for the full verification procedure.
+            - name: Sign checksums
+              run: |
+                  set -euo pipefail
+                  SIGNATURE_B64=$(aws kms sign \
+                    --key-id "${UPDATE_SIGNING_KEY_ID}" \
+                    --signing-algorithm ECDSA_SHA_256 \
+                    --message-type RAW \
+                    --message fileb://release/checksums.txt \
+                    --query 'Signature' \
+                    --output text)
+
+                  cat > release/checksums.txt.sig <<EOF
+                  {
+                    "algorithm": "ECDSA_SHA_256",
+                    "keyId": "${UPDATE_SIGNING_KEY_ID}",
+                    "signature": "${SIGNATURE_B64}"
+                  }
+                  EOF
+
+            - name: Upload checksums to S3
+              run: |
+                  TAG="${{ steps.tag.outputs.TAG }}"
+                  aws s3 cp release/checksums.txt \
+                      "s3://ah-scanner-releases/${TAG}/checksums.txt" \
+                      --content-type text/plain
+                  aws s3 cp release/checksums.txt.sig \
+                      "s3://ah-scanner-releases/${TAG}/checksums.txt.sig" \
+                      --content-type application/json
+
+            # Attach the signed checksums to the GitHub Release so users who
+            # download directly from the Releases page find verification material
+            # alongside the binaries. --clobber replaces the unsigned checksums.txt
+            # uploaded by the `release` job with an identical copy, and adds the
+            # new checksums.txt.sig alongside it.
+            - name: Upload checksums to GitHub Release
+              if: github.ref_type == 'tag'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh release upload "${{ steps.tag.outputs.TAG }}" \
+                    release/checksums.txt \
+                    release/checksums.txt.sig \
+                    --clobber
