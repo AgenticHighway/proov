@@ -52,11 +52,6 @@ const LEGACY_SECRET_PATTERN_DEFS: &[PatternDefinition] = &[
         signal: "credential_exposure_signal",
         expression: r"AKIA",
     },
-    PatternDefinition {
-        id: "legacy_jwt_prefix",
-        signal: "credential_exposure_signal",
-        expression: r"eyJ",
-    },
 ];
 
 const STRUCTURED_SECRET_PATTERN_DEFS: &[PatternDefinition] = &[
@@ -716,6 +711,21 @@ mod tests {
     #[test]
     fn scan_secret_signals_ignores_short_benign_sk_prefixes() {
         assert!(scan_secret_signals("docs mention sk-abc123 as a placeholder").is_empty());
+    }
+
+    #[test]
+    fn scan_secret_signals_ignores_non_jwt_eyj_prefixes() {
+        assert!(scan_secret_signals("eyJub3RfanVzdF9hX3Rva2Vu").is_empty());
+    }
+
+    #[test]
+    fn scan_secret_signals_detects_jwt_tokens() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIzNDU2Nzg5MA";
+        let signals = scan_secret_signals(jwt);
+        assert!(signals
+            .iter()
+            .any(|signal| signal == "credential_exposure_signal"));
+        assert!(signals.iter().any(|signal| signal == "secret:auth:jwt"));
     }
 
     #[test]
