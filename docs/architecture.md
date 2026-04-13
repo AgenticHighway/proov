@@ -6,6 +6,8 @@ the modules connect. Read this before diving into the source code.
 For public-facing CLI journeys, see [user-flows.md](user-flows.md).
 For the planned follow-on source-analysis work derived from remaining
 DefenseClaw heuristics, see [cisco-source-analysis-plan.md](cisco-source-analysis-plan.md).
+For the planned scan performance and tiered discovery work, see
+[performance-scan-plan.md](performance-scan-plan.md).
 
 ## System context
 
