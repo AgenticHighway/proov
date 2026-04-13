@@ -5,6 +5,7 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::Instant;
 
 use crate::detectors::get_all_detectors;
 use crate::discovery::{
@@ -14,6 +15,35 @@ use crate::discovery::{
 use crate::models::{ArtifactReport, ScanReport};
 use crate::risk_engine::score_artifact;
 use crate::verifier::verify;
+
+struct ScanTimings {
+    enabled: bool,
+}
+
+impl ScanTimings {
+    fn from_env() -> Self {
+        let enabled = std::env::var("PROOV_TIMINGS")
+            .ok()
+            .is_some_and(|value| timing_value_enabled(&value));
+        Self { enabled }
+    }
+
+    fn emit(&self, stage: &str, detail: &str, started_at: Instant) {
+        if self.enabled {
+            eprintln!(
+                "[timing] stage={stage} elapsed_ms={} {detail}",
+                started_at.elapsed().as_millis()
+            );
+        }
+    }
+}
+
+fn timing_value_enabled(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -37,8 +67,11 @@ pub fn run_scan(
 ) -> ScanReport {
     let noop = |_: &str| {};
     let tick: &dyn Fn(&str) = on_tick.unwrap_or(&noop);
+    let timings = ScanTimings::from_env();
+    let scan_started_at = Instant::now();
 
     // 1. Discover candidates
+    let discovery_started_at = Instant::now();
     let (candidates, scanned_path) = match mode {
         "file" => {
             let p = file.expect("file path is required for file mode");
@@ -72,6 +105,11 @@ pub fn run_scan(
         ),
         _ => (discover_host_surfaces(Some(tick)), "~".to_string()),
     };
+    timings.emit(
+        "discovery",
+        &format!("mode={mode} files={}", candidates.len()),
+        discovery_started_at,
+    );
 
     // 2. Run built-in (native) detectors
     tick(&format!("Scanning {} files…", candidates.len()));
@@ -84,22 +122,50 @@ pub fn run_scan(
             detectors.len(),
             detector.name()
         ));
+        let detector_started_at = Instant::now();
+        let before_len = artifacts.len();
         artifacts.extend(detector.detect(&candidates, deep));
+        timings.emit(
+            "detector",
+            &format!(
+                "index={}/{} name={} new_artifacts={}",
+                i + 1,
+                detectors.len(),
+                detector.name(),
+                artifacts.len() - before_len
+            ),
+            detector_started_at,
+        );
     }
 
     // 3. Score, verify, classify each artifact
     tick(&format!("Analyzing {} artifact(s)…", artifacts.len()));
+    let analysis_started_at = Instant::now();
     for artifact in &mut artifacts {
         score_artifact(artifact);
         verify(artifact);
         classify_artifact(artifact, mode);
     }
+    timings.emit(
+        "analysis",
+        &format!("mode={mode} artifacts={}", artifacts.len()),
+        analysis_started_at,
+    );
 
     tick(&format!(
         "Found {} artifact(s) across {} files",
         artifacts.len(),
         candidates.len()
     ));
+    timings.emit(
+        "scan_total",
+        &format!(
+            "mode={mode} files={} artifacts={}",
+            candidates.len(),
+            artifacts.len()
+        ),
+        scan_started_at,
+    );
 
     let mut report = ScanReport::new(&scanned_path);
     report.artifacts = artifacts;
@@ -304,6 +370,22 @@ mod tests {
             .insert("paths".into(), json!(["/project/prompt.md"]));
         classify_artifact(&mut a, "workdir");
         assert!(a.registry_eligible);
+    }
+
+    #[test]
+    fn timing_value_enabled_accepts_true_like_values() {
+        assert!(timing_value_enabled("1"));
+        assert!(timing_value_enabled("true"));
+        assert!(timing_value_enabled("YES"));
+        assert!(timing_value_enabled("on"));
+    }
+
+    #[test]
+    fn timing_value_enabled_rejects_other_values() {
+        assert!(!timing_value_enabled("0"));
+        assert!(!timing_value_enabled("false"));
+        assert!(!timing_value_enabled(""));
+        assert!(!timing_value_enabled("maybe"));
     }
 
     #[test]

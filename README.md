@@ -307,9 +307,13 @@ cargo test                          # Run the full test suite
 cargo deny check                    # License + advisory audit
 cargo audit                         # RustSec vulnerability scan
 ./scripts/test-scanner.sh           # Exercise all CLI subcommands
+./scripts/benchmark-scanner.sh      # Record repeatable local scan timings
 ```
 
 > **CI runs all of these automatically on every PR.** See [.github/workflows/ci.yml](.github/workflows/ci.yml) for the full pipeline.
+
+Set `PROOV_TIMINGS=1` when you want per-stage scan timings on stderr during a
+local run or benchmark session.
 
 For detailed development instructions: [CONTRIBUTING.md](CONTRIBUTING.md)
 For architecture and code walkthrough: [docs/architecture.md](docs/architecture.md)

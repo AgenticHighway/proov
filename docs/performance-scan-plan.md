@@ -32,6 +32,21 @@ Observed memory footprint:
 The dominant cost is broad candidate discovery and repeated whole-list
 iteration, not terminal formatting or JSON serialization.
 
+## Current local baseline
+
+Use `./scripts/benchmark-scanner.sh` to record a fresh local baseline. Set
+`PROOV_TIMINGS=1` to include discovery, per-detector, analysis, and total scan
+timings on stderr while the benchmark script runs.
+
+Representative baseline on Will's mac after issue #55:
+
+- `file --json`: about 0.04s
+- `folder --json`: about 0.06s
+- `repo --json`: about 0.06s
+- `quick --json`: about 0.50s
+- `scan --summary`: about 8.0s with about 165 MB peak RSS
+- `full --summary`: about 113s with about 2.27 GB peak RSS
+
 ## Design constraints
 
 - `proov` should remain local-first and operator-friendly on developer machines
