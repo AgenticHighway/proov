@@ -1,4 +1,7 @@
 use crate::models::ArtifactReport;
+use crate::scoring::{
+    common_cognitive_signal_weight, secret_signal_weight, shared_signal_weight, ssrf_signal_weight,
+};
 use std::collections::HashMap;
 
 const DECLARED_DISCOUNT: f64 = 0.5;
@@ -32,102 +35,36 @@ fn keyword_to_declared() -> HashMap<&'static str, &'static str> {
     ])
 }
 
-fn signal_weights() -> HashMap<&'static str, i32> {
-    HashMap::from([
-        ("credential_exposure_signal", 25),
-        ("json_config:credential_connection_string", 20),
-        ("json_config:credential_value", 15),
-        ("json_config:metadata_url", 25),
-        ("json_config:internal_url", 15),
-        ("json_config:c2_url", 35),
-        ("source:dynamic_import", 20),
-        ("source:nonliteral_require", 20),
-        ("source:nonliteral_spawn", 30),
-        ("source:ssrf_private_ip", 25),
-        ("source:ssrf_internal_host", 20),
-        ("source:sensitive_path_access", 25),
-        ("mcp_server_declared", 20),
-        ("extensions_directory_present", 5),
-        ("dangerous_combo:shell+network+fs", 30),
-        ("dangerous_keyword:exfiltrate", 35),
-        ("dangerous_keyword:wipe", 30),
-        ("dangerous_keyword:rm", 25),
-        ("dangerous_keyword:steal", 35),
-        ("dangerous_keyword:upload", 20),
-        ("dangerous_keyword:reverse", 35),
-        ("dangerous_keyword:disable", 25),
-        ("dangerous_keyword:bypass", 25),
-    ])
-}
-
-fn secret_signal_weight(signal: &str) -> Option<i32> {
-    match signal {
-        "secret:aws:access_key"
-        | "secret:aws:secret_access_key"
-        | "secret:aws:session_token"
-        | "secret:github:pat"
-        | "secret:github:oauth_token"
-        | "secret:github:fine_grained_pat"
-        | "secret:github:app_token"
-        | "secret:github:refresh_token"
-        | "secret:gitlab:pat"
-        | "secret:gitlab:project_token"
-        | "secret:gitlab:oauth_token"
-        | "secret:stripe:live_secret_key"
-        | "secret:stripe:restricted_key"
-        | "secret:npm:token"
-        | "secret:pypi:token" => Some(25),
-        "secret:gcp:api_key"
-        | "secret:gcp:client_secret"
-        | "secret:azure:account_key"
-        | "secret:azure:connection_string"
-        | "secret:azure:secret_value"
-        | "secret:azure:sas_token"
-        | "secret:slack:bot_token"
-        | "secret:slack:user_token"
-        | "secret:slack:webhook"
-        | "secret:twilio:auth_token"
-        | "secret:twilio:api_key"
-        | "secret:sendgrid:api_key"
-        | "secret:mailgun:api_key"
-        | "secret:auth:basic_header"
-        | "secret:auth:bearer_header" => Some(20),
-        "secret:stripe:test_secret_key" | "secret:auth:jwt" => Some(15),
-        _ if signal.starts_with("secret:crypto:") => Some(25),
-        _ => None,
+fn risk_engine_signal_weight(signal: &str) -> Option<i32> {
+    if let Some(weight) = shared_signal_weight(signal) {
+        return Some(weight);
     }
-}
 
-fn ssrf_signal_weight(signal: &str) -> Option<i32> {
     match signal {
-        "ssrf:metadata:aws"
-        | "ssrf:metadata:gcp"
-        | "ssrf:metadata:azure"
-        | "ssrf:metadata:alibaba"
-        | "ssrf:scheme:gopher" => Some(45),
-        "ssrf:scheme:file"
-        | "ssrf:scheme:dict"
-        | "ssrf:encoding:octal_ipv4"
-        | "ssrf:encoding:hex_ipv4"
-        | "ssrf:encoding:decimal_host" => Some(25),
-        "ssrf:private_network:10"
-        | "ssrf:private_network:172"
-        | "ssrf:private_network:192"
-        | "ssrf:private_network:localhost" => Some(20),
+        "json_config:credential_connection_string" => Some(20),
+        "json_config:credential_value" => Some(15),
+        "json_config:metadata_url" => Some(25),
+        "json_config:internal_url" => Some(15),
+        "json_config:c2_url" => Some(35),
+        "source:dynamic_import" | "source:nonliteral_require" => Some(20),
+        "source:nonliteral_spawn" => Some(30),
+        "source:ssrf_private_ip" => Some(25),
+        "source:ssrf_internal_host" => Some(20),
+        "source:sensitive_path_access" => Some(25),
+        "mcp_server_declared" => Some(20),
+        "extensions_directory_present" => Some(5),
+        "dangerous_keyword:rm" | "dangerous_keyword:disable" => Some(25),
+        "dangerous_keyword:upload" => Some(20),
         _ => None,
     }
 }
 
 fn cognitive_signal_weight(signal: &str) -> Option<i32> {
-    match signal {
-        "cognitive_tampering:role_override" | "cognitive_tampering:delimiter_framing" => Some(45),
-        "cognitive_tampering:instruction_injection"
-        | "cognitive_tampering:unicode_steganography" => Some(35),
+    common_cognitive_signal_weight(signal).or(match signal {
         "cognitive_tampering:file_write" => Some(35),
         "cognitive_tampering:file_target" => Some(25),
-        "cognitive_tampering:base64_encoded" => Some(25),
         _ => None,
-    }
+    })
 }
 
 fn type_base_score() -> HashMap<&'static str, i32> {
@@ -170,7 +107,6 @@ fn parse_count_signal(signal: &str, prefix: &str) -> Option<i32> {
 pub fn score_artifact(artifact: &mut ArtifactReport) -> i32 {
     let cap_risk = capability_base_risk();
     let ktd = keyword_to_declared();
-    let sig_weights = signal_weights();
     let type_base = type_base_score();
 
     let base = type_base
@@ -207,7 +143,7 @@ pub fn score_artifact(artifact: &mut ArtifactReport) -> i32 {
         } else if let Some(weight) = cognitive_signal_weight(sig) {
             score += weight;
             contributions.push((weight, signal.clone()));
-        } else if let Some(&weight) = sig_weights.get(sig) {
+        } else if let Some(weight) = risk_engine_signal_weight(sig) {
             score += weight;
             contributions.push((weight, signal.clone()));
         } else if let Some(n) = parse_count_signal(sig, "extension_count:") {
