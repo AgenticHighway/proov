@@ -83,9 +83,7 @@ pub fn resolve_submit_auth(
         Some(Some(url)) => {
             // Explicit URL supplied via --submit <URL> — enforce the flag.
             crate::network::ensure_endpoint_allowed(url, allow_public).map_err(|e| {
-                format!(
-                    "{e}\nPass --allow-public-endpoint to permit public endpoints."
-                )
+                format!("{e}\nPass --allow-public-endpoint to permit public endpoints.")
             })?;
             url.clone()
         }
@@ -96,9 +94,8 @@ pub fn resolve_submit_auth(
                 .as_ref()
                 .map(|c| c.endpoint.clone())
                 .unwrap_or_else(|| DEFAULT_PRODUCTION_ENDPOINT.to_string());
-            crate::network::ensure_endpoint_allowed(&ep, true).map_err(|e| {
-                format!("Saved endpoint is invalid: {e}")
-            })?;
+            crate::network::ensure_endpoint_allowed(&ep, true)
+                .map_err(|e| format!("Saved endpoint is invalid: {e}"))?;
             ep
         }
     };
@@ -169,7 +166,10 @@ mod tests {
     fn resolve_submit_auth_explicit_public_url_allowed_with_flag() {
         let submit_flag = Some(Some("https://example.com/api".to_string()));
         let result = resolve_submit_auth(&submit_flag, Some("ah_test"), true);
-        assert!(result.is_ok(), "public URL with allow_public=true should pass");
+        assert!(
+            result.is_ok(),
+            "public URL with allow_public=true should pass"
+        );
         assert_eq!(result.unwrap().endpoint, "https://example.com/api");
     }
 
