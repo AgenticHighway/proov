@@ -452,7 +452,8 @@ mod tests {
 
     #[test]
     fn check_for_secrets_detects_known_patterns() {
-        assert!(!check_for_secrets("sk-abc123").is_empty());
+        let legacy_sk = format!("sk-{}", "a".repeat(24));
+        assert!(!check_for_secrets(&legacy_sk).is_empty());
         assert!(!check_for_secrets("ghp_xxxx").is_empty());
         assert!(check_for_secrets("nothing here").is_empty());
     }

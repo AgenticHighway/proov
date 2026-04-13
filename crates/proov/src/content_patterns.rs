@@ -30,7 +30,7 @@ const LEGACY_SECRET_PATTERN_DEFS: &[PatternDefinition] = &[
     PatternDefinition {
         id: "legacy_sk_prefix",
         signal: "credential_exposure_signal",
-        expression: r"sk-",
+        expression: r"\bsk-[A-Za-z0-9]{20,}\b",
     },
     PatternDefinition {
         id: "legacy_ghp_prefix",
@@ -702,14 +702,20 @@ mod tests {
 
     #[test]
     fn scan_secret_signals_matches_legacy_patterns() {
+        let legacy_sk = format!("token sk-{}", "a".repeat(24));
         assert_eq!(
-            scan_secret_signals("token sk-abc123"),
+            scan_secret_signals(&legacy_sk),
             vec!["credential_exposure_signal"]
         );
         assert_eq!(
             scan_secret_signals("ghp_xxxx"),
             vec!["credential_exposure_signal"]
         );
+    }
+
+    #[test]
+    fn scan_secret_signals_ignores_short_benign_sk_prefixes() {
+        assert!(scan_secret_signals("docs mention sk-abc123 as a placeholder").is_empty());
     }
 
     #[test]
