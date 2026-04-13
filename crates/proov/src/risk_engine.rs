@@ -49,6 +49,44 @@ fn signal_weights() -> HashMap<&'static str, i32> {
     ])
 }
 
+fn secret_signal_weight(signal: &str) -> Option<i32> {
+    match signal {
+        "secret:aws:access_key"
+        | "secret:aws:secret_access_key"
+        | "secret:aws:session_token"
+        | "secret:github:pat"
+        | "secret:github:oauth_token"
+        | "secret:github:fine_grained_pat"
+        | "secret:github:app_token"
+        | "secret:github:refresh_token"
+        | "secret:gitlab:pat"
+        | "secret:gitlab:project_token"
+        | "secret:gitlab:oauth_token"
+        | "secret:stripe:live_secret_key"
+        | "secret:stripe:restricted_key"
+        | "secret:npm:token"
+        | "secret:pypi:token" => Some(25),
+        "secret:gcp:api_key"
+        | "secret:gcp:client_secret"
+        | "secret:azure:account_key"
+        | "secret:azure:connection_string"
+        | "secret:azure:secret_value"
+        | "secret:azure:sas_token"
+        | "secret:slack:bot_token"
+        | "secret:slack:user_token"
+        | "secret:slack:webhook"
+        | "secret:twilio:auth_token"
+        | "secret:twilio:api_key"
+        | "secret:sendgrid:api_key"
+        | "secret:mailgun:api_key"
+        | "secret:auth:basic_header"
+        | "secret:auth:bearer_header" => Some(20),
+        "secret:stripe:test_secret_key" | "secret:auth:jwt" => Some(15),
+        _ if signal.starts_with("secret:crypto:") => Some(25),
+        _ => None,
+    }
+}
+
 fn type_base_score() -> HashMap<&'static str, i32> {
     HashMap::from([
         ("cursor_rules", 10),
@@ -97,11 +135,16 @@ pub fn score_artifact(artifact: &mut ArtifactReport) -> i32 {
         .unwrap_or(5);
 
     let declared_tools = declared_tools_from_metadata(artifact);
+    let has_structured_secret = artifact.signals.iter().any(|s| s.starts_with("secret:"));
     let mut score = base;
     let mut contributions: Vec<(i32, String)> = Vec::new();
 
     for signal in &artifact.signals {
         let sig = signal.as_str();
+
+        if sig == "credential_exposure_signal" && has_structured_secret {
+            continue;
+        }
 
         if let Some(&weight) = cap_risk.get(sig) {
             let effective = if is_declared(sig, &declared_tools, &ktd) {
@@ -111,6 +154,9 @@ pub fn score_artifact(artifact: &mut ArtifactReport) -> i32 {
             };
             score += effective;
             contributions.push((effective, signal.clone()));
+        } else if let Some(weight) = secret_signal_weight(sig) {
+            score += weight;
+            contributions.push((weight, signal.clone()));
         } else if let Some(&weight) = sig_weights.get(sig) {
             score += weight;
             contributions.push((weight, signal.clone()));
@@ -177,6 +223,17 @@ mod tests {
         let mut a = make_artifact("agents_md", vec!["dangerous_keyword:steal"]);
         let score = score_artifact(&mut a);
         assert_eq!(score, 43); // 8 + 35
+    }
+
+    #[test]
+    fn test_structured_secret_signal_weight_replaces_generic_credential_weight() {
+        let mut a = make_artifact(
+            "agents_md",
+            vec!["credential_exposure_signal", "secret:github:pat"],
+        );
+        let score = score_artifact(&mut a);
+        assert_eq!(score, 33); // 8 + 25, without double counting the generic signal
+        assert!(a.risk_reasons[0].contains("secret:github:pat"));
     }
 
     #[test]

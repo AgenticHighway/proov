@@ -6,26 +6,37 @@ only. See LICENSE for the governing license of this project.
 This file records third-party attribution notices for material incorporated into
 or adapted for proov.
 
-No third-party source code or detection-pattern corpus is incorporated by this
-change. This file is added as compliance scaffolding for planned follow-on work
-under issue #30 and the linked Sprint 1 tracking issue.
+Adapted material currently incorporated into proov:
 
-## Third-party source corpus reserved for planned pattern imports
+- secrets detection patterns adapted from Cisco DefenseClaw
+
+## DefenseClaw attribution
 
 Source project: DefenseClaw
 Source repository: <https://github.com/cisco-ai-defense/defenseclaw>
 Source license: Apache License 2.0
 Copyright: Cisco Systems, Inc.
 
-Planned import scope:
+Imported upstream source files:
 
-- secrets detection patterns
+- internal/scanner/clawshield_secrets.go
+
+Imported pattern families:
+
+- AWS credential patterns
+- GCP credential patterns
+- Azure credential and connection-string patterns
+- GitHub and GitLab token patterns
+- Slack, Stripe, Twilio, SendGrid, Mailgun, npm, and PyPI token patterns
+- private key and structured auth token patterns
+
+Remaining planned import scope:
+
 - SSRF encoding and metadata-target patterns
 - cognitive tampering and prompt-injection patterns
 
-Planned upstream source files under review:
+Additional upstream source files under review:
 
-- internal/scanner/clawshield_secrets.go
 - internal/scanner/clawshield_injection.go
 - internal/scanner/clawshield_vuln.go
 

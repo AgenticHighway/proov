@@ -22,6 +22,44 @@ fn local_policy_signal_weights() -> HashMap<&'static str, i32> {
     ])
 }
 
+fn local_policy_secret_signal_weight(signal: &str) -> Option<i32> {
+    match signal {
+        "secret:aws:access_key"
+        | "secret:aws:secret_access_key"
+        | "secret:aws:session_token"
+        | "secret:github:pat"
+        | "secret:github:oauth_token"
+        | "secret:github:fine_grained_pat"
+        | "secret:github:app_token"
+        | "secret:github:refresh_token"
+        | "secret:gitlab:pat"
+        | "secret:gitlab:project_token"
+        | "secret:gitlab:oauth_token"
+        | "secret:stripe:live_secret_key"
+        | "secret:stripe:restricted_key"
+        | "secret:npm:token"
+        | "secret:pypi:token" => Some(25),
+        "secret:gcp:api_key"
+        | "secret:gcp:client_secret"
+        | "secret:azure:account_key"
+        | "secret:azure:connection_string"
+        | "secret:azure:secret_value"
+        | "secret:azure:sas_token"
+        | "secret:slack:bot_token"
+        | "secret:slack:user_token"
+        | "secret:slack:webhook"
+        | "secret:twilio:auth_token"
+        | "secret:twilio:api_key"
+        | "secret:sendgrid:api_key"
+        | "secret:mailgun:api_key"
+        | "secret:auth:basic_header"
+        | "secret:auth:bearer_header" => Some(20),
+        "secret:stripe:test_secret_key" | "secret:auth:jwt" => Some(15),
+        _ if signal.starts_with("secret:crypto:") => Some(25),
+        _ => None,
+    }
+}
+
 fn local_policy_type_base() -> HashMap<&'static str, i32> {
     HashMap::from([("cursor_rules", 4), ("agents_md", 4), ("prompt_config", 3)])
 }
@@ -29,9 +67,15 @@ fn local_policy_type_base() -> HashMap<&'static str, i32> {
 pub fn local_policy_score(artifact: &ArtifactReport) -> i32 {
     let type_base = local_policy_type_base();
     let signal_weights = local_policy_signal_weights();
+    let has_structured_secret = artifact.signals.iter().any(|s| s.starts_with("secret:"));
     let mut score = *type_base.get(artifact.artifact_type.as_str()).unwrap_or(&1);
     for signal in &artifact.signals {
-        score += signal_weights.get(signal.as_str()).unwrap_or(&0);
+        let sig = signal.as_str();
+        if sig == "credential_exposure_signal" && has_structured_secret {
+            continue;
+        }
+        score += signal_weights.get(sig).unwrap_or(&0);
+        score += local_policy_secret_signal_weight(sig).unwrap_or(0);
     }
     score.min(100)
 }
@@ -156,6 +200,18 @@ mod tests {
         );
         let score = local_policy_score(&a);
         assert_eq!(score, 4 + 15 + 10); // base + shell + browser
+    }
+
+    #[test]
+    fn local_policy_score_uses_structured_secret_weight_without_double_counting() {
+        let a = make_artifact(
+            "cursor_rules",
+            &["credential_exposure_signal", "secret:github:pat"],
+            0,
+            0.5,
+        );
+        let score = local_policy_score(&a);
+        assert_eq!(score, 29); // 4 + 25, without double counting the generic signal
     }
 
     #[test]

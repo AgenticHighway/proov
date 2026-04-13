@@ -379,6 +379,7 @@ fn humanize_reason(raw: &str) -> &str {
         "keyword:secrets" => "References secrets or credentials",
         "keyword:instructions" => "Contains instruction directives",
         "credential_exposure_signal" => "Credential / secret exposure",
+        _ if key.starts_with("secret:") => "Credential / secret exposure",
         "mcp_server_declared" => "Declares an MCP server",
         "dangerous_combo:shell+network+fs" => "Shell + network + filesystem combined",
         "dangerous_keyword:exfiltrate" => "References data exfiltration",
@@ -723,6 +724,10 @@ mod tests {
         assert_eq!(humanize_reason("keyword:shell"), "Runs shell commands");
         assert_eq!(
             humanize_reason("credential_exposure_signal"),
+            "Credential / secret exposure"
+        );
+        assert_eq!(
+            humanize_reason("secret:github:pat"),
             "Credential / secret exposure"
         );
         assert_eq!(
