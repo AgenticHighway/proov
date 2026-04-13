@@ -140,6 +140,15 @@ a repeatable local benchmark path for key scan modes.
 Longer-term, normal scans should reuse cached metadata and eventually integrate
 OS-native file change feeds so unchanged files do not get rescanned every run.
 
+The first implementation slice is now in code for `quick` and default `scan`:
+
+- repeated runs persist scan profiles, file states, and detector output in
+	`~/.ahscan/scan-cache/scan-v1.sqlite3`
+- unchanged file-backed detector inputs reuse cached artifacts for
+	`custom_rules`, `containers`, and `mcp_configs`
+- browser footprint detection remains uncached in this slice
+- watcher-backed refresh is still future work
+
 The concrete design for that path now lives in
 [incremental-scan-design.md](incremental-scan-design.md). The short version:
 

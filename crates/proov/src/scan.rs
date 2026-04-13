@@ -3,7 +3,7 @@
 //! Runs built-in detectors and custom rule-based detectors,
 //! merging their results into a single report.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 
@@ -15,6 +15,10 @@ use crate::discovery::{
 };
 use crate::models::{ArtifactReport, ScanReport};
 use crate::risk_engine::score_artifact;
+use crate::scan_cache::{
+    build_profile, cache_enabled_for_mode, cacheable_detector, detector_fingerprint,
+    snapshot_candidates, CachedCandidate, ScanCache,
+};
 use crate::verifier::verify;
 
 struct ScanTimings {
@@ -120,6 +124,39 @@ pub fn run_scan(
     // 2. Run built-in (native) detectors
     tick(&format!("Scanning {} files…", candidates.len()));
     let detectors = get_all_detectors(mode);
+    let cached_candidates = snapshot_candidates(&candidates);
+    let mut scan_cache = if cache_enabled_for_mode(mode) {
+        match ScanCache::open_default() {
+            Ok(cache) => Some(cache),
+            Err(e) => {
+                eprintln!("Warning: scan-cache disabled: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let cache_profile = scan_cache.as_ref().map(|_| {
+        build_profile(
+            mode,
+            deep,
+            &scanned_path,
+            &detectors
+                .iter()
+                .map(|detector| detector.name().to_string())
+                .collect::<Vec<_>>(),
+            &crate::rule_engine::rules_fingerprint(),
+        )
+    });
+    if let (Some(cache), Some(profile)) = (scan_cache.as_mut(), cache_profile.as_ref()) {
+        if let Err(e) = cache.upsert_profile(profile) {
+            eprintln!("Warning: failed to initialize scan-cache profile: {e}");
+        }
+        if let Err(e) = cache.upsert_file_states(&profile.profile_key, &cached_candidates) {
+            eprintln!("Warning: failed to record scan-cache file states: {e}");
+        }
+    }
+
     let mut artifacts: Vec<ArtifactReport> = Vec::new();
     for (i, detector) in detectors.iter().enumerate() {
         tick(&format!(
@@ -130,6 +167,42 @@ pub fn run_scan(
         ));
         let detector_started_at = Instant::now();
         let before_len = artifacts.len();
+        let detector_name = detector.name();
+        if let (Some(cache), Some(profile)) = (scan_cache.as_mut(), cache_profile.as_ref()) {
+            if cacheable_detector(detector_name) {
+                match reuse_detector_results(
+                    cache,
+                    profile,
+                    detector.as_ref(),
+                    &cached_candidates,
+                    deep,
+                    &mut artifacts,
+                ) {
+                    Ok(cache_stats) => {
+                        timings.emit(
+                            "detector",
+                            &format!(
+                                "index={}/{} name={} new_artifacts={} cache_hits={} cache_misses={}",
+                                i + 1,
+                                detectors.len(),
+                                detector_name,
+                                artifacts.len() - before_len,
+                                cache_stats.hit_files,
+                                cache_stats.miss_files,
+                            ),
+                            detector_started_at,
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: detector cache disabled for {} during this run: {e}",
+                            detector_name
+                        );
+                    }
+                }
+            }
+        }
         artifacts.extend(detector.detect(&candidates, deep));
         timings.emit(
             "detector",
@@ -176,6 +249,85 @@ pub fn run_scan(
     let mut report = ScanReport::new(&scanned_path);
     report.artifacts = artifacts;
     report
+}
+
+struct DetectorCacheStats {
+    hit_files: usize,
+    miss_files: usize,
+}
+
+fn reuse_detector_results(
+    cache: &mut ScanCache,
+    profile: &crate::scan_cache::ScanCacheProfile,
+    detector: &dyn crate::detectors::base::Detector,
+    candidates: &[CachedCandidate],
+    deep: bool,
+    all_artifacts: &mut Vec<ArtifactReport>,
+) -> Result<DetectorCacheStats, String> {
+    let detector_name = detector.name();
+    let detector_fingerprint = detector_fingerprint(detector_name);
+    let cached_bundles = cache.load_detector_bundles(&profile.profile_key, detector_name)?;
+    let mut misses = Vec::new();
+    let mut miss_candidates = Vec::new();
+    let mut hit_files = 0;
+
+    for candidate in candidates {
+        let Some(file_state) = &candidate.file_state else {
+            misses.push(candidate.clone());
+            miss_candidates.push(candidate.candidate.clone());
+            continue;
+        };
+
+        match cached_bundles.get(&file_state.canonical_path) {
+            Some(bundle)
+                if bundle.file_state_key == file_state.state_key
+                    && bundle.detector_fingerprint == detector_fingerprint =>
+            {
+                all_artifacts.extend(bundle.artifacts.clone());
+                hit_files += 1;
+            }
+            _ => {
+                misses.push(candidate.clone());
+                miss_candidates.push(candidate.candidate.clone());
+            }
+        }
+    }
+
+    let fresh_artifacts = detector.detect(&miss_candidates, deep);
+    let artifacts_by_path = group_artifacts_by_path(&fresh_artifacts);
+    cache.persist_detector_results(
+        &profile.profile_key,
+        detector_name,
+        &detector_fingerprint,
+        &misses,
+        &artifacts_by_path,
+    )?;
+    all_artifacts.extend(fresh_artifacts);
+
+    Ok(DetectorCacheStats {
+        hit_files,
+        miss_files: misses.len(),
+    })
+}
+
+fn group_artifacts_by_path(artifacts: &[ArtifactReport]) -> HashMap<String, Vec<ArtifactReport>> {
+    let mut grouped = HashMap::new();
+    for artifact in artifacts {
+        let Some(path) = artifact
+            .metadata
+            .get("paths")
+            .and_then(|value| value.as_array())
+            .and_then(|paths| paths.first())
+            .and_then(|value| value.as_str())
+        else {
+            continue;
+        };
+        grouped
+            .entry(path.to_string())
+            .or_insert_with(Vec::new)
+            .push(artifact.clone());
+    }
+    grouped
 }
 
 // ---------------------------------------------------------------------------

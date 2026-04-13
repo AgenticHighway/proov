@@ -6,6 +6,7 @@
 
 use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,22 @@ const RESERVED_ARTIFACT_TYPES: &[&str] = &[
     "container_config",
     "container_candidate",
     "browser_footprint",
+];
+
+const BUILTIN_RULE_SOURCES: &[(&str, &str)] = &[
+    (
+        "cursor-rules",
+        include_str!("../../../rules/cursor-rules.toml"),
+    ),
+    ("agents-md", include_str!("../../../rules/agents-md.toml")),
+    (
+        "prompt-configs",
+        include_str!("../../../rules/prompt-configs.toml"),
+    ),
+    (
+        "prompt-configs-weak",
+        include_str!("../../../rules/prompt-configs-weak.toml"),
+    ),
 ];
 
 #[derive(Copy, Clone)]
@@ -124,24 +141,8 @@ fn default_boost_threshold() -> usize {
 /// prompt_config). They are always active and cannot be overridden by user
 /// rules in `~/.ahscan/rules/`.
 pub fn load_builtin_rules() -> Vec<DetectionRule> {
-    const SOURCES: &[(&str, &str)] = &[
-        (
-            "cursor-rules",
-            include_str!("../../../rules/cursor-rules.toml"),
-        ),
-        ("agents-md", include_str!("../../../rules/agents-md.toml")),
-        (
-            "prompt-configs",
-            include_str!("../../../rules/prompt-configs.toml"),
-        ),
-        (
-            "prompt-configs-weak",
-            include_str!("../../../rules/prompt-configs-weak.toml"),
-        ),
-    ];
-
     let mut rules = Vec::new();
-    for (name, content) in SOURCES {
+    for (name, content) in BUILTIN_RULE_SOURCES {
         match parse_rule_content_for_source(content, RuleSource::Builtin) {
             Ok(rule) => rules.push(rule),
             Err(e) => eprintln!("Warning: built-in rule '{name}' failed to parse: {e}"),
@@ -153,6 +154,48 @@ pub fn load_builtin_rules() -> Vec<DetectionRule> {
 /// Default rules directory: `~/.ahscan/rules/`
 pub fn default_rules_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ahscan").join("rules"))
+}
+
+pub fn rules_fingerprint() -> String {
+    let mut hasher = Sha256::new();
+
+    for (name, content) in BUILTIN_RULE_SOURCES {
+        hasher.update(name.as_bytes());
+        hasher.update([0]);
+        hasher.update(content.as_bytes());
+        hasher.update([0xff]);
+    }
+
+    if let Some(dir) = default_rules_dir() {
+        let mut entries = Vec::new();
+        if let Ok(read_dir) = fs::read_dir(&dir) {
+            for entry in read_dir.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+                    continue;
+                }
+                let Ok(metadata) = fs::symlink_metadata(&path) else {
+                    continue;
+                };
+                if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+                    continue;
+                }
+                entries.push(path);
+            }
+        }
+
+        entries.sort();
+        for path in entries {
+            hasher.update(path.to_string_lossy().as_bytes());
+            hasher.update([0]);
+            if let Ok(content) = fs::read(&path) {
+                hasher.update(content);
+            }
+            hasher.update([0xfe]);
+        }
+    }
+
+    format!("{:x}", hasher.finalize())
 }
 
 /// Load all `.toml` rule files from a directory.

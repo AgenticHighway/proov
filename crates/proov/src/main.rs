@@ -22,6 +22,7 @@ mod risk_engine;
 mod rule_engine;
 mod rules;
 mod scan;
+mod scan_cache;
 mod setup;
 mod source_analysis;
 mod source_patterns;
