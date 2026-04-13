@@ -2,7 +2,10 @@ use crate::content_patterns::scan_secret_signals;
 use crate::discovery::Candidate;
 use crate::models::{ArtifactReport, CONTENT_READ_ALLOWLIST, CONTENT_READ_GLOB_PATTERNS};
 use crate::source_patterns::{
-    json_secret_patterns, json_url_patterns, should_skip_json_config, MAX_JSON_CONFIG_BYTES,
+    cognitive_file_names, cognitive_target_function_pattern, internal_hostname_context_pattern,
+    json_secret_patterns, json_url_patterns, link_local_ip_pattern, network_call_pattern,
+    private_ip_pattern, sensitive_path_patterns, should_skip_json_config, source_context_patterns,
+    write_function_pattern, MAX_JSON_CONFIG_BYTES, MAX_SOURCE_ANALYSIS_BYTES,
 };
 use glob::Pattern;
 use serde_json::json;
@@ -191,6 +194,25 @@ pub(crate) fn scan_json_config_file(path: &Path) -> Vec<SourceFinding> {
     scan_json_config_content(path, &content)
 }
 
+pub(crate) fn scan_source_file(path: &Path) -> Vec<SourceFinding> {
+    if !is_supported_source_file(path) {
+        return Vec::new();
+    }
+
+    if fs::metadata(path)
+        .map(|metadata| metadata.len() > MAX_SOURCE_ANALYSIS_BYTES as u64)
+        .unwrap_or(false)
+    {
+        return Vec::new();
+    }
+
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+
+    scan_source_content(path, &content)
+}
+
 fn scan_json_config_content(path: &Path, content: &str) -> Vec<SourceFinding> {
     let mut findings = Vec::new();
     let mut seen_signals: BTreeSet<String> = BTreeSet::new();
@@ -244,6 +266,174 @@ fn scan_json_config_content(path: &Path, content: &str) -> Vec<SourceFinding> {
             .then_with(|| left.line.cmp(&right.line))
     });
     findings
+}
+
+fn scan_source_content(path: &Path, content: &str) -> Vec<SourceFinding> {
+    let mut findings = Vec::new();
+    let mut seen_signals: BTreeSet<String> = BTreeSet::new();
+    let lines: Vec<&str> = content.lines().collect();
+
+    for (line_index, line) in lines.iter().enumerate() {
+        for pattern in source_context_patterns() {
+            if let Some(matched) = pattern.regex.find(line) {
+                if !has_nonliteral_call_argument(pattern.signal, line, matched.end()) {
+                    continue;
+                }
+                push_finding(
+                    &mut findings,
+                    &mut seen_signals,
+                    SourceFinding {
+                        family: "dynamic_execution",
+                        signal: pattern.signal.to_string(),
+                        path: path.to_path_buf(),
+                        line: Some(line_index + 1),
+                        summary: pattern.summary.to_string(),
+                    },
+                );
+            }
+        }
+
+        if network_call_pattern().is_match(line)
+            && (private_ip_pattern().is_match(line) || link_local_ip_pattern().is_match(line))
+        {
+            push_finding(
+                &mut findings,
+                &mut seen_signals,
+                SourceFinding {
+                    family: "network_context",
+                    signal: "source:ssrf_private_ip".to_string(),
+                    path: path.to_path_buf(),
+                    line: Some(line_index + 1),
+                    summary: "Network call targets a private or link-local address".to_string(),
+                },
+            );
+        }
+
+        if internal_hostname_context_pattern().is_match(line) {
+            push_finding(
+                &mut findings,
+                &mut seen_signals,
+                SourceFinding {
+                    family: "network_context",
+                    signal: "source:ssrf_internal_host".to_string(),
+                    path: path.to_path_buf(),
+                    line: Some(line_index + 1),
+                    summary: "Network call targets an internal-only hostname".to_string(),
+                },
+            );
+        }
+
+        for pattern in sensitive_path_patterns() {
+            if pattern.regex.is_match(line) {
+                push_finding(
+                    &mut findings,
+                    &mut seen_signals,
+                    SourceFinding {
+                        family: "sensitive_path",
+                        signal: pattern.signal.to_string(),
+                        path: path.to_path_buf(),
+                        line: Some(line_index + 1),
+                        summary: pattern.summary.to_string(),
+                    },
+                );
+            }
+        }
+    }
+
+    scan_cognitive_file_findings(path, content, &lines, &mut findings, &mut seen_signals);
+
+    findings.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.signal.cmp(&right.signal))
+            .then_with(|| left.line.cmp(&right.line))
+    });
+    findings
+}
+
+fn scan_cognitive_file_findings(
+    path: &Path,
+    content: &str,
+    lines: &[&str],
+    findings: &mut Vec<SourceFinding>,
+    seen_signals: &mut BTreeSet<String>,
+) {
+    let lowered_content = content.to_ascii_lowercase();
+    let matched_file = cognitive_file_names().iter().find_map(|name| {
+        lowered_content
+            .contains(name)
+            .then(|| (*name, find_line_for_substring(lines, name)))
+    });
+
+    if let Some((name, line)) = matched_file {
+        if write_function_pattern().is_match(content) {
+            push_finding(
+                findings,
+                seen_signals,
+                SourceFinding {
+                    family: "cognitive_file",
+                    signal: "cognitive_tampering:file_write".to_string(),
+                    path: path.to_path_buf(),
+                    line,
+                    summary: format!("Source references and may write agent identity file {name}"),
+                },
+            );
+        }
+    }
+
+    for (index, line) in lines.iter().enumerate() {
+        let lowered_line = line.to_ascii_lowercase();
+        if !cognitive_target_function_pattern().is_match(line) {
+            continue;
+        }
+
+        if let Some(name) = cognitive_file_names()
+            .iter()
+            .find(|candidate| lowered_line.contains(**candidate))
+        {
+            push_finding(
+                findings,
+                seen_signals,
+                SourceFinding {
+                    family: "cognitive_file",
+                    signal: "cognitive_tampering:file_target".to_string(),
+                    path: path.to_path_buf(),
+                    line: Some(index + 1),
+                    summary: format!("Source targets agent identity file {name}"),
+                },
+            );
+        }
+    }
+}
+
+fn find_line_for_substring(lines: &[&str], needle: &str) -> Option<usize> {
+    lines.iter().enumerate().find_map(|(index, line)| {
+        line.to_ascii_lowercase()
+            .contains(needle)
+            .then_some(index + 1)
+    })
+}
+
+fn push_finding(
+    findings: &mut Vec<SourceFinding>,
+    seen_signals: &mut BTreeSet<String>,
+    finding: SourceFinding,
+) {
+    if seen_signals.insert(finding.signal.clone()) {
+        findings.push(finding);
+    }
+}
+
+fn has_nonliteral_call_argument(signal: &str, line: &str, call_end: usize) -> bool {
+    let trimmed = line[call_end..].trim_start();
+    let Some(first) = trimmed.chars().next() else {
+        return false;
+    };
+
+    match signal {
+        "source:nonliteral_spawn" => !matches!(first, '\'' | '"' | '['),
+        _ => !matches!(first, '\'' | '"'),
+    }
 }
 
 fn line_number_for_offset(content: &str, offset: usize) -> usize {
@@ -429,5 +619,103 @@ mod tests {
         .unwrap();
 
         assert!(scan_json_config_file(&config_path).is_empty());
+    }
+
+    #[test]
+    fn scan_source_file_detects_contextual_dynamic_execution_and_ssrf() {
+        let temp = tempdir().unwrap();
+        let source_path = temp.path().join("main.ts");
+        fs::write(
+            &source_path,
+            r#"
+const loader = pluginName;
+await import(loader);
+require(runtimeModule);
+spawn(commandName, args);
+fetch("http://10.0.0.7/token");
+request("http://service.internal.example/collect");
+"#,
+        )
+        .unwrap();
+
+        let findings = scan_source_file(&source_path);
+
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "source:dynamic_import"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "source:nonliteral_require"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "source:nonliteral_spawn"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "source:ssrf_private_ip"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "source:ssrf_internal_host"));
+    }
+
+    #[test]
+    fn scan_source_file_ignores_literal_imports_and_non_network_internal_strings() {
+        let temp = tempdir().unwrap();
+        let source_path = temp.path().join("safe.ts");
+        fs::write(
+            &source_path,
+            r#"
+await import("./safe-module");
+require("./config");
+spawn("ls", ["-la"]);
+const label = "internal process notes";
+const ip = "10.0.0.7";
+"#,
+        )
+        .unwrap();
+
+        let findings = scan_source_file(&source_path);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn scan_source_file_detects_sensitive_path_access() {
+        let temp = tempdir().unwrap();
+        let source_path = temp.path().join("steal.py");
+        fs::write(
+            &source_path,
+            r#"
+open("/proc/self/environ").read()
+readFileSync("~/.aws/credentials")
+"#,
+        )
+        .unwrap();
+
+        let findings = scan_source_file(&source_path);
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "source:sensitive_path_access"));
+    }
+
+    #[test]
+    fn scan_source_file_detects_cognitive_file_target_and_write() {
+        let temp = tempdir().unwrap();
+        let source_path = temp.path().join("agent.ts");
+        fs::write(
+            &source_path,
+            r#"
+const promptFile = "AGENTS.md";
+readFileSync(".cursorrules", "utf8");
+await writeFile(promptFile, "new behavior");
+"#,
+        )
+        .unwrap();
+
+        let findings = scan_source_file(&source_path);
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "cognitive_tampering:file_target"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "cognitive_tampering:file_write"));
     }
 }

@@ -11,6 +11,7 @@ Adapted material currently incorporated into proov:
 - secrets detection patterns adapted from Cisco DefenseClaw
 - SSRF and cognitive tampering patterns adapted from Cisco DefenseClaw
 - JSON config secret and suspicious URL patterns adapted from Cisco DefenseClaw
+- source dynamic-execution, sensitive-path, and cognitive-file heuristics adapted from Cisco DefenseClaw
 
 ## DefenseClaw attribution
 
@@ -42,10 +43,17 @@ Imported pattern families:
 - unicode steganography and encoded-instruction detection patterns
 - JSON credential key/value and credential connection-string patterns
 - JSON metadata/localhost, internal-only, and collector/C2 URL patterns
+- source dynamic import, non-literal require, and non-literal process execution patterns
+- network-context private-IP and internal-hostname source heuristics
+- sensitive local credential-path and `/proc/*/environ` source heuristics
+- cognitive / identity file targeting and write-operation source heuristics
 
 Remaining planned import scope:
 
-- no additional DefenseClaw pattern families are recorded in this notice yet
+- none for proov's current mission; PII, generic vulnerability/codeguard,
+  malware or reverse-shell signatures, and broader standalone exfiltration or
+  DNS-tunneling families are explicitly out of scope per
+  `docs/defenseclaw-scope-decision.md`
 
 Additional upstream source files under review:
 

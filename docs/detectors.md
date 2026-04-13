@@ -116,9 +116,11 @@ This detector emits a single aggregated `source_risk_surface` artifact instead o
 Current bounded behavior:
 
 - considers at most 512 supported source/JSON candidates per scan
+- scans source and JSON content up to 256 KiB per file
 - scans JSON config content up to 256 KiB per file
 - skips noisy JSON metadata files such as `package.json`, `package-lock.json`, `tsconfig.json`, and `openclaw.plugin.json`
 - reuses the shared secret engine plus JSON-specific heuristics for credential-shaped key/value pairs, embedded credential connection strings, metadata/localhost URLs, internal-only URLs, and known collector/C2 destinations
+- adds bounded source heuristics for non-literal `import()` / `require()` / process execution, network-context private or internal SSRF targets, sensitive local credential paths, and cognitive identity-file targeting or writes
 
 **Metadata contract:**
 
@@ -168,7 +170,7 @@ Each candidate has:
 
 ### Content reading limit
 
-Most detectors respect an 8 KB content limit for keyword scanning. The `source_risks` detector is the current exception: it does not do generic keyword scanning, but it will read individual JSON configs up to 256 KiB to run bounded secret and suspicious-URL heuristics. File primitives (`content_hash`, `file_size_bytes`) are still computed from the complete file.
+Most detectors respect an 8 KB content limit for keyword scanning. The `source_risks` detector is the current exception: it does not do generic keyword scanning, but it will read individual supported source and JSON files up to 256 KiB to run bounded source-analysis, secret, and suspicious-URL heuristics. File primitives (`content_hash`, `file_size_bytes`) are still computed from the complete file.
 
 ## Signals
 
@@ -186,6 +188,9 @@ Signals are string tags that describe what a detector found. They follow a namin
 | `credential_references`      | `credential_references`            | Credential keywords in MCP config    |
 | `ai_artifact_proximity`      | `ai_artifact_proximity`            | Container near AI artifact files     |
 | `ai_token:<token>`           | `ai_token:langchain`               | AI-relevance token in container file |
+| `source:<kind>`              | `source:nonliteral_spawn`          | Aggregated source-analysis heuristic |
+| `json_config:<kind>`         | `json_config:c2_url`               | Aggregated JSON config heuristic     |
+| `cognitive_tampering:<kind>` | `cognitive_tampering:file_write`   | Source or prompt tampering signal    |
 
 ## Adding a new built-in detector
 
