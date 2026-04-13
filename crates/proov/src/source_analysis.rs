@@ -89,11 +89,10 @@ pub(crate) fn build_source_risk_surface(
     signals.dedup();
     artifact.signals = signals;
 
-    let top_risky_files: Vec<String> = file_counts
-        .into_iter()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .sorted_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)))
+    let mut ranked_files: Vec<_> = file_counts.into_iter().collect();
+    ranked_files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    let top_risky_files: Vec<String> = ranked_files
         .into_iter()
         .take(5)
         .map(|(path, _)| path)
@@ -444,19 +443,6 @@ fn line_number_for_offset(content: &str, offset: usize) -> usize {
         + 1
 }
 
-trait SortedBy: Iterator + Sized {
-    fn sorted_by<F>(self, compare: F) -> Vec<Self::Item>
-    where
-        F: FnMut(&Self::Item, &Self::Item) -> std::cmp::Ordering,
-    {
-        let mut items: Vec<Self::Item> = self.collect();
-        items.sort_by(compare);
-        items
-    }
-}
-
-impl<I: Iterator> SortedBy for I {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,6 +535,48 @@ mod tests {
         assert_eq!(
             artifact.metadata["top_risky_files"][0],
             "/project/src/main.ts"
+        );
+    }
+
+    #[test]
+    fn build_source_risk_surface_sorts_top_risky_files_by_count_then_path() {
+        let findings = vec![
+            SourceFinding {
+                family: "dynamic_execution",
+                signal: "source:nonliteral_spawn".to_string(),
+                path: PathBuf::from("/project/src/b.ts"),
+                line: Some(3),
+                summary: "spawn with non-literal command".to_string(),
+            },
+            SourceFinding {
+                family: "dynamic_execution",
+                signal: "source:nonliteral_spawn".to_string(),
+                path: PathBuf::from("/project/src/a.ts"),
+                line: Some(7),
+                summary: "spawn with non-literal command".to_string(),
+            },
+            SourceFinding {
+                family: "dynamic_execution",
+                signal: "source:nonliteral_spawn".to_string(),
+                path: PathBuf::from("/project/src/a.ts"),
+                line: Some(9),
+                summary: "spawn with non-literal command".to_string(),
+            },
+            SourceFinding {
+                family: "network_context",
+                signal: "source:ssrf_internal_host".to_string(),
+                path: PathBuf::from("/project/src/b.ts"),
+                line: Some(11),
+                summary: "internal hostname in request context".to_string(),
+            },
+        ];
+
+        let artifact =
+            build_source_risk_surface(Path::new("/project"), 2, 0, &findings, false, false);
+
+        assert_eq!(
+            artifact.metadata["top_risky_files"],
+            json!(["/project/src/a.ts", "/project/src/b.ts"])
         );
     }
 
