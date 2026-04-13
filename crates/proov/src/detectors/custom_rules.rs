@@ -10,7 +10,7 @@ use crate::models::{
 };
 use crate::rule_engine::{
     default_rules_dir, load_builtin_rules, load_rules_from_dir, matches_rule, scan_rule_keywords,
-    DetectionRule,
+    scan_rule_patterns, DetectionRule,
 };
 
 use super::base::Detector;
@@ -98,6 +98,16 @@ fn apply_rule(candidate: &Candidate, rule: &DetectionRule, deep: bool) -> Option
                 }
             }
 
+            if let Some(ref patterns) = rule.patterns {
+                let (pattern_signals, pattern_count) = scan_rule_patterns(&content, patterns);
+                signals.extend(pattern_signals);
+                if pattern_count >= patterns.boost_threshold {
+                    if let Some(boost) = patterns.boost_confidence {
+                        confidence = confidence.max(boost);
+                    }
+                }
+            }
+
             // Deep keywords (only in deep mode)
             if deep {
                 if let Some(ref dk) = rule.deep_keywords {
@@ -105,6 +115,16 @@ fn apply_rule(candidate: &Candidate, rule: &DetectionRule, deep: bool) -> Option
                     signals.extend(dk_signals);
                     if dk_count >= dk.boost_threshold {
                         if let Some(boost) = dk.boost_confidence {
+                            confidence = confidence.max(boost);
+                        }
+                    }
+                }
+
+                if let Some(ref patterns) = rule.deep_patterns {
+                    let (pattern_signals, pattern_count) = scan_rule_patterns(&content, patterns);
+                    signals.extend(pattern_signals);
+                    if pattern_count >= patterns.boost_threshold {
+                        if let Some(boost) = patterns.boost_confidence {
                             confidence = confidence.max(boost);
                         }
                     }

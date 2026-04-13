@@ -54,10 +54,22 @@ signals_prefix = "keyword"
 boost_confidence = 0.85
 boost_threshold = 1
 
+[patterns]
+patterns = ["(?i)ignore\\s+previous\\s+instructions"]
+signals_prefix = "pattern"
+boost_confidence = 0.9
+boost_threshold = 1
+
 [deep_keywords]
 keywords = ["api_key", "secret", "token"]
 signals_prefix = "deep_keyword"
 boost_confidence = 0.9
+boost_threshold = 1
+
+[deep_patterns]
+patterns = ["(?i)169\\.254\\.169\\.254"]
+signals_prefix = "deep_pattern"
+boost_confidence = 0.95
 boost_threshold = 1
 ```
 
@@ -96,6 +108,21 @@ Filename matching is **case-insensitive**. Glob patterns (using `*`) are support
 
 Same format as `[keywords]`, but only applied in deep scan mode (`proov repo`, `proov full`).
 
+#### `[patterns]` (optional)
+
+| Field              | Type     | Description                                        |
+| ------------------ | -------- | -------------------------------------------------- |
+| `patterns`         | string[] | Rust-regex patterns to search for in file content  |
+| `signals_prefix`   | string   | Signal prefix (default: `"pattern"`)               |
+| `boost_confidence` | float    | Confidence to boost to when threshold is met       |
+| `boost_threshold`  | int      | Minimum regex hits to trigger boost (default: 1)   |
+
+Regex patterns are validated when rules are loaded. Invalid patterns are rejected before scanning.
+
+#### `[deep_patterns]` (optional)
+
+Same format as `[patterns]`, but only applied in deep scan mode (`proov repo`, `proov full`).
+
 ## How it works
 
 When the scanner runs:
@@ -104,7 +131,7 @@ When the scanner runs:
 2. Each candidate file is checked against all rules
 3. If a filename matches, the rule fires with the base confidence
 4. If content reading is allowed for that file type, keywords are scanned
-5. Keyword matches boost confidence and add signals
+5. Keywords and regex patterns can boost confidence and add signals
 6. The resulting artifact gets scored and verified like any built-in finding
 
 Rules produce the same `ArtifactReport` structures as built-in detectors. Risk scoring, verification, and output formatting all apply normally.
@@ -117,10 +144,11 @@ To check if a file type is on the allowlist, look at `CONTENT_READ_ALLOWLIST` an
 
 ## Signal naming
 
-Rules generate signals in the format `{prefix}:{keyword}`:
+Rules generate signals in the format `{prefix}:{keyword_or_pattern}`:
 
 - `keyword:openai` — from the `[keywords]` section
 - `deep_keyword:api_key` — from the `[deep_keywords]` section
+- `pattern:(?i)ignore\s+previous\s+instructions` — from the `[patterns]` section
 - `filename_match:main.tf` — auto-generated on match
 
 These signals feed into the risk engine and verifier. Use the same signal patterns as built-in detectors when possible (see [detectors.md](detectors.md) for conventions).
@@ -169,7 +197,9 @@ Current guardrails include:
 - built-in artifact types are reserved and cannot be reused by user rules
 - confidence values must stay in the range `0.0..=1.0`
 - keyword blocks have size limits and non-empty keyword requirements
+- regex pattern blocks have size and count limits and are compiled during validation
 - `signals_prefix` must be a short lowercase identifier
+- `filename_match`, `secret`, `ssrf`, and `cognitive_tampering` are reserved signal prefixes
 - symlinked rule files are rejected
 - non-regular `.toml` entries in the rules directory are ignored
 
