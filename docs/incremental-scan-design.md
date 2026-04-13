@@ -4,11 +4,10 @@ This document captures the design for issue `#59`.
 
 Status:
 
-- design-first only
-- no cache implementation is introduced in this slice
-- the goal is to define a concrete path for making repeated `quick` and `scan`
-  runs incremental rather than repeatedly rediscovering and rescanning the
-  same unchanged files
+- phase 1 stat-cache implementation now exists for `quick` and `scan`
+- watcher-backed refresh remains future work
+- this document still defines the broader roadmap beyond the shipped first
+  slice
 
 ## Why this exists
 

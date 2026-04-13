@@ -67,6 +67,7 @@ proov/
 │   │       ├── updater.rs    # Signed manifest update flow
 │   │       ├── lite_mode.rs  # Free-tier output limiting
 │   │       ├── capabilities.rs # Signal-to-capability mapping
+│   │       ├── scan_cache.rs # Persistent cache for repeated quick/scan runs
 │   │       └── progress.rs   # Progress indicator
 ├── examples/
 │   └── rules/                # Example custom detection rules (.toml)
@@ -166,19 +167,24 @@ These modules never touch the filesystem, network, or terminal. They are safe to
 
 These modules interact with the outside world:
 
-| Module                | Side effect                                                               |
-| --------------------- | ------------------------------------------------------------------------- |
-| `discovery.rs`        | Reads filesystem (directory walking)                                      |
-| `detectors/*`         | Read file contents                                                        |
-| `submit.rs`           | HTTP POST, read/write config files                                        |
-| `identity.rs`         | Read/write UUID files in ~/.ahscan/                                       |
-| `network_evidence.rs` | Runs macOS firewall commands                                              |
-| `updater.rs`          | HTTP GET to hosted signed release metadata + artifact download            |
-| `contract_sync.rs`    | HTTP GET contract version from server, local cache in ~/.ahscan/contract/ |
-| Planned incremental cache | Future local scan-state cache in `~/.ahscan/scan-cache/` (see [incremental-scan-design.md](incremental-scan-design.md)) |
-| `setup.rs`            | Interactive prompts + config file writes                                  |
-| `wizard.rs`           | Interactive terminal UI                                                   |
-| `progress.rs`         | Writes to stderr                                                          |
+| Module                    | Side effect                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `discovery.rs`            | Reads filesystem (directory walking)                                                                                    |
+| `detectors/*`             | Read file contents                                                                                                      |
+| `submit.rs`               | HTTP POST, read/write config files                                                                                      |
+| `identity.rs`             | Read/write UUID files in ~/.ahscan/                                                                                     |
+| `network_evidence.rs`     | Runs macOS firewall commands                                                                                            |
+| `updater.rs`              | HTTP GET to hosted signed release metadata + artifact download                                                          |
+| `contract_sync.rs`        | HTTP GET contract version from server, local cache in ~/.ahscan/contract/                                               |
+| `scan_cache.rs`           | Local SQLite-backed cache in `~/.ahscan/scan-cache/` for repeated `quick` / `scan` detector reuse                                  |
+| `setup.rs`                | Interactive prompts + config file writes                                                                                |
+| `wizard.rs`               | Interactive terminal UI                                                                                                 |
+| `progress.rs`             | Writes to stderr                                                                                                        |
+
+For `quick` and default `scan`, `scan.rs` now also opens the local scan cache,
+records the current scan profile and file states, and reuses cached detector
+outputs for unchanged file-backed candidates before falling back to live
+detector execution.
 
 ### Orchestration
 
