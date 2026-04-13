@@ -1,6 +1,6 @@
-use crate::scan_cache::ScanCache;
 #[cfg(target_os = "macos")]
 use crate::scan_cache::RootCursor;
+use crate::scan_cache::ScanCache;
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::path::Path;
