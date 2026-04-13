@@ -305,7 +305,7 @@ impl ScanCache {
 }
 
 pub fn cache_enabled_for_mode(mode: &str) -> bool {
-    matches!(mode, "host" | "scan")
+    matches!(mode, "host" | "scan" | "workdir")
 }
 
 pub fn cacheable_detector(detector_name: &str) -> bool {
@@ -494,5 +494,34 @@ mod tests {
         assert_eq!(bundle.artifacts.len(), 1);
         assert_eq!(bundle.artifacts[0].artifact_type, artifact.artifact_type);
         assert_eq!(bundle.artifacts[0].artifact_hash, artifact.artifact_hash);
+    }
+
+    #[test]
+    fn cache_enabled_for_workdir_mode() {
+        assert!(cache_enabled_for_mode("host"));
+        assert!(cache_enabled_for_mode("scan"));
+        assert!(cache_enabled_for_mode("workdir"));
+        assert!(!cache_enabled_for_mode("file"));
+        assert!(!cache_enabled_for_mode("root"));
+    }
+
+    #[test]
+    fn build_profile_distinguishes_workdir_depth() {
+        let shallow = build_profile(
+            "workdir",
+            false,
+            "/tmp/project",
+            &["custom_rules".to_string()],
+            "rules",
+        );
+        let deep = build_profile(
+            "workdir",
+            true,
+            "/tmp/project",
+            &["custom_rules".to_string()],
+            "rules",
+        );
+
+        assert_ne!(shallow.profile_key, deep.profile_key);
     }
 }
