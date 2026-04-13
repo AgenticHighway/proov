@@ -18,6 +18,7 @@ flowchart TD
         ScannerUUID["~/.ahscan/scanner_uuid\n(persistent identity)"]
         RulesDir["~/.ahscan/rules/*.toml\n(custom detection rules)"]
         ContractCache["~/.ahscan/contract/\n(cached schema + version)"]
+        ScanCache["~/.ahscan/scan-cache/\n(planned incremental cache +\nroot cursors)"]
         UpdateFiles["~/.ahscan/downloads/\n~/.ahscan/proov.backup"]
         AccessFile[".ahscan.toml\n(access mode + endpoint overrides)"]
         ReportFiles["proov-report.json /\nproov-contract.json /\ncustom output path"]
@@ -36,6 +37,7 @@ flowchart TD
     CLI -->|"reads access settings"| AccessFile
     ScanEngine -->|"reads candidates"| FS
     ScanEngine -->|"loads rules"| RulesDir
+    ScanEngine -.->|"future incremental reuse"| ScanCache
     ScanEngine -->|"produces ScanReport"| OutputLayer
     OutputLayer -->|"writes local reports"| ReportFiles
     OutputLayer -->|"submits when requested"| Submission
@@ -61,4 +63,4 @@ flowchart TD
 | Submission Pipeline | ureq (HTTP)          | Build contract payloads, resolve auth, sync contract version, submit payload |
 | Self-Updater        | ureq + flate2/tar    | Verify signed manifests, download platform archives, verify SHA-256, swap binary |
 | Rule Engine         | toml + validation    | Load, validate, install custom `.toml` detection rules                       |
-| Local Storage       | Filesystem           | Persist identity, auth, rules, access settings, contract cache, update temp files |
+| Local Storage       | Filesystem           | Persist identity, auth, rules, access settings, contract cache, planned scan cache, update temp files |
