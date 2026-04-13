@@ -15,7 +15,19 @@ fn read_utf8_head(path: &Path, max_bytes: usize) -> Option<String> {
     let mut limited = file.take(max_bytes as u64);
     let mut bytes = Vec::with_capacity(max_bytes);
     limited.read_to_end(&mut bytes).ok()?;
-    String::from_utf8(bytes).ok()
+    match String::from_utf8(bytes) {
+        Ok(content) => Some(content),
+        Err(err) => {
+            let valid_up_to = err.utf8_error().valid_up_to();
+            if valid_up_to == 0 {
+                return None;
+            }
+            let bytes = err.into_bytes();
+            std::str::from_utf8(&bytes[..valid_up_to])
+                .ok()
+                .map(str::to_owned)
+        }
+    }
 }
 
 pub fn get_all_detectors(mode: &str) -> Vec<Box<dyn Detector>> {
@@ -89,6 +101,28 @@ mod tests {
         let content = read_utf8_head(&path, 8).unwrap();
 
         assert_eq!(content, "abcdefgh");
+    }
+
+    #[test]
+    fn read_utf8_head_preserves_complete_multibyte_prefixes() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("artifact.txt");
+        std::fs::write(&path, "ééé").unwrap();
+
+        let content = read_utf8_head(&path, 4).unwrap();
+
+        assert_eq!(content, "éé");
+    }
+
+    #[test]
+    fn read_utf8_head_drops_partial_multibyte_suffix() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("artifact.txt");
+        std::fs::write(&path, "1234567€").unwrap();
+
+        let content = read_utf8_head(&path, 8).unwrap();
+
+        assert_eq!(content, "1234567");
     }
 
     #[cfg(unix)]
