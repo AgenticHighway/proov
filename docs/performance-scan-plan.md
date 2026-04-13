@@ -141,16 +141,20 @@ Longer-term, normal scans should reuse cached metadata and eventually integrate
 OS-native file change feeds so unchanged files do not get rescanned every run.
 
 The first implementation slices are now in code for `quick`, default `scan`,
-and repeated explicit `folder` / `repo` scans:
+explicit `file`, and repeated explicit `folder` / `repo` scans:
 
 - repeated runs persist scan profiles, file states, and detector output in
   `~/.ahscan/scan-cache/scan-v1.sqlite3`
 - unchanged file-backed detector inputs reuse cached artifacts for
   `custom_rules`, `containers`, and `mcp_configs`
+- explicit `file` scans now reuse the same cache path, and file-mode
+  `source_risks` participates because it is a deterministic single-file result
+- on macOS, repeated `quick` and `scan` runs now also persist root replay
+  cursors so unchanged bounded roots can skip a fresh directory walk entirely
 - explicit `folder` and `repo` scans now reuse the same cache model, keyed by
   the resolved target root plus depth mode
 - browser footprint detection remains uncached in this slice
-- watcher-backed refresh is still future work
+- watcher-backed refresh outside macOS is still future work
 
 The concrete design for that path now lives in
 [incremental-scan-design.md](incremental-scan-design.md). The short version:

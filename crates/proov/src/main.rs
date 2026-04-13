@@ -23,6 +23,7 @@ mod rule_engine;
 mod rules;
 mod scan;
 mod scan_cache;
+mod scan_refresh;
 mod setup;
 mod source_analysis;
 mod source_patterns;

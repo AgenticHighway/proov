@@ -367,6 +367,13 @@ fn discover_direct_files(root: &Path, origin: &str) -> Vec<Candidate> {
         .collect()
 }
 
+pub fn discover_direct_home_files() -> Vec<Candidate> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+    discover_direct_files(&home, "home")
+}
+
 fn extend_unique_candidates(
     candidates: &mut Vec<Candidate>,
     seen: &mut HashSet<PathBuf>,
