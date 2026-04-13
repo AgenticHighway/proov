@@ -47,6 +47,13 @@ Representative baseline on Will's mac after issue #55:
 - `scan --summary`: about 8.0s with about 165 MB peak RSS
 - `full --summary`: about 113s with about 2.27 GB peak RSS
 
+Representative detector-routing improvement from issue #56 against `origin/main`
+using direct `PROOV_TIMINGS=1` release runs on the same machine:
+
+- `quick --json`: `custom_rules` about `269ms -> 52ms`, `containers` about `4ms -> 2ms`, `mcp_configs` about `2ms -> 1ms`
+- `scan --summary`: `custom_rules` about `1976ms -> 436ms`, `containers` about `49ms -> 33ms`, `mcp_configs` about `15ms -> 13ms`
+- sampled `scan_total` moved from about `13.0s` to about `6.2s` on the comparison run, with discovery cost still dominating remaining runtime variance
+
 ## Design constraints
 
 - `proov` should remain local-first and operator-friendly on developer machines

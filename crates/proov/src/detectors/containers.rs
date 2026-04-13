@@ -75,10 +75,10 @@ impl Detector for ContainerDetector {
     }
 
     fn detect(&self, candidates: &[Candidate], _deep: bool) -> Vec<ArtifactReport> {
-        let ai_dirs = build_ai_dir_set(candidates);
+        let (ai_dirs, container_candidates) = build_ai_dir_set_and_container_candidates(candidates);
         let mut results = Vec::new();
 
-        for candidate in candidates {
+        for candidate in container_candidates {
             if let Some(report) = classify_candidate(candidate, &ai_dirs) {
                 results.push(report);
             }
@@ -87,8 +87,11 @@ impl Detector for ContainerDetector {
     }
 }
 
-fn build_ai_dir_set(candidates: &[Candidate]) -> HashSet<PathBuf> {
+fn build_ai_dir_set_and_container_candidates(
+    candidates: &[Candidate],
+) -> (HashSet<PathBuf>, Vec<&Candidate>) {
     let mut dirs = HashSet::new();
+    let mut containers = Vec::new();
     for c in candidates {
         let name = match c.path.file_name().and_then(|n| n.to_str()) {
             Some(n) => n,
@@ -104,8 +107,12 @@ fn build_ai_dir_set(candidates: &[Candidate]) -> HashSet<PathBuf> {
                 dirs.insert(parent.to_path_buf());
             }
         }
+
+        if CONTAINER_FILENAMES.contains(&name) {
+            containers.push(c);
+        }
     }
-    dirs
+    (dirs, containers)
 }
 
 fn classify_candidate(candidate: &Candidate, ai_dirs: &HashSet<PathBuf>) -> Option<ArtifactReport> {
@@ -386,7 +393,7 @@ mod tests {
         std::fs::write(&agents, "# agents").unwrap();
 
         let candidates = vec![candidate(&dockerfile), candidate(&agents)];
-        let ai_dirs = build_ai_dir_set(&candidates);
+        let (ai_dirs, _) = build_ai_dir_set_and_container_candidates(&candidates);
         let report = classify_candidate(&candidates[0], &ai_dirs).unwrap();
 
         assert_eq!(report.artifact_type, "container_candidate");
@@ -412,7 +419,7 @@ mod tests {
         .unwrap();
 
         let candidates = vec![candidate(&dockerfile)];
-        let ai_dirs = build_ai_dir_set(&candidates);
+        let (ai_dirs, _) = build_ai_dir_set_and_container_candidates(&candidates);
         let report = classify_candidate(&candidates[0], &ai_dirs).unwrap();
 
         assert_eq!(report.artifact_type, "container_config");
@@ -434,11 +441,35 @@ mod tests {
         .unwrap();
 
         let candidates = vec![candidate(&compose)];
-        let ai_dirs = build_ai_dir_set(&candidates);
+        let (ai_dirs, _) = build_ai_dir_set_and_container_candidates(&candidates);
         let report = classify_candidate(&candidates[0], &ai_dirs).unwrap();
 
         assert_eq!(report.metadata["container_kind"], "service_orchestration");
         assert_eq!(report.metadata["services"], json!(["web"]));
         assert_eq!(report.metadata["direct_ai_evidence"], true);
+    }
+
+    #[test]
+    fn build_ai_dir_set_and_container_candidates_separates_roles() {
+        let candidates = vec![
+            Candidate {
+                path: PathBuf::from("/project/AGENTS.md"),
+                origin: "workdir".to_string(),
+            },
+            Candidate {
+                path: PathBuf::from("/project/Dockerfile"),
+                origin: "workdir".to_string(),
+            },
+            Candidate {
+                path: PathBuf::from("/project/src/main.rs"),
+                origin: "workdir".to_string(),
+            },
+        ];
+
+        let (ai_dirs, containers) = build_ai_dir_set_and_container_candidates(&candidates);
+
+        assert!(ai_dirs.contains(&PathBuf::from("/project")));
+        assert_eq!(containers.len(), 1);
+        assert!(containers[0].path.ends_with("Dockerfile"));
     }
 }

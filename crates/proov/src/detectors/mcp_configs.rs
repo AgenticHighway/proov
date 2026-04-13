@@ -41,7 +41,10 @@ impl Detector for MCPConfigDetector {
 
     fn detect(&self, candidates: &[Candidate], _deep: bool) -> Vec<ArtifactReport> {
         let mut results = Vec::new();
-        for candidate in candidates {
+        for candidate in candidates
+            .iter()
+            .filter(|candidate| is_mcp_config_candidate(candidate))
+        {
             if let Some(report) = classify_candidate(candidate) {
                 results.push(report);
             }
@@ -50,12 +53,15 @@ impl Detector for MCPConfigDetector {
     }
 }
 
-fn classify_candidate(candidate: &Candidate) -> Option<ArtifactReport> {
-    let name = candidate.path.file_name()?.to_str()?;
-    if !MCP_EXACT_NAMES.contains(&name) {
-        return None;
-    }
+fn is_mcp_config_candidate(candidate: &Candidate) -> bool {
+    candidate
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| MCP_EXACT_NAMES.contains(&name))
+}
 
+fn classify_candidate(candidate: &Candidate) -> Option<ArtifactReport> {
     let content = read_head(&candidate.path)?;
     let mut signals = Vec::new();
     let mut metadata = serde_json::Map::new();
@@ -228,5 +234,20 @@ mod tests {
     fn scan_tokens_finds_matches() {
         let found = scan_tokens("uses npx and python", &["npx", "node", "python"]);
         assert_eq!(found, vec!["npx", "python"]);
+    }
+
+    #[test]
+    fn is_mcp_config_candidate_matches_expected_names() {
+        let candidate = Candidate {
+            path: std::path::PathBuf::from("/tmp/mcp.json"),
+            origin: "host".to_string(),
+        };
+        let other = Candidate {
+            path: std::path::PathBuf::from("/tmp/config.json"),
+            origin: "host".to_string(),
+        };
+
+        assert!(is_mcp_config_candidate(&candidate));
+        assert!(!is_mcp_config_candidate(&other));
     }
 }
