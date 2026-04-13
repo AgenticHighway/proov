@@ -18,7 +18,7 @@ flowchart TD
         ScannerUUID["~/.ahscan/scanner_uuid\n(persistent identity)"]
         RulesDir["~/.ahscan/rules/*.toml\n(custom detection rules)"]
         ContractCache["~/.ahscan/contract/\n(cached schema + version)"]
-        ScanCache["~/.ahscan/scan-cache/\n(SQLite scan profiles, file states,\ndetector artifacts, future root cursors)"]
+        ScanCache["~/.ahscan/scan-cache/\n(SQLite scan profiles, file states,\ndetector artifacts for repeated scans,\nfuture root cursors)"]
         UpdateFiles["~/.ahscan/downloads/\n~/.ahscan/proov.backup"]
         AccessFile[".ahscan.toml\n(access mode + endpoint overrides)"]
         ReportFiles["proov-report.json /\nproov-contract.json /\ncustom output path"]
@@ -55,12 +55,12 @@ flowchart TD
 
 ## Container Responsibilities
 
-| Container           | Technology           | Purpose                                                                      |
-| ------------------- | -------------------- | ---------------------------------------------------------------------------- |
-| CLI Layer           | clap + crossterm     | Parse commands, run wizard/setup/auth/update flows, apply access gating      |
-| Scan Engine         | walkdir + detectors  | Discover filesystem candidates, run detectors, score risk, verify            |
-| Local Output Layer  | serde + ANSI output  | Render terminal output, write JSON files, offer post-scan next steps         |
-| Submission Pipeline | ureq (HTTP)          | Build contract payloads, resolve auth, sync contract version, submit payload |
-| Self-Updater        | ureq + flate2/tar    | Verify signed manifests, download platform archives, verify SHA-256, swap binary |
-| Rule Engine         | toml + validation    | Load, validate, install custom `.toml` detection rules                       |
-| Local Storage       | Filesystem           | Persist identity, auth, rules, access settings, contract cache, scan cache, update temp files |
+| Container           | Technology          | Purpose                                                                                       |
+| ------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| CLI Layer           | clap + crossterm    | Parse commands, run wizard/setup/auth/update flows, apply access gating                       |
+| Scan Engine         | walkdir + detectors | Discover filesystem candidates, run detectors, score risk, verify                             |
+| Local Output Layer  | serde + ANSI output | Render terminal output, write JSON files, offer post-scan next steps                          |
+| Submission Pipeline | ureq (HTTP)         | Build contract payloads, resolve auth, sync contract version, submit payload                  |
+| Self-Updater        | ureq + flate2/tar   | Verify signed manifests, download platform archives, verify SHA-256, swap binary              |
+| Rule Engine         | toml + validation   | Load, validate, install custom `.toml` detection rules                                        |
+| Local Storage       | Filesystem          | Persist identity, auth, rules, access settings, contract cache, scan cache, update temp files |

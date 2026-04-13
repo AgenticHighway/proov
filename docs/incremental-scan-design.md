@@ -4,7 +4,8 @@ This document captures the design for issue `#59`.
 
 Status:
 
-- phase 1 stat-cache implementation now exists for `quick` and `scan`
+- phase 1 stat-cache implementation now exists for `quick`, `scan`, `folder`,
+  and `repo`
 - watcher-backed refresh remains future work
 - this document still defines the broader roadmap beyond the shipped first
   slice
@@ -81,7 +82,7 @@ Primary incremental target.
 
 Explicit target with bounded adjacency.
 
-- cache reads: optional
+- cache reads: yes
 - cache writes: yes
 - no long-lived watcher requirement in the initial rollout
 - intended mainly as write-through reuse for repeated scans of the same folder
@@ -90,7 +91,7 @@ Explicit target with bounded adjacency.
 
 Explicit target with deeper adjacency.
 
-- cache reads: optional
+- cache reads: yes
 - cache writes: yes
 - good fit for repeated local repo scans
 - no watcher dependency in the initial rollout
@@ -215,17 +216,17 @@ SQLite is the right default for the expected entry count because it supports:
 Recommended logical tables:
 
 - `scan_profiles`
-  - `profile_key`, mode, roots, detector fingerprint, rule fingerprint,
-    completed_at
+    - `profile_key`, mode, roots, detector fingerprint, rule fingerprint,
+      completed_at
 - `file_states`
-  - canonical path, origin tier, stable file id, size, mtime, content hash,
-    last_seen_profile
+    - canonical path, origin tier, stable file id, size, mtime, content hash,
+      last_seen_profile
 - `artifacts`
-  - `file_state_id`, artifact type, serialized artifact payload, artifact hash,
-    detector fingerprint
+    - `file_state_id`, artifact type, serialized artifact payload, artifact hash,
+      detector fingerprint
 - `root_cursors`
-  - root path, backend type, persisted cursor/token where the platform supports
-    replayable change history
+    - root path, backend type, persisted cursor/token where the platform supports
+      replayable change history
 
 Important detail:
 
