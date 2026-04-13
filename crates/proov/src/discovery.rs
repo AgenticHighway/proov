@@ -19,7 +19,7 @@ pub const MAX_DEPTH: usize = 5;
 // Excluded directory sets
 // ---------------------------------------------------------------------------
 
-const DEEP_EXCLUDED_DIRS: &[&str] = &[
+const NON_FORENSIC_EXCLUDED_DIRS: &[&str] = &[
     ".git",
     ".hg",
     ".svn",
@@ -38,6 +38,24 @@ const DEEP_EXCLUDED_DIRS: &[&str] = &[
     ".vscode",
     ".next",
     "target",
+    ".cache",
+    "cache",
+    "Caches",
+    ".cargo",
+    ".rustup",
+    ".npm",
+    ".pnpm-store",
+    ".yarn",
+    ".gradle",
+    ".m2",
+    ".terraform",
+    ".bundle",
+    ".gem",
+    ".nuget",
+    ".swiftpm",
+    ".build",
+    "DerivedData",
+    "vendor",
 ];
 
 const FILESYSTEM_EXTRA_EXCLUDED: &[&str] = &[
@@ -83,12 +101,12 @@ pub struct Candidate {
 // Excluded-dir helpers
 // ---------------------------------------------------------------------------
 
-fn deep_excluded_set() -> HashSet<&'static str> {
-    DEEP_EXCLUDED_DIRS.iter().copied().collect()
+fn nonforensic_excluded_set() -> HashSet<&'static str> {
+    NON_FORENSIC_EXCLUDED_DIRS.iter().copied().collect()
 }
 
 fn filesystem_excluded_set() -> HashSet<&'static str> {
-    let mut set = deep_excluded_set();
+    let mut set = nonforensic_excluded_set();
     for d in FILESYSTEM_EXTRA_EXCLUDED {
         set.insert(d);
     }
@@ -103,6 +121,10 @@ fn is_excluded_dir(entry: &walkdir::DirEntry, excluded: &HashSet<&str>) -> bool 
         .file_name()
         .to_str()
         .is_some_and(|name| excluded.contains(name))
+}
+
+fn should_descend(entry: &walkdir::DirEntry, excluded: &HashSet<&str>) -> bool {
+    entry.depth() == 0 || !is_excluded_dir(entry, excluded)
 }
 
 // ---------------------------------------------------------------------------
@@ -183,12 +205,16 @@ pub fn ai_cli_config_roots() -> Vec<PathBuf> {
 // ---------------------------------------------------------------------------
 
 pub fn walk_bounded(root: &Path, origin: &str, on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> {
+    let excluded = nonforensic_excluded_set();
     let mut candidates = Vec::new();
     let mut count: usize = 0;
 
     let walker = WalkDir::new(root).max_depth(MAX_DEPTH).follow_links(false);
+    let filtered = walker
+        .into_iter()
+        .filter_entry(|e| should_descend(e, &excluded));
 
-    for entry in walker.into_iter().filter_map(|e| e.ok()) {
+    for entry in filtered.filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -211,14 +237,14 @@ pub fn walk_deep_workdir(
     origin: &str,
     on_tick: Option<&dyn Fn(&str)>,
 ) -> Vec<Candidate> {
-    let excluded = deep_excluded_set();
+    let excluded = nonforensic_excluded_set();
     let mut candidates = Vec::new();
     let mut count: usize = 0;
 
     let walker = WalkDir::new(root).follow_links(false);
     let filtered = walker
         .into_iter()
-        .filter_entry(|e| !is_excluded_dir(e, &excluded));
+        .filter_entry(|e| should_descend(e, &excluded));
 
     for entry in filtered.filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
@@ -289,7 +315,7 @@ pub fn discover_filesystem_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candi
         let walker = WalkDir::new(root).follow_links(false);
         let filtered = walker
             .into_iter()
-            .filter_entry(|e| !is_excluded_dir(e, &excluded));
+            .filter_entry(|e| should_descend(e, &excluded));
 
         for entry in filtered.filter_map(|e| e.ok()) {
             if !entry.file_type().is_file() {
@@ -369,23 +395,23 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn deep_excluded_set_contains_expected_dirs() {
-        let set = deep_excluded_set();
+    fn nonforensic_excluded_set_contains_expected_dirs() {
+        let set = nonforensic_excluded_set();
         assert!(set.contains(".git"));
         assert!(set.contains("node_modules"));
         assert!(set.contains("target"));
         assert!(set.contains("__pycache__"));
+        assert!(set.contains(".cargo"));
+        assert!(set.contains("vendor"));
     }
 
     #[test]
-    fn filesystem_excluded_set_extends_deep_set() {
-        let deep = deep_excluded_set();
+    fn filesystem_excluded_set_extends_nonforensic_set() {
+        let deep = nonforensic_excluded_set();
         let fs_set = filesystem_excluded_set();
-        // Must be a superset of deep
         for item in &deep {
             assert!(fs_set.contains(item));
         }
-        // Must contain filesystem-specific dirs
         assert!(fs_set.contains("proc"));
         assert!(fs_set.contains("sys"));
         assert!(fs_set.contains("Library"));
@@ -407,9 +433,33 @@ mod tests {
     fn walk_bounded_skips_dirs() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir(tmp.path().join("sub")).unwrap();
-        // Only dirs, no files
         let candidates = walk_bounded(tmp.path(), "test", None);
         assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn walk_bounded_excludes_low_value_dirs() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("target")).unwrap();
+        fs::create_dir(tmp.path().join("src")).unwrap();
+        fs::write(tmp.path().join("target").join("generated.txt"), "noise").unwrap();
+        fs::write(tmp.path().join("src").join("main.rs"), "fn main() {}\n").unwrap();
+
+        let candidates = walk_bounded(tmp.path(), "test", None);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].path.ends_with("src/main.rs"));
+    }
+
+    #[test]
+    fn walk_bounded_preserves_explicit_root_even_if_name_is_excluded() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join(".vscode");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("settings.json"), "{}\n").unwrap();
+
+        let candidates = walk_bounded(&root, "host", None);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].path.ends_with(".vscode/settings.json"));
     }
 
     #[test]
@@ -434,6 +484,26 @@ mod tests {
         let candidates = walk_deep_workdir(tmp.path(), "workdir", None);
         assert_eq!(candidates.len(), 1);
         assert!(candidates[0].path.ends_with("index.js"));
+    }
+
+    #[test]
+    fn walk_deep_workdir_excludes_dependency_cache_dirs() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".cargo").join("registry").join("src")).unwrap();
+        fs::write(
+            tmp.path()
+                .join(".cargo")
+                .join("registry")
+                .join("src")
+                .join("agents.md"),
+            "cached dependency file",
+        )
+        .unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "real file").unwrap();
+
+        let candidates = walk_deep_workdir(tmp.path(), "test", None);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].path.ends_with("AGENTS.md"));
     }
 
     #[test]
