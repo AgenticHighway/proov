@@ -1,14 +1,13 @@
 //! Bounded source-risk detector.
 //!
 //! This detector emits one aggregated `source_risk_surface` artifact for
-//! selected source files and JSON configs in file/workdir scans. Follow-on
-//! issues can add more heuristic families without changing the artifact shape.
+//! selected source files and JSON configs in file/workdir scans.
 
 use crate::discovery::Candidate;
 use crate::models::ArtifactReport;
 use crate::source_analysis::{
     build_source_risk_surface, common_root, has_ai_adjacent_candidate, is_scannable_json_file,
-    is_supported_source_file, scan_json_config_file, MAX_SOURCE_SURFACE_FILES,
+    is_supported_source_file, scan_json_config_file, scan_source_file, MAX_SOURCE_SURFACE_FILES,
 };
 
 use super::base::Detector;
@@ -64,8 +63,15 @@ impl Detector for SourceRiskDetector {
 
         let findings = supported
             .iter()
-            .filter(|candidate| is_scannable_json_file(&candidate.path))
-            .flat_map(|candidate| scan_json_config_file(&candidate.path))
+            .flat_map(|candidate| {
+                if is_supported_source_file(&candidate.path) {
+                    scan_source_file(&candidate.path)
+                } else if is_scannable_json_file(&candidate.path) {
+                    scan_json_config_file(&candidate.path)
+                } else {
+                    Vec::new()
+                }
+            })
             .collect::<Vec<_>>();
 
         let supported_paths = supported
@@ -174,6 +180,43 @@ mod tests {
         assert!(reports[0]
             .signals
             .contains(&"json_config:c2_url".to_string()));
+    }
+
+    #[test]
+    fn file_mode_source_findings_flow_into_surface_artifact() {
+        let temp = tempdir().unwrap();
+        let source_path = temp.path().join("main.ts");
+        fs::write(
+            &source_path,
+            r#"
+const loader = pluginName;
+await import(loader);
+readFileSync("~/.aws/credentials", "utf8");
+await writeFile("AGENTS.md", "new identity");
+"#,
+        )
+        .unwrap();
+
+        let detector = SourceRiskDetector::new("file");
+        let reports = detector.detect(
+            &[Candidate {
+                path: source_path,
+                origin: "workdir".to_string(),
+            }],
+            false,
+        );
+
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].metadata["scanned_source_file_count"], 1);
+        assert!(reports[0]
+            .signals
+            .contains(&"source:dynamic_import".to_string()));
+        assert!(reports[0]
+            .signals
+            .contains(&"source:sensitive_path_access".to_string()));
+        assert!(reports[0]
+            .signals
+            .contains(&"cognitive_tampering:file_write".to_string()));
     }
 
     #[test]

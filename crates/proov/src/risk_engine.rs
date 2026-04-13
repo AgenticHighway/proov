@@ -40,6 +40,12 @@ fn signal_weights() -> HashMap<&'static str, i32> {
         ("json_config:metadata_url", 25),
         ("json_config:internal_url", 15),
         ("json_config:c2_url", 35),
+        ("source:dynamic_import", 20),
+        ("source:nonliteral_require", 20),
+        ("source:nonliteral_spawn", 30),
+        ("source:ssrf_private_ip", 25),
+        ("source:ssrf_internal_host", 20),
+        ("source:sensitive_path_access", 25),
         ("mcp_server_declared", 20),
         ("extensions_directory_present", 5),
         ("dangerous_combo:shell+network+fs", 30),
@@ -117,6 +123,8 @@ fn cognitive_signal_weight(signal: &str) -> Option<i32> {
         "cognitive_tampering:role_override" | "cognitive_tampering:delimiter_framing" => Some(45),
         "cognitive_tampering:instruction_injection"
         | "cognitive_tampering:unicode_steganography" => Some(35),
+        "cognitive_tampering:file_write" => Some(35),
+        "cognitive_tampering:file_target" => Some(25),
         "cognitive_tampering:base64_encoded" => Some(25),
         _ => None,
     }
@@ -270,6 +278,23 @@ mod tests {
     #[test]
     fn test_json_config_c2_signal_weight() {
         let mut a = make_artifact("source_risk_surface", vec!["json_config:c2_url"]);
+        let score = score_artifact(&mut a);
+        assert_eq!(score, 39); // 4 + 35
+    }
+
+    #[test]
+    fn test_source_dynamic_spawn_weight() {
+        let mut a = make_artifact("source_risk_surface", vec!["source:nonliteral_spawn"]);
+        let score = score_artifact(&mut a);
+        assert_eq!(score, 34); // 4 + 30
+    }
+
+    #[test]
+    fn test_cognitive_file_write_weight() {
+        let mut a = make_artifact(
+            "source_risk_surface",
+            vec!["cognitive_tampering:file_write"],
+        );
         let score = score_artifact(&mut a);
         assert_eq!(score, 39); // 4 + 35
     }

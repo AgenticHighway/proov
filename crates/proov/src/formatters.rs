@@ -389,6 +389,20 @@ fn humanize_reason(raw: &str) -> &str {
         "json_config:metadata_url" => "JSON config references a metadata or localhost URL",
         "json_config:internal_url" => "JSON config references an internal-only URL",
         "json_config:c2_url" => "JSON config references a known collector or C2 URL",
+        "source:dynamic_import" => "Source code uses import() with a non-literal argument",
+        "source:nonliteral_require" => "Source code uses require() with a non-literal argument",
+        "source:nonliteral_spawn" => "Source code spawns a process with a non-literal command",
+        "source:ssrf_private_ip" => {
+            "Source code makes a network call to a private or link-local IP"
+        }
+        "source:ssrf_internal_host" => "Source code makes a network call to an internal hostname",
+        "source:sensitive_path_access" => "Source code accesses sensitive local credential paths",
+        "cognitive_tampering:file_target" => {
+            "Source code targets agent identity or instruction files"
+        }
+        "cognitive_tampering:file_write" => {
+            "Source code may modify agent identity or instruction files"
+        }
         "cognitive_tampering:role_override" => "Role-override prompt injection",
         "cognitive_tampering:instruction_injection" => "Instruction override / prompt injection",
         "cognitive_tampering:delimiter_framing" => "Prompt framing / delimiter injection",
@@ -760,6 +774,14 @@ mod tests {
         assert_eq!(
             humanize_reason("json_config:c2_url"),
             "JSON config references a known collector or C2 URL"
+        );
+        assert_eq!(
+            humanize_reason("source:nonliteral_spawn"),
+            "Source code spawns a process with a non-literal command"
+        );
+        assert_eq!(
+            humanize_reason("cognitive_tampering:file_write"),
+            "Source code may modify agent identity or instruction files"
         );
     }
 

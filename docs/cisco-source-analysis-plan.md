@@ -139,13 +139,13 @@ That gives proov a usable source-analysis layer without turning `home` or
 
 ## Execution order
 
-The work has been split into mergeable GitHub issues:
+The work was split into mergeable GitHub issues:
 
 1. [#41](https://github.com/AgenticHighway/proov/issues/41) Add a bounded source-risk detector with an aggregated artifact model
 2. [#42](https://github.com/AgenticHighway/proov/issues/42) Add JSON config scanning for secrets and suspicious destination URLs
-3. [#43](https://github.com/AgenticHighway/proov/issues/43) Add contextual source heuristics for dynamic imports, process execution, and network-context SSRF targets
-4. [#44](https://github.com/AgenticHighway/proov/issues/44) Add sensitive-path and cognitive-file targeting heuristics to source analysis
-5. [#45](https://github.com/AgenticHighway/proov/issues/45) Decide scope for deferred DefenseClaw families: PII, vuln, malware, and broader exfiltration rules
+3. [#44](https://github.com/AgenticHighway/proov/issues/44) Add contextual source heuristics for dynamic imports, process execution, and network-context SSRF targets
+4. [#45](https://github.com/AgenticHighway/proov/issues/45) Add sensitive-path and cognitive-file targeting heuristics to source analysis
+5. [#43](https://github.com/AgenticHighway/proov/issues/43) Decide scope for deferred DefenseClaw families: PII, vuln, malware, and broader exfiltration rules
 
 Parent tracker:
 
@@ -153,7 +153,8 @@ Parent tracker:
 
 ## Proposed PR sequence
 
-Use one narrow PR per child issue.
+Use one narrow PR per child issue unless the remaining source-analysis slices
+are intentionally finished together.
 
 Recommended titles:
 
@@ -162,6 +163,10 @@ Recommended titles:
 3. `feat: add contextual source heuristics for dynamic execution and SSRF`
 4. `feat: detect sensitive path access and cognitive file targeting`
 5. `docs: record scope decision for deferred DefenseClaw families`
+
+Final scope decision:
+
+- see [docs/defenseclaw-scope-decision.md](defenseclaw-scope-decision.md) for the explicit list of approved versus out-of-scope DefenseClaw families.
 
 ## Explicit non-goals for the first slice
 
