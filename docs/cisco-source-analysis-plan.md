@@ -180,4 +180,3 @@ The first slice should not try to do all of the following at once:
 
 Those can be approved later if they fit proov's product direction, but they
 should not be smuggled into the initial source-analysis detector work.
-

@@ -124,17 +124,17 @@ Current bounded behavior:
 
 **Metadata contract:**
 
-| Key                       | Type               | Always present? | Description                                                |
-| ------------------------- | ------------------ | --------------- | ---------------------------------------------------------- |
-| `paths`                   | array              | Yes             | Aggregated root path for the scanned surface               |
-| `matched_families`        | string[]           | Yes             | Matched finding families such as `json_secret`             |
-| `finding_counts`          | object             | Yes             | Count of findings by family                                |
-| `top_risky_files`         | string[]           | Yes             | Up to 5 files with the most findings                       |
-| `scanned_source_file_count` | number           | Yes             | Number of supported source files included in the surface   |
-| `scanned_json_file_count` | number             | Yes             | Number of scannable JSON configs included in the surface   |
-| `ai_adjacent_context`     | boolean            | Yes             | Whether an AI-adjacent artifact was present in the scan    |
-| `bounded_scan_limit`      | number             | Yes             | Maximum supported candidates considered by the detector    |
-| `truncated`               | boolean            | Yes             | Whether candidate selection hit the detector limit         |
+| Key                         | Type     | Always present? | Description                                              |
+| --------------------------- | -------- | --------------- | -------------------------------------------------------- |
+| `paths`                     | array    | Yes             | Aggregated root path for the scanned surface             |
+| `matched_families`          | string[] | Yes             | Matched finding families such as `json_secret`           |
+| `finding_counts`            | object   | Yes             | Count of findings by family                              |
+| `top_risky_files`           | string[] | Yes             | Up to 5 files with the most findings                     |
+| `scanned_source_file_count` | number   | Yes             | Number of supported source files included in the surface |
+| `scanned_json_file_count`   | number   | Yes             | Number of scannable JSON configs included in the surface |
+| `ai_adjacent_context`       | boolean  | Yes             | Whether an AI-adjacent artifact was present in the scan  |
+| `bounded_scan_limit`        | number   | Yes             | Maximum supported candidates considered by the detector  |
+| `truncated`                 | boolean  | Yes             | Whether candidate selection hit the detector limit       |
 
 ### Browser Footprints (`browser_footprints.rs`)
 
