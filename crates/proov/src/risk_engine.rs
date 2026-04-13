@@ -35,6 +35,11 @@ fn keyword_to_declared() -> HashMap<&'static str, &'static str> {
 fn signal_weights() -> HashMap<&'static str, i32> {
     HashMap::from([
         ("credential_exposure_signal", 25),
+        ("json_config:credential_connection_string", 20),
+        ("json_config:credential_value", 15),
+        ("json_config:metadata_url", 25),
+        ("json_config:internal_url", 15),
+        ("json_config:c2_url", 35),
         ("mcp_server_declared", 20),
         ("extensions_directory_present", 5),
         ("dangerous_combo:shell+network+fs", 30),
@@ -260,6 +265,13 @@ mod tests {
         let mut a = make_artifact("agents_md", vec!["dangerous_keyword:steal"]);
         let score = score_artifact(&mut a);
         assert_eq!(score, 43); // 8 + 35
+    }
+
+    #[test]
+    fn test_json_config_c2_signal_weight() {
+        let mut a = make_artifact("source_risk_surface", vec!["json_config:c2_url"]);
+        let score = score_artifact(&mut a);
+        assert_eq!(score, 39); // 4 + 35
     }
 
     #[test]

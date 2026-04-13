@@ -1,14 +1,14 @@
-//! Bounded source-risk detector scaffold.
+//! Bounded source-risk detector.
 //!
-//! This detector intentionally adds only the aggregated artifact model and
-//! bounded file-selection behavior for issue #41. Follow-on issues can add
-//! Apache-derived heuristic families without changing the artifact shape.
+//! This detector emits one aggregated `source_risk_surface` artifact for
+//! selected source files and JSON configs in file/workdir scans. Follow-on
+//! issues can add more heuristic families without changing the artifact shape.
 
 use crate::discovery::Candidate;
 use crate::models::ArtifactReport;
 use crate::source_analysis::{
-    build_source_risk_surface, common_root, has_ai_adjacent_candidate, is_supported_json_file,
-    is_supported_source_file, MAX_SOURCE_SURFACE_FILES,
+    build_source_risk_surface, common_root, has_ai_adjacent_candidate, is_scannable_json_file,
+    is_supported_source_file, scan_json_config_file, MAX_SOURCE_SURFACE_FILES,
 };
 
 use super::base::Detector;
@@ -34,7 +34,7 @@ impl Detector for SourceRiskDetector {
         let supported: Vec<&Candidate> = candidates
             .iter()
             .filter(|candidate| {
-                is_supported_source_file(&candidate.path) || is_supported_json_file(&candidate.path)
+                is_supported_source_file(&candidate.path) || is_scannable_json_file(&candidate.path)
             })
             .take(MAX_SOURCE_SURFACE_FILES)
             .collect();
@@ -55,12 +55,18 @@ impl Detector for SourceRiskDetector {
             .count();
         let json_count = supported
             .iter()
-            .filter(|candidate| is_supported_json_file(&candidate.path))
+            .filter(|candidate| is_scannable_json_file(&candidate.path))
             .count();
         let truncated = supported.len() == MAX_SOURCE_SURFACE_FILES
             && candidates.iter().any(|candidate| {
-                is_supported_source_file(&candidate.path) || is_supported_json_file(&candidate.path)
+                is_supported_source_file(&candidate.path) || is_scannable_json_file(&candidate.path)
             });
+
+        let findings = supported
+            .iter()
+            .filter(|candidate| is_scannable_json_file(&candidate.path))
+            .flat_map(|candidate| scan_json_config_file(&candidate.path))
+            .collect::<Vec<_>>();
 
         let supported_paths = supported
             .iter()
@@ -82,7 +88,7 @@ impl Detector for SourceRiskDetector {
             &root,
             source_count,
             json_count,
-            &[],
+            &findings,
             ai_adjacent,
             truncated,
         )]
@@ -92,7 +98,9 @@ impl Detector for SourceRiskDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::path::PathBuf;
+    use tempfile::tempdir;
 
     fn candidate(path: &str) -> Candidate {
         Candidate {
@@ -134,5 +142,69 @@ mod tests {
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].metadata["scanned_source_file_count"], 1);
         assert_eq!(reports[0].metadata["ai_adjacent_context"], false);
+    }
+
+    #[test]
+    fn file_mode_json_findings_flow_into_surface_artifact() {
+        let temp = tempdir().unwrap();
+        let config_path = temp.path().join("agent-config.json");
+        fs::write(
+            &config_path,
+            r#"{
+  "password": "supersecret12345",
+  "collector": "https://webhook.site/abc123"
+}"#,
+        )
+        .unwrap();
+
+        let detector = SourceRiskDetector::new("file");
+        let reports = detector.detect(
+            &[Candidate {
+                path: config_path,
+                origin: "workdir".to_string(),
+            }],
+            false,
+        );
+
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].metadata["scanned_json_file_count"], 1);
+        assert!(reports[0]
+            .signals
+            .contains(&"json_config:credential_value".to_string()));
+        assert!(reports[0]
+            .signals
+            .contains(&"json_config:c2_url".to_string()));
+    }
+
+    #[test]
+    fn workdir_skips_noisy_package_json() {
+        let temp = tempdir().unwrap();
+        let package_path = temp.path().join("package.json");
+        let agents_path = temp.path().join("AGENTS.md");
+        fs::write(
+            &package_path,
+            r#"{
+  "collector": "https://webhook.site/abc123"
+}"#,
+        )
+        .unwrap();
+        fs::write(&agents_path, "system prompt").unwrap();
+
+        let detector = SourceRiskDetector::new("workdir");
+        let reports = detector.detect(
+            &[
+                Candidate {
+                    path: agents_path,
+                    origin: "workdir".to_string(),
+                },
+                Candidate {
+                    path: package_path,
+                    origin: "workdir".to_string(),
+                },
+            ],
+            false,
+        );
+
+        assert!(reports.is_empty());
     }
 }

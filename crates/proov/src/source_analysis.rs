@@ -1,8 +1,13 @@
+use crate::content_patterns::scan_secret_signals;
 use crate::discovery::Candidate;
 use crate::models::{ArtifactReport, CONTENT_READ_ALLOWLIST, CONTENT_READ_GLOB_PATTERNS};
+use crate::source_patterns::{
+    json_secret_patterns, json_url_patterns, should_skip_json_config, MAX_JSON_CONFIG_BYTES,
+};
 use glob::Pattern;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) const MAX_SOURCE_SURFACE_FILES: usize = 512;
@@ -36,6 +41,10 @@ pub(crate) fn is_supported_json_file(path: &Path) -> bool {
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.eq_ignore_ascii_case("json"))
         .unwrap_or(false)
+}
+
+pub(crate) fn is_scannable_json_file(path: &Path) -> bool {
+    is_supported_json_file(path) && !should_skip_json_config(path)
 }
 
 pub(crate) fn has_ai_adjacent_candidate(candidates: &[Candidate]) -> bool {
@@ -163,6 +172,88 @@ pub(crate) fn is_ai_adjacent_path(path: &Path) -> bool {
     })
 }
 
+pub(crate) fn scan_json_config_file(path: &Path) -> Vec<SourceFinding> {
+    if !is_scannable_json_file(path) {
+        return Vec::new();
+    }
+
+    if fs::metadata(path)
+        .map(|metadata| metadata.len() > MAX_JSON_CONFIG_BYTES as u64)
+        .unwrap_or(false)
+    {
+        return Vec::new();
+    }
+
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+
+    scan_json_config_content(path, &content)
+}
+
+fn scan_json_config_content(path: &Path, content: &str) -> Vec<SourceFinding> {
+    let mut findings = Vec::new();
+    let mut seen_signals: BTreeSet<String> = BTreeSet::new();
+
+    for signal in scan_secret_signals(content) {
+        if seen_signals.insert(signal.clone()) {
+            findings.push(SourceFinding {
+                family: "json_secret",
+                signal,
+                path: path.to_path_buf(),
+                line: None,
+                summary: "JSON config contains embedded secret material".to_string(),
+            });
+        }
+    }
+
+    for pattern in json_secret_patterns() {
+        if let Some(matched) = pattern.regex.find(content) {
+            let signal = pattern.signal.to_string();
+            if seen_signals.insert(signal.clone()) {
+                findings.push(SourceFinding {
+                    family: "json_secret",
+                    signal,
+                    path: path.to_path_buf(),
+                    line: Some(line_number_for_offset(content, matched.start())),
+                    summary: pattern.summary.to_string(),
+                });
+            }
+        }
+    }
+
+    for pattern in json_url_patterns() {
+        if let Some(matched) = pattern.regex.find(content) {
+            let signal = pattern.signal.to_string();
+            if seen_signals.insert(signal.clone()) {
+                findings.push(SourceFinding {
+                    family: "json_destination",
+                    signal,
+                    path: path.to_path_buf(),
+                    line: Some(line_number_for_offset(content, matched.start())),
+                    summary: pattern.summary.to_string(),
+                });
+            }
+        }
+    }
+
+    findings.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.signal.cmp(&right.signal))
+            .then_with(|| left.line.cmp(&right.line))
+    });
+    findings
+}
+
+fn line_number_for_offset(content: &str, offset: usize) -> usize {
+    content[..offset]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
+}
+
 trait SortedBy: Iterator + Sized {
     fn sorted_by<F>(self, compare: F) -> Vec<Self::Item>
     where
@@ -179,6 +270,7 @@ impl<I: Iterator> SortedBy for I {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     fn candidate(path: &str) -> Candidate {
         Candidate {
@@ -198,6 +290,13 @@ mod tests {
     fn supported_json_file_matches_json_only() {
         assert!(is_supported_json_file(Path::new("config/app.json")));
         assert!(!is_supported_json_file(Path::new("config/app.yaml")));
+    }
+
+    #[test]
+    fn scannable_json_file_skips_noisy_metadata() {
+        assert!(!is_scannable_json_file(Path::new("package.json")));
+        assert!(!is_scannable_json_file(Path::new("package-lock.json")));
+        assert!(is_scannable_json_file(Path::new("config/app.json")));
     }
 
     #[test]
@@ -261,5 +360,74 @@ mod tests {
             artifact.metadata["top_risky_files"][0],
             "/project/src/main.ts"
         );
+    }
+
+    #[test]
+    fn scan_json_config_file_reuses_secret_engine_and_json_specific_secret_patterns() {
+        let temp = tempdir().unwrap();
+        let config_path = temp.path().join("agent-config.json");
+        fs::write(
+            &config_path,
+            r#"{
+  "github_token": "ghp_123456789012345678901234567890123456",
+  "password": "supersecret12345",
+  "database_url": "postgres://alice:swordfish@example.com/app"
+}"#,
+        )
+        .unwrap();
+
+        let findings = scan_json_config_file(&config_path);
+
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "secret:github:pat"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "json_config:credential_value"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "json_config:credential_connection_string"));
+    }
+
+    #[test]
+    fn scan_json_config_file_detects_suspicious_urls() {
+        let temp = tempdir().unwrap();
+        let config_path = temp.path().join("destinations.json");
+        fs::write(
+            &config_path,
+            r#"{
+  "metadata": "http://169.254.169.254/latest/meta-data/",
+  "relay": "https://service.internal.example/collect",
+  "collector": "https://webhook.site/abc123"
+}"#,
+        )
+        .unwrap();
+
+        let findings = scan_json_config_file(&config_path);
+
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "json_config:metadata_url"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "json_config:internal_url"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding.signal == "json_config:c2_url"));
+    }
+
+    #[test]
+    fn scan_json_config_file_skips_package_json() {
+        let temp = tempdir().unwrap();
+        let config_path = temp.path().join("package.json");
+        fs::write(
+            &config_path,
+            r#"{
+  "collector": "https://webhook.site/abc123"
+}"#,
+        )
+        .unwrap();
+
+        assert!(scan_json_config_file(&config_path).is_empty());
     }
 }

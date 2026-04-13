@@ -10,6 +10,7 @@ Adapted material currently incorporated into proov:
 
 - secrets detection patterns adapted from Cisco DefenseClaw
 - SSRF and cognitive tampering patterns adapted from Cisco DefenseClaw
+- JSON config secret and suspicious URL patterns adapted from Cisco DefenseClaw
 
 ## DefenseClaw attribution
 
@@ -23,6 +24,10 @@ Imported upstream source files:
 - internal/scanner/clawshield_secrets.go
 - internal/scanner/clawshield_injection.go
 - internal/scanner/clawshield_vuln.go
+- cli/defenseclaw/scanner/plugin_scanner/analyzers.py
+- cli/defenseclaw/scanner/plugin_scanner/rules.py
+- extensions/defenseclaw/src/scanners/plugin_scanner/analyzers.ts
+- extensions/defenseclaw/src/scanners/plugin_scanner/rules.ts
 
 Imported pattern families:
 
@@ -35,6 +40,8 @@ Imported pattern families:
 - SSRF metadata-target, private-network, and encoded-address patterns
 - cognitive tampering and prompt-injection framing patterns
 - unicode steganography and encoded-instruction detection patterns
+- JSON credential key/value and credential connection-string patterns
+- JSON metadata/localhost, internal-only, and collector/C2 URL patterns
 
 Remaining planned import scope:
 
