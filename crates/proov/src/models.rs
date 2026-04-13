@@ -50,6 +50,10 @@ impl ArtifactReport {
 
     /// Build a path-independent content digest.
     pub fn content_digest(&self) -> String {
+        if let Some(content_hash) = self.metadata.get("content_hash").and_then(|v| v.as_str()) {
+            return content_hash.to_string();
+        }
+
         if let Some(serde_json::Value::Array(paths)) = self.metadata.get("paths") {
             let mut sorted: Vec<&str> = paths.iter().filter_map(|v| v.as_str()).collect();
             sorted.sort();
@@ -345,6 +349,57 @@ mod tests {
         let prims = gather_file_primitives(&file);
         let expected = hex_sha256(content);
         assert_eq!(prims["content_hash"].as_str().unwrap(), expected);
+    }
+
+    #[test]
+    fn content_digest_reuses_cached_content_hash_without_rereading_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("prompt.md");
+        std::fs::write(&file, b"original prompt").unwrap();
+
+        let mut report = ArtifactReport::new("prompt_config", 0.8);
+        report.metadata = gather_file_primitives(&file);
+        report.metadata.insert(
+            "paths".into(),
+            serde_json::json!([file.to_string_lossy().to_string()]),
+        );
+
+        let cached_hash = report
+            .metadata
+            .get("content_hash")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .to_string();
+
+        std::fs::write(&file, b"mutated after detection").unwrap();
+
+        assert_eq!(report.content_digest(), cached_hash);
+    }
+
+    #[test]
+    fn compute_hash_uses_cached_content_hash_for_file_backed_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("agents.md");
+        std::fs::write(&file, b"initial content").unwrap();
+
+        let mut first = ArtifactReport::new("agents_md", 0.9);
+        first.metadata = gather_file_primitives(&file);
+        first.metadata.insert(
+            "paths".into(),
+            serde_json::json!([file.to_string_lossy().to_string()]),
+        );
+        first.artifact_scope = "project".to_string();
+        let initial_hash = first.compute_hash();
+
+        std::fs::write(&file, b"updated content").unwrap();
+
+        let mut second = ArtifactReport::new("agents_md", 0.9);
+        second.metadata = first.metadata.clone();
+        second.artifact_scope = "project".to_string();
+        let repeated_hash = second.compute_hash();
+
+        assert_eq!(initial_hash, repeated_hash);
+        assert_eq!(first.artifact_hash, second.artifact_hash);
     }
 
     #[test]
