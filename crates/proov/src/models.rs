@@ -10,7 +10,11 @@ use crate::content_patterns::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
+
+const HASH_BUFFER_BYTES: usize = 8192;
 
 // ---------------------------------------------------------------------------
 // Per-artifact model
@@ -61,8 +65,8 @@ impl ArtifactReport {
             if let Some(first) = sorted.first() {
                 let p = Path::new(first);
                 if p.is_file() {
-                    if let Ok(bytes) = std::fs::read(p) {
-                        return hex_sha256(&bytes);
+                    if let Some(hash) = hex_sha256_file(p) {
+                        return hash;
                     }
                 }
             }
@@ -294,11 +298,8 @@ pub fn gather_file_primitives(path: &Path) -> serde_json::Map<String, serde_json
     }
 
     // Full-file SHA-256 (not truncated to 8KB head)
-    if let Ok(bytes) = std::fs::read(path) {
-        map.insert(
-            "content_hash".into(),
-            serde_json::Value::String(hex_sha256(&bytes)),
-        );
+    if let Some(hash) = hex_sha256_file(path) {
+        map.insert("content_hash".into(), serde_json::Value::String(hash));
     }
 
     map
@@ -312,6 +313,22 @@ fn hex_sha256(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
     format!("{:x}", hasher.finalize())
+}
+
+fn hex_sha256_file(path: &Path) -> Option<String> {
+    let mut file = File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; HASH_BUFFER_BYTES];
+
+    loop {
+        let n = file.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+
+    Some(format!("{:x}", hasher.finalize()))
 }
 
 #[cfg(test)]
@@ -352,6 +369,21 @@ mod tests {
     }
 
     #[test]
+    fn content_hash_is_full_file_sha256_for_large_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("large.bin");
+        let content = vec![b'x'; HASH_BUFFER_BYTES * 3 + 17];
+        std::fs::write(&file, &content).unwrap();
+
+        let prims = gather_file_primitives(&file);
+
+        assert_eq!(
+            prims["content_hash"].as_str().unwrap(),
+            hex_sha256(&content)
+        );
+    }
+
+    #[test]
     fn content_digest_reuses_cached_content_hash_without_rereading_file() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("prompt.md");
@@ -374,6 +406,22 @@ mod tests {
         std::fs::write(&file, b"mutated after detection").unwrap();
 
         assert_eq!(report.content_digest(), cached_hash);
+    }
+
+    #[test]
+    fn content_digest_hashes_file_backed_artifacts_without_cached_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("instructions.md");
+        let content = vec![b'y'; HASH_BUFFER_BYTES * 2 + 9];
+        std::fs::write(&file, &content).unwrap();
+
+        let mut report = ArtifactReport::new("prompt_config", 0.8);
+        report.metadata.insert(
+            "paths".into(),
+            serde_json::json!([file.to_string_lossy().to_string()]),
+        );
+
+        assert_eq!(report.content_digest(), hex_sha256(&content));
     }
 
     #[test]
