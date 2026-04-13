@@ -4,6 +4,7 @@
 
 mod capabilities;
 mod cli;
+mod content_patterns;
 mod contract;
 mod contract_sync;
 mod detectors;
