@@ -295,14 +295,9 @@ expect_json_file "plain Docker fixture (--json writes valid JSON)" "$PLAIN_JSON"
 if python3 -c "
 import json
 data = json.load(open('$PLAIN_JSON'))
-containers = [a for a in data['artifacts'] if a['artifact_type'].startswith('container_')]
-assert len(containers) == 1, f'expected 1 container artifact, got {len(containers)}'
-artifact = containers[0]
-assert artifact['artifact_type'] == 'container_candidate', artifact['artifact_type']
-assert artifact['metadata']['container_kind'] == 'image_definition'
-assert artifact['metadata']['direct_ai_evidence'] is False
+assert data['agenticApps'] == [], data['agenticApps']
 " 2>/dev/null; then
-    pass "plain Docker fixture stays candidate"
+    pass "plain Docker fixture stays out of agentic app output"
 else
     fail "plain Docker fixture classification changed"
 fi
@@ -312,14 +307,13 @@ expect_json_file "direct agentic fixture (--json writes valid JSON)" "$DIRECT_JS
 if python3 -c "
 import json
 data = json.load(open('$DIRECT_JSON'))
-containers = [a for a in data['artifacts'] if a['artifact_type'].startswith('container_')]
-assert len(containers) == 1, f'expected 1 container artifact, got {len(containers)}'
-artifact = containers[0]
-assert artifact['artifact_type'] == 'container_config', artifact['artifact_type']
-assert artifact['metadata']['container_kind'] == 'service_orchestration'
-assert artifact['metadata']['direct_agentic_evidence'] is True
+assert len(data['agenticApps']) == 1, f\"expected 1 app, got {len(data['agenticApps'])}\"
+app = data['agenticApps'][0]
+assert app['agentCount'] == 0, app['agentCount']
+assert app['framework'] == 'LangGraph', app['framework']
+assert 'Service orchestration configuration' in app['description'], app['description']
 " 2>/dev/null; then
-    pass "direct agentic fixture upgrades to container_config"
+    pass "direct agentic fixture builds one agentic app"
 else
     fail "direct agentic fixture classification changed"
 fi
@@ -565,11 +559,12 @@ section "Local submission (localhost:3000)"
 
 # Check if local server is running
 LOCAL_AVAILABLE=false
-if curl -sf -o /dev/null --connect-timeout 2 "http://localhost:3000" 2>/dev/null; then
+LOCAL_STATUS=$(curl -s -o /dev/null --connect-timeout 2 -w "%{http_code}" "$AH_TEST_LOCAL_ENDPOINT" 2>/dev/null || echo "000")
+if [[ "$LOCAL_STATUS" == "200" || "$LOCAL_STATUS" == "401" || "$LOCAL_STATUS" == "403" || "$LOCAL_STATUS" == "405" ]]; then
     LOCAL_AVAILABLE=true
-    dim "  Local server detected at localhost:3000"
+    dim "  Local ingest endpoint detected at $AH_TEST_LOCAL_ENDPOINT (HTTP $LOCAL_STATUS)"
 else
-    dim "  No local server at localhost:3000"
+    dim "  No compatible local ingest endpoint at $AH_TEST_LOCAL_ENDPOINT (HTTP $LOCAL_STATUS)"
 fi
 
 if [ "$LOCAL_AVAILABLE" = true ] && [ -n "$AH_TEST_API_KEY" ]; then
@@ -607,7 +602,7 @@ if [ "$LOCAL_AVAILABLE" = true ] && [ -n "$AH_TEST_API_KEY" ]; then
 elif [ -z "$AH_TEST_API_KEY" ]; then
     skip "local submit — set AH_TEST_API_KEY to enable"
 else
-    skip "local submit — no server at localhost:3000"
+    skip "local submit — no compatible local ingest endpoint"
 fi
 
 # ── 15. Remote submission ─────────────────────────────────────────────
@@ -623,6 +618,7 @@ if [ -n "$AH_TEST_API_KEY" ]; then
         --contract \
         --out "$REMOTE_SUBMIT_JSON" \
         --submit "$AH_TEST_REMOTE_ENDPOINT" \
+        --allow-public-endpoint \
         --api-key "$AH_TEST_API_KEY" 2>&1) && REMOTE_FILE_OK=true || REMOTE_FILE_OK=false
     echo "$REMOTE_OUTPUT" | tail -5
     if [ "$REMOTE_FILE_OK" = true ]; then
@@ -638,6 +634,7 @@ if [ -n "$AH_TEST_API_KEY" ]; then
     REMOTE_OUTPUT=""
     REMOTE_OUTPUT=$($RUN quick \
         --submit "$AH_TEST_REMOTE_ENDPOINT" \
+        --allow-public-endpoint \
         --api-key "$AH_TEST_API_KEY" 2>&1) && REMOTE_QUICK_OK=true || REMOTE_QUICK_OK=false
     if [ "$REMOTE_QUICK_OK" = true ]; then
         pass "remote submit (quick scan → production)"
@@ -654,6 +651,7 @@ if [ -n "$AH_TEST_API_KEY" ]; then
         --contract \
         --out "$REMOTE_REPO_JSON" \
         --submit "$AH_TEST_REMOTE_ENDPOINT" \
+        --allow-public-endpoint \
         --api-key "$AH_TEST_API_KEY" 2>&1) && REMOTE_REPO_OK=true || REMOTE_REPO_OK=false
     echo "$REMOTE_OUTPUT" | tail -5
     if [ "$REMOTE_REPO_OK" = true ]; then
@@ -668,6 +666,7 @@ if [ -n "$AH_TEST_API_KEY" ]; then
     # Test bad key against production
     if $RUN file "$AGENTS_FILE" \
         --submit "$AH_TEST_REMOTE_ENDPOINT" \
+        --allow-public-endpoint \
         --api-key "${AH_TEST_API_NO_KEY:-ah_invalid_key_000}" > /dev/null 2>&1; then
         fail "remote submit (bad key should fail but didn't)"
     else
