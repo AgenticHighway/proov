@@ -94,8 +94,8 @@ cargo build --release
 
 ```bash
 proov                      # Interactive wizard — walks you through options
-proov quick                # Fast scan of AI config areas (~/.cursor, VS Code, Claude, etc.)
-proov scan                 # Default scan (home directory, recursive)
+proov quick                # Tier 1 scan of critical AI config areas (~/.cursor, VS Code, Claude, etc.)
+proov scan                 # Default tiered scan of critical roots + bounded user-space/project roots
 proov full                 # Deep system-wide scan (slow, thorough)
 proov file <path>          # Scan a single file
 proov folder <path>        # Scan a directory
@@ -109,6 +109,22 @@ proov rules add <file>     # Install a TOML rule file
 proov rules remove <name>  # Remove an installed rule by name
 proov rules validate <f>   # Validate a rule file without installing
 ```
+
+## Scan surfaces
+
+`proov` now treats scan modes as scan-surface tiers instead of simple breadth presets:
+
+- `quick`: Tier 1 only — critical OS-aware agent surfaces such as VS Code, Cursor, Claude, Continue, Aider, and similar local tool config roots
+- `scan`: Tier 1 plus bounded user-space/project roots such as `Desktop`, `Documents`, `Downloads`, and common repo folders like `Code`, `Projects`, `Workspace`, `src`, and `GitHub`
+- `folder`: explicit target directory plus bounded local adjacency
+- `repo`: explicit target repository plus deeper local adjacency
+- `full`: explicit forensic sweep from filesystem root
+
+Current critical roots are OS-aware:
+
+- macOS: `~/Library/Application Support/Code/User`, `~/Library/Application Support/Code - Insiders/User`, `~/Library/Application Support/Cursor/User`, plus `~/.claude`, `~/.cursor`, `~/.aider`, `~/.continue`, `~/.ollama`, and editor config roots when present
+- Linux: `~/.config/Code/User`, `~/.config/Code - Insiders/User`, `~/.config/Cursor/User`, plus `~/.claude`, `~/.cursor`, `~/.aider`, `~/.continue`, and `~/.ollama`
+- Windows: `%APPDATA%\\Code\\User`, `%APPDATA%\\Code - Insiders\\User`, `%APPDATA%\\Cursor\\User`, plus `%USERPROFILE%\\.claude`, `%USERPROFILE%\\.cursor`, `%USERPROFILE%\\.aider`, `%USERPROFILE%\\.continue`, and `%USERPROFILE%\\.ollama`
 
 ## Output formats
 
@@ -256,7 +272,7 @@ compile time.
 
 - **Path-first scanning** — content is only read from specific allowlisted file types
 - **Bounded walking** — max depth of 5 for shallow scans; full scan enumerates the entire filesystem with no caps
-- **Scoped exclusions** — `.git/`, `node_modules/`, `.venv/`, `target/` and similar are excluded from home/workdir/filesystem scans (full scan has no exclusions)
+- **Scoped exclusions** — `.git/`, `node_modules/`, `.venv/`, `target/` and similar are excluded from default, workdir, and filesystem scans (full scan has no exclusions)
 - **Secret detection without storage** — token patterns trigger a signal tag, but values are never stored or transmitted
 - **Browser presence only** — extension directories are noted, but no extension content or preferences are read
 - **Declarative rules** — custom rules are TOML config files; they use the same content-read allowlist as built-in detectors

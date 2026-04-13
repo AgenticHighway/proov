@@ -16,7 +16,7 @@ pub fn get_all_detectors(mode: &str) -> Vec<Box<dyn Detector>> {
     if matches!(mode, "workdir" | "file") {
         d.push(Box::new(source_risks::SourceRiskDetector::new(mode)));
     }
-    if matches!(mode, "host" | "filesystem" | "home" | "root") {
+    if matches!(mode, "host" | "scan" | "filesystem" | "home" | "root") {
         d.push(Box::new(browser_footprints::BrowserFootprintDetector));
     }
     d
@@ -36,6 +36,13 @@ mod tests {
     #[test]
     fn host_mode_includes_browser_detector() {
         let detectors = get_all_detectors("host");
+        assert_eq!(detectors.len(), 4);
+        assert!(detectors.iter().any(|d| d.name() == "browser_footprints"));
+    }
+
+    #[test]
+    fn scan_mode_includes_browser_detector() {
+        let detectors = get_all_detectors("scan");
         assert_eq!(detectors.len(), 4);
         assert!(detectors.iter().any(|d| d.name() == "browser_footprints"));
     }

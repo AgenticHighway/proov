@@ -4,7 +4,7 @@ Detectors are the core of what proov does — they examine filesystem candidates
 
 ## How detection works
 
-1. **Discovery** (`discovery.rs`) walks the filesystem and produces a list of `Candidate`s (file paths with origin tags)
+1. **Discovery** (`discovery.rs`) walks tiered scan surfaces or explicit targets and produces a list of `Candidate`s (file paths with origin tags)
 2. **Detectors** receive the candidate list and examine each file
 3. Each detector returns zero or more `ArtifactReport`s with signals, confidence scores, and metadata
 4. Reports are then scored by `risk_engine.rs` and verified by `verifier.rs`
@@ -142,7 +142,7 @@ Current bounded behavior:
 
 This detector is unique — it **only checks for the presence** of browser profile directories. It never reads extension content or user data. This is a privacy-first design choice.
 
-- Only runs in host/root/filesystem/home scan modes (not in project scans)
+- Only runs in host/scan/root/filesystem/home scan modes (not in project scans)
 - Confidence: fixed 0.6 (presence-only)
 
 **Metadata contract:**
@@ -166,7 +166,7 @@ The `detect()` method receives:
 Each candidate has:
 
 - `path` — absolute file path
-- `origin` — where it came from ("host", "workdir", "filesystem")
+- `origin` — where it came from (`host`, `home`, `workdir`, `filesystem`, or `root`)
 
 ### Content reading limit
 

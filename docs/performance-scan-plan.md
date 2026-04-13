@@ -73,7 +73,7 @@ User-selected file or folder. Always scan it.
 High-signal locations where agent prompts, MCP configs, AI tool settings, and
 local operator control files are likely to live.
 
-Examples:
+Concrete roots in code:
 
 - macOS: `~/Library/Application Support/Code/User`, `~/Library/Application Support/Cursor/User`, `~/.claude`, `~/.cursor`, `~/.aider`, `~/.continue`
 - Linux: `~/.config/Code/User`, `~/.config/Cursor/User`, `~/.claude`, `~/.cursor`, `~/.aider`, `~/.continue`
@@ -86,7 +86,13 @@ to contain agentic artifacts.
 
 ### Tier 3: Broad user-space scan
 
-Home-directory scanning, still bounded and exclusion-aware.
+Bounded scans of selected user-space and project roots under the home directory, still exclusion-aware.
+
+Concrete roots in code:
+
+- macOS: bounded scans of `~/Desktop`, `~/Documents`, `~/Downloads`, `~/Developer`, `~/Projects`, `~/Code`, `~/Workspace`, `~/Work`, `~/src`, and `~/GitHub`, plus direct files in `~`
+- Linux: bounded scans of `~/Desktop`, `~/Documents`, `~/Downloads`, `~/projects`, `~/code`, `~/workspace`, `~/work`, `~/src`, `~/git`, and `~/GitHub`, plus direct files in `~`
+- Windows: bounded scans of `%USERPROFILE%\\Desktop`, `%USERPROFILE%\\Documents`, `%USERPROFILE%\\Downloads`, `%USERPROFILE%\\Projects`, `%USERPROFILE%\\Code`, `%USERPROFILE%\\Workspace`, `%USERPROFILE%\\Source`, `%USERPROFILE%\\src`, and `%USERPROFILE%\\GitHub`, plus direct files in `%USERPROFILE%`
 
 ### Tier 4: Forensic sweep
 
@@ -94,7 +100,7 @@ Explicit full-root scan. Expensive by design and not the normal recommendation.
 
 ## CLI mapping
 
-Recommended mode semantics:
+Current mode semantics in code after issue #54:
 
 - `quick`: Tier 1 only
 - `scan`: Tier 1 + Tier 2 + bounded Tier 3

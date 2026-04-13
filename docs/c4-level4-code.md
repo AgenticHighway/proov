@@ -222,7 +222,7 @@ flowchart TD
     RunScan["run_scan(mode)"]
 
     RunScan -->|"mode = host"| Host["discover_host_surfaces()\nBounded AI config dirs\n(Cursor, VS Code, Claude, etc.)"]
-    RunScan -->|"mode = home"| Home["discover_home_surfaces()\nRecursive ~ walk\n(MAX_DEPTH = 5)"]
+    RunScan -->|"mode = scan"| Home["discover_scan_surfaces()\nTier 1 critical roots +\nbounded user-space roots"]
     RunScan -->|"mode = root"| Root["discover_root_surfaces()\nEntire filesystem from /"]
     RunScan -->|"mode = workdir"| Workdir["discover_workdir_surfaces()\nExplicit project directory\n(deep mode optional)"]
     RunScan -->|"mode = file"| File["discover_file_surface()\nSingle file analysis"]

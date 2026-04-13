@@ -6,6 +6,7 @@
 //! and reports can distinguish them.
 
 use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -87,6 +88,48 @@ const AI_CLI_CONFIG_DIRS: &[&str] = &[
 
 const FILESYSTEM_EXTRA_ROOTS: &[&str] = &["/Applications", "/opt/homebrew", "/usr/local"];
 
+const MACOS_EDITOR_USER_DIRS: &[&str] = &["Code/User", "Code - Insiders/User", "Cursor/User"];
+const LINUX_EDITOR_USER_DIRS: &[&str] = &["Code/User", "Code - Insiders/User", "Cursor/User"];
+const WINDOWS_EDITOR_USER_DIRS: &[&str] = &["Code/User", "Code - Insiders/User", "Cursor/User"];
+
+const MACOS_USER_SPACE_DIRS: &[&str] = &[
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Developer",
+    "Projects",
+    "Code",
+    "Workspace",
+    "Work",
+    "src",
+    "GitHub",
+];
+
+const LINUX_USER_SPACE_DIRS: &[&str] = &[
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "projects",
+    "code",
+    "workspace",
+    "work",
+    "src",
+    "git",
+    "GitHub",
+];
+
+const WINDOWS_USER_SPACE_DIRS: &[&str] = &[
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Projects",
+    "Code",
+    "Workspace",
+    "Source",
+    "src",
+    "GitHub",
+];
+
 // ---------------------------------------------------------------------------
 // Candidate model
 // ---------------------------------------------------------------------------
@@ -135,31 +178,59 @@ fn home_dir() -> Option<PathBuf> {
     dirs::home_dir()
 }
 
+fn existing_unique_paths(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    paths
+        .into_iter()
+        .filter(|path| path.exists())
+        .filter(|path| seen.insert(path.clone()))
+        .collect()
+}
+
+fn default_user_space_dir_names() -> &'static [&'static str] {
+    match std::env::consts::OS {
+        "macos" => MACOS_USER_SPACE_DIRS,
+        "windows" => WINDOWS_USER_SPACE_DIRS,
+        _ => LINUX_USER_SPACE_DIRS,
+    }
+}
+
+fn join_existing_relative_roots(base: &Path, relatives: &[&str]) -> Vec<PathBuf> {
+    existing_unique_paths(relatives.iter().map(|relative| base.join(relative)))
+}
+
 pub fn host_roots() -> Vec<PathBuf> {
     let Some(home) = home_dir() else {
         return Vec::new();
     };
-    let mut roots = vec![home.join(".config"), home.join(".local").join("share")];
+    let mut roots = ai_cli_config_roots();
 
-    // Agentic tool config directories
-    for dir in AI_CLI_CONFIG_DIRS {
-        roots.push(home.join(dir));
+    match std::env::consts::OS {
+        "macos" => {
+            let app_support = home.join("Library").join("Application Support");
+            roots.extend(join_existing_relative_roots(
+                &app_support,
+                MACOS_EDITOR_USER_DIRS,
+            ));
+        }
+        "windows" => {
+            if let Some(config_dir) = dirs::config_dir() {
+                roots.extend(join_existing_relative_roots(
+                    &config_dir,
+                    WINDOWS_EDITOR_USER_DIRS,
+                ));
+            }
+        }
+        _ => {
+            let config_dir = home.join(".config");
+            roots.extend(join_existing_relative_roots(
+                &config_dir,
+                LINUX_EDITOR_USER_DIRS,
+            ));
+        }
     }
 
-    // VS Code / Cursor settings per platform
-    if std::env::consts::OS == "macos" {
-        let app_support = home.join("Library").join("Application Support");
-        roots.push(app_support.clone());
-        roots.push(app_support.join("Code").join("User"));
-        roots.push(app_support.join("Code - Insiders").join("User"));
-        roots.push(app_support.join("Cursor").join("User"));
-    } else {
-        roots.push(home.join(".config").join("Code").join("User"));
-        roots.push(home.join(".config").join("Code - Insiders").join("User"));
-        roots.push(home.join(".config").join("Cursor").join("User"));
-    }
-
-    roots.into_iter().filter(|r| r.exists()).collect()
+    existing_unique_paths(roots)
 }
 
 pub fn browser_profile_roots() -> Vec<PathBuf> {
@@ -198,6 +269,17 @@ pub fn ai_cli_config_roots() -> Vec<PathBuf> {
         .map(|d| home.join(d))
         .filter(|p| p.exists())
         .collect()
+}
+
+pub fn default_user_space_roots() -> Vec<PathBuf> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+    existing_unique_paths(
+        default_user_space_dir_names()
+            .iter()
+            .map(|dir| home.join(dir)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +346,39 @@ pub fn walk_deep_workdir(
     candidates
 }
 
+fn discover_direct_files(root: &Path, origin: &str) -> Vec<Candidate> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|kind| kind.is_file())
+                .map(|_| Candidate {
+                    path: entry.path(),
+                    origin: origin.to_string(),
+                })
+        })
+        .collect()
+}
+
+fn extend_unique_candidates(
+    candidates: &mut Vec<Candidate>,
+    seen: &mut HashSet<PathBuf>,
+    incoming: Vec<Candidate>,
+) {
+    for candidate in incoming {
+        if seen.insert(candidate.path.clone()) {
+            candidates.push(candidate);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // High-level discovery entry points
 // ---------------------------------------------------------------------------
@@ -273,6 +388,39 @@ pub fn discover_host_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> 
     for root in host_roots() {
         candidates.extend(walk_bounded(&root, "host", on_tick));
     }
+    candidates
+}
+
+pub fn discover_scan_surfaces(on_tick: Option<&dyn Fn(&str)>) -> Vec<Candidate> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+
+    extend_unique_candidates(
+        &mut candidates,
+        &mut seen,
+        discover_direct_files(&home, "home"),
+    );
+
+    for root in host_roots() {
+        extend_unique_candidates(
+            &mut candidates,
+            &mut seen,
+            walk_bounded(&root, "host", on_tick),
+        );
+    }
+
+    for root in default_user_space_roots() {
+        extend_unique_candidates(
+            &mut candidates,
+            &mut seen,
+            walk_bounded(&root, "home", on_tick),
+        );
+    }
+
     candidates
 }
 
@@ -571,5 +719,51 @@ mod tests {
         for root in &roots {
             assert!(root.exists(), "{:?} should exist", root);
         }
+    }
+
+    #[test]
+    fn default_user_space_dir_names_include_documents() {
+        let dirs = default_user_space_dir_names();
+        assert!(dirs.contains(&"Documents"));
+    }
+
+    #[test]
+    fn discover_direct_files_only_collects_immediate_files() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("agents.md"), "hello").unwrap();
+        fs::create_dir(tmp.path().join("nested")).unwrap();
+        fs::write(tmp.path().join("nested").join("other.md"), "world").unwrap();
+
+        let candidates = discover_direct_files(tmp.path(), "home");
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].path.ends_with("agents.md"));
+        assert_eq!(candidates[0].origin, "home");
+    }
+
+    #[test]
+    fn extend_unique_candidates_deduplicates_paths() {
+        let mut candidates = Vec::new();
+        let mut seen = HashSet::new();
+        let path = PathBuf::from("/tmp/agents.md");
+
+        extend_unique_candidates(
+            &mut candidates,
+            &mut seen,
+            vec![Candidate {
+                path: path.clone(),
+                origin: "host".to_string(),
+            }],
+        );
+        extend_unique_candidates(
+            &mut candidates,
+            &mut seen,
+            vec![Candidate {
+                path,
+                origin: "home".to_string(),
+            }],
+        );
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].origin, "host");
     }
 }
