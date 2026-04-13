@@ -160,6 +160,40 @@ pub fn resolve_scanner_account_uuid(explicit: Option<&str>) -> Result<String, St
 mod tests {
     use super::*;
     use std::env;
+    use std::sync::{LazyLock, Mutex};
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct ScopedEnvVar {
+        name: &'static str,
+        original: Option<String>,
+    }
+
+    impl ScopedEnvVar {
+        fn set(name: &'static str, value: &str) -> Self {
+            let original = env::var(name).ok();
+            // SAFETY: Environment mutation is process-global, so tests serialize
+            // access with ENV_LOCK and restore the original value in Drop.
+            unsafe {
+                env::set_var(name, value);
+            }
+            Self { name, original }
+        }
+    }
+
+    impl Drop for ScopedEnvVar {
+        fn drop(&mut self) {
+            // SAFETY: Environment mutation is serialized by ENV_LOCK for the
+            // lifetime of ScopedEnvVar, so restoration is scoped and ordered.
+            unsafe {
+                if let Some(value) = &self.original {
+                    env::set_var(self.name, value);
+                } else {
+                    env::remove_var(self.name);
+                }
+            }
+        }
+    }
 
     #[test]
     fn valid_uuid_check() {
@@ -222,13 +256,13 @@ mod tests {
 
     #[test]
     fn env_var_fallback() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let uuid = "660e8400-e29b-41d4-a716-446655440000";
         let var_name = "AH_TEST_UUID_ENV_FALLBACK";
-        env::set_var(var_name, uuid);
+        let _var = ScopedEnvVar::set(var_name, uuid);
         let tmp = tempdir();
         let path = tmp.join("id");
         let result = resolve_persisted_uuid(None, var_name, &path, "test");
-        env::remove_var(var_name);
         assert_eq!(result.unwrap(), uuid);
     }
 
