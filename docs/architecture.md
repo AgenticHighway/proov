@@ -8,6 +8,8 @@ For the planned follow-on source-analysis work derived from remaining
 DefenseClaw heuristics, see [cisco-source-analysis-plan.md](cisco-source-analysis-plan.md).
 For the planned scan performance and tiered discovery work, see
 [performance-scan-plan.md](performance-scan-plan.md).
+For the planned incremental scan cache and change-tracking roadmap, see
+[incremental-scan-design.md](incremental-scan-design.md).
 
 ## System context
 
@@ -173,6 +175,7 @@ These modules interact with the outside world:
 | `network_evidence.rs` | Runs macOS firewall commands                                              |
 | `updater.rs`          | HTTP GET to hosted signed release metadata + artifact download            |
 | `contract_sync.rs`    | HTTP GET contract version from server, local cache in ~/.ahscan/contract/ |
+| Planned incremental cache | Future local scan-state cache in `~/.ahscan/scan-cache/` (see [incremental-scan-design.md](incremental-scan-design.md)) |
 | `setup.rs`            | Interactive prompts + config file writes                                  |
 | `wizard.rs`           | Interactive terminal UI                                                   |
 | `progress.rs`         | Writes to stderr                                                          |

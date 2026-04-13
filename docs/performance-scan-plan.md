@@ -140,6 +140,14 @@ a repeatable local benchmark path for key scan modes.
 Longer-term, normal scans should reuse cached metadata and eventually integrate
 OS-native file change feeds so unchanged files do not get rescanned every run.
 
+The concrete design for that path now lives in
+[incremental-scan-design.md](incremental-scan-design.md). The short version:
+
+- start with a persistent stat-and-artifact cache for `quick` and `scan`
+- treat OS-native change feeds as accelerators, not the only source of truth
+- prefer replayable event history where the platform supports it
+- keep `full` mode intentionally non-incremental by default
+
 ## Issue breakdown
 
 The work is split into mergeable GitHub issues:
