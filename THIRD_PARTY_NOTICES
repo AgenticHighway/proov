@@ -9,6 +9,7 @@ or adapted for proov.
 Adapted material currently incorporated into proov:
 
 - secrets detection patterns adapted from Cisco DefenseClaw
+- SSRF and cognitive tampering patterns adapted from Cisco DefenseClaw
 
 ## DefenseClaw attribution
 
@@ -20,6 +21,8 @@ Copyright: Cisco Systems, Inc.
 Imported upstream source files:
 
 - internal/scanner/clawshield_secrets.go
+- internal/scanner/clawshield_injection.go
+- internal/scanner/clawshield_vuln.go
 
 Imported pattern families:
 
@@ -29,16 +32,17 @@ Imported pattern families:
 - GitHub and GitLab token patterns
 - Slack, Stripe, Twilio, SendGrid, Mailgun, npm, and PyPI token patterns
 - private key and structured auth token patterns
+- SSRF metadata-target, private-network, and encoded-address patterns
+- cognitive tampering and prompt-injection framing patterns
+- unicode steganography and encoded-instruction detection patterns
 
 Remaining planned import scope:
 
-- SSRF encoding and metadata-target patterns
-- cognitive tampering and prompt-injection patterns
+- no additional DefenseClaw pattern families are recorded in this notice yet
 
 Additional upstream source files under review:
 
-- internal/scanner/clawshield_injection.go
-- internal/scanner/clawshield_vuln.go
+- none currently recorded
 
 Attribution convention for future derived work:
 
