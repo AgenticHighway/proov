@@ -5,8 +5,11 @@ This document captures the design for issue `#59`.
 Status:
 
 - phase 1 stat-cache implementation now exists for `quick`, `scan`, `folder`,
-  and `repo`
-- watcher-backed refresh remains future work
+  `repo`, and `file`
+- macOS root-refresh now uses persisted FSEvents cursors for repeated `quick`
+  and `scan` runs, falling back to bounded rewalks whenever replay is missing
+  or untrusted
+- watcher-backed refresh for other platforms remains future work
 - this document still defines the broader roadmap beyond the shipped first
   slice
 
@@ -54,9 +57,7 @@ Today `proov` has:
 
 What it does not yet have:
 
-- an on-disk scan cache for file state or artifact reuse
-- a persisted notion of unchanged-file detection across runs
-- OS change cursors or replay state for scan roots
+- cross-platform OS change cursors or replay state for all scan roots
 
 ## Proposed cache scope by mode
 
@@ -66,8 +67,8 @@ Primary incremental target.
 
 - cache reads: yes
 - cache writes: yes
-- OS change integration: yes, when the platform supports replayable history or
-  when a later helper is accepted
+- OS change integration: macOS FSEvents replay now shipped for repeated runs;
+  other platforms remain future work
 
 ### `scan`
 
@@ -77,6 +78,8 @@ Primary incremental target.
 - cache writes: yes
 - shares Tier 1 reuse with `quick`
 - tracks additional bounded user-space roots separately from `quick`
+- repeated macOS runs now reuse cached root membership when FSEvents replay
+  reports no changes for a bounded root
 
 ### `folder`
 
@@ -100,9 +103,10 @@ Explicit target with deeper adjacency.
 
 Explicit single target.
 
-- cache reads: low priority
-- cache writes: optional
-- the stat call is already cheap enough that persistent reuse is not urgent
+- cache reads: yes
+- cache writes: yes
+- `source_risks` now joins the cacheable set here because file mode produces a
+  deterministic single-target surface instead of a workdir aggregate
 
 ### `full`
 
