@@ -4,6 +4,8 @@ This document explains how proov is built, how data flows through it, and how
 the modules connect. Read this before diving into the source code.
 
 For public-facing CLI journeys, see [user-flows.md](user-flows.md).
+For the planned follow-on source-analysis work derived from remaining
+DefenseClaw heuristics, see [cisco-source-analysis-plan.md](cisco-source-analysis-plan.md).
 
 ## System context
 
@@ -175,14 +177,14 @@ These modules interact with the outside world:
 
 ### Orchestration
 
-| Module             | Role                                                                                                                              |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `cli.rs`           | Entry point: argument parsing, dispatch, access gating, and post-scan decision flow                                              |
-| `scan.rs`          | Pipeline: discovery → detection → scoring → verification                                                                          |
+| Module             | Role                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `cli.rs`           | Entry point: argument parsing, dispatch, access gating, and post-scan decision flow                                                  |
+| `scan.rs`          | Pipeline: discovery → detection → scoring → verification                                                                             |
 | `contract/`        | Transform `ScanReport` → scanner data contract v2.1.0 format (split into type-specific builders: prompts, skills, agents, mcp, apps) |
-| `contract_sync.rs` | Sync contract schema version from server, cache locally in `~/.ahscan/contract/`, warn on version mismatch                        |
-| `rule_engine.rs`   | Load TOML rules from `~/.ahscan/rules/`, match against candidates                                                                 |
-| `rules.rs`         | CLI subcommand for rule management (list, add, remove, validate)                                                                  |
+| `contract_sync.rs` | Sync contract schema version from server, cache locally in `~/.ahscan/contract/`, warn on version mismatch                           |
+| `rule_engine.rs`   | Load TOML rules from `~/.ahscan/rules/`, match against candidates                                                                    |
+| `rules.rs`         | CLI subcommand for rule management (list, add, remove, validate)                                                                     |
 
 ## File primitives
 
