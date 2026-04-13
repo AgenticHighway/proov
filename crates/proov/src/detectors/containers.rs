@@ -142,7 +142,7 @@ fn classify_candidate(candidate: &Candidate, ai_dirs: &HashSet<PathBuf>) -> Opti
 
     // Content scan for AI relevance tokens + container-specific primitives
     if is_content_read_allowed(&candidate.path) {
-        if let Some(content) = read_head(&candidate.path) {
+        if let Some(content) = read_utf8_head(&candidate.path, MAX_READ_BYTES) {
             let content_scan = scan_content(&content);
             signals.extend(content_scan.signals);
             has_ai_content = content_scan.has_ai_content;
@@ -297,10 +297,6 @@ fn extract_compose_services(content: &str) -> Vec<String> {
         }
     }
     services
-}
-
-fn read_head(path: &std::path::Path) -> Option<String> {
-    read_utf8_head(path, MAX_READ_BYTES)
 }
 
 #[cfg(test)]

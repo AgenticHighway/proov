@@ -163,7 +163,7 @@ fn apply_rule(
 
     // Content analysis (if allowed and readable)
     if is_content_read_allowed(&candidate.path) {
-        if let Some(content) = read_head(&candidate.path) {
+        if let Some(content) = read_utf8_head(&candidate.path, MAX_READ_BYTES) {
             // Primary keywords
             if let Some(ref kw) = rule.keywords {
                 let (kw_signals, kw_count) = scan_rule_keywords(&content, kw);
@@ -221,10 +221,6 @@ fn apply_rule(
     report.artifact_scope = candidate.origin.clone();
     report.compute_hash();
     Some(report)
-}
-
-fn read_head(path: &std::path::Path) -> Option<String> {
-    read_utf8_head(path, MAX_READ_BYTES)
 }
 
 #[cfg(test)]
