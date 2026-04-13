@@ -62,20 +62,6 @@ impl ArtifactReport {
             return content_hash.to_string();
         }
 
-        if let Some(serde_json::Value::Array(paths)) = self.metadata.get("paths") {
-            let mut sorted: Vec<&str> = paths.iter().filter_map(|v| v.as_str()).collect();
-            sorted.sort();
-
-            if let Some(first) = sorted.first() {
-                let p = Path::new(first);
-                if p.is_file() {
-                    if let Some(hash) = file_content_digest(p).map(|digest| digest.hash) {
-                        return hash;
-                    }
-                }
-            }
-        }
-
         let mut metadata_without_paths = self.metadata.clone();
         metadata_without_paths.remove("paths");
 
@@ -473,31 +459,43 @@ mod tests {
         std::fs::write(&file, &content).unwrap();
 
         let mut report = ArtifactReport::new("prompt_config", 0.8);
+        report.metadata = gather_file_primitives(&file);
+        report.metadata.remove("content_hash");
+        report.metadata.remove("content_hash_mode");
+        report.metadata.remove("content_hash_bytes_hashed");
         report.metadata.insert(
             "paths".into(),
             serde_json::json!([file.to_string_lossy().to_string()]),
         );
 
-        assert_eq!(report.content_digest(), hex_sha256(&content));
+        let digest = report.content_digest();
+
+        std::fs::write(&file, b"changed after detection").unwrap();
+
+        assert_eq!(report.content_digest(), digest);
     }
 
     #[test]
-    fn content_digest_uses_bounded_hash_for_oversized_file_paths() {
+    fn content_digest_without_content_hash_is_stable_after_file_deletion() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("oversized-prompt.md");
         let content = vec![b'q'; (MAX_FULL_FILE_HASH_BYTES + 1) as usize];
         std::fs::write(&file, &content).unwrap();
 
         let mut report = ArtifactReport::new("prompt_config", 0.8);
+        report.metadata = gather_file_primitives(&file);
+        report.metadata.remove("content_hash");
+        report.metadata.remove("content_hash_mode");
+        report.metadata.remove("content_hash_bytes_hashed");
         report.metadata.insert(
             "paths".into(),
             serde_json::json!([file.to_string_lossy().to_string()]),
         );
 
-        assert_eq!(
-            report.content_digest(),
-            hex_sha256(&content[..LARGE_FILE_HASH_BYTES as usize])
-        );
+        let digest = report.content_digest();
+        std::fs::remove_file(&file).unwrap();
+
+        assert_eq!(report.content_digest(), digest);
     }
 
     #[test]
