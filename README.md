@@ -1,5 +1,11 @@
 # proov
 
+[![Version](https://img.shields.io/github/v/release/AgenticHighway/proov?label=version)](https://github.com/AgenticHighway/proov/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/AgenticHighway/proov/ci.yml?branch=main&label=ci)](https://github.com/AgenticHighway/proov/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/github/actions/workflow/status/AgenticHighway/proov/ci.yml?branch=main&label=tests)](https://github.com/AgenticHighway/proov/actions/workflows/ci.yml)
+[![Security](https://img.shields.io/github/actions/workflow/status/AgenticHighway/proov/ci.yml?branch=main&label=security)](https://github.com/AgenticHighway/proov/actions/workflows/ci.yml)
+[![Fmt + Lint](https://img.shields.io/github/actions/workflow/status/AgenticHighway/proov/ci.yml?branch=main&label=fmt%20%2B%20lint)](https://github.com/AgenticHighway/proov/actions/workflows/ci.yml)
+
 **Detect, analyze, and report AI execution artifacts on a host machine.**
 
 proov is a Rust CLI tool that scans your system for AI-related configuration files — things like `.cursorrules`, MCP server configs, prompt files, and container definitions — analyzes them for risk, and produces structured reports.
