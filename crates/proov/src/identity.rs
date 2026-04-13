@@ -24,6 +24,55 @@ fn ahscan_dir() -> Result<PathBuf, String> {
     })
 }
 
+fn persist_uuid(path: &Path, field_name: &str, uuid: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create directory {} for {field_name}: {e}",
+                parent.display()
+            )
+        })?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).map_err(|e| {
+                format!(
+                    "Failed to secure directory {} for {field_name}: {e}",
+                    parent.display()
+                )
+            })?;
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| format!("Failed to open {field_name} file {}: {e}", path.display()))?;
+        file.write_all(uuid.as_bytes())
+            .map_err(|e| format!("Failed to write {field_name} to {}: {e}", path.display()))?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Failed to secure {field_name} file {}: {e}", path.display()))?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(path, uuid)
+            .map_err(|e| format!("Failed to persist {field_name} to {}: {e}", path.display()))?;
+    }
+
+    Ok(())
+}
+
 /// Resolve a UUID through the following cascade:
 ///
 /// 1. `explicit` — use if provided (must be valid UUID).
@@ -82,20 +131,7 @@ pub fn resolve_persisted_uuid(
 
     // 4. Generate and persist
     let new_uuid = Uuid::new_v4().to_string();
-    if let Some(parent) = id_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "Failed to create directory {} for {field_name}: {e}",
-                parent.display()
-            )
-        })?;
-    }
-    fs::write(id_path, &new_uuid).map_err(|e| {
-        format!(
-            "Failed to persist {field_name} to {}: {e}",
-            id_path.display()
-        )
-    })?;
+    persist_uuid(id_path, field_name, &new_uuid)?;
 
     Ok(new_uuid)
 }
@@ -214,6 +250,27 @@ mod tests {
         let uuid = result.unwrap();
         assert!(is_valid_uuid(&uuid));
         assert_eq!(fs::read_to_string(&path).unwrap(), uuid);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_uuid_path_is_saved_with_restrictive_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempdir();
+        let path = tmp.join("secure").join("id");
+
+        let uuid = resolve_persisted_uuid(None, "UNUSED_VAR_3456", &path, "test").unwrap();
+
+        assert!(is_valid_uuid(&uuid));
+        let dir_mode = fs::metadata(path.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        let file_mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o700);
+        assert_eq!(file_mode, 0o600);
     }
 
     fn tempdir() -> PathBuf {
