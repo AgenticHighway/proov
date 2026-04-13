@@ -24,3 +24,14 @@ regexTarget = "line"
 regexes = [
   '''expression: r"-----BEGIN (?:RSA|EC|DSA|OPENSSH)? ?PRIVATE KEY-----",''',
 ]
+
+[[allowlists]]
+description = "Intentional JWT fixture used in content-pattern tests"
+condition = "AND"
+paths = [
+  '''(^|/)crates/proov/src/content_patterns\.rs$''',
+]
+regexTarget = "line"
+regexes = [
+  '''let jwt = "eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTYifQ\.c2lnbmF0dXJlMTIzNDU2Nzg5MA";''',
+]
