@@ -19,6 +19,8 @@ ignore = []
 [licenses]
 # Only allow these licenses (covers 99% of the Rust ecosystem).
 # Copyleft licenses (GPL, AGPL) are denied by omission for dependencies.
+# Apache-2.0 is also the approved upstream license for any future source-derived
+# pattern adaptations, provided attribution is retained in THIRD_PARTY_NOTICES.
 allow = [
     "MIT",
     "Apache-2.0",

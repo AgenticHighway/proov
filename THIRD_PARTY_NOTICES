@@ -1,0 +1,39 @@
+# proov third-party notices
+
+This repository is licensed under the GNU Affero General Public License v3.0
+only. See LICENSE for the governing license of this project.
+
+This file records third-party attribution notices for material incorporated into
+or adapted for proov.
+
+No third-party source code or detection-pattern corpus is incorporated by this
+change. This file is added as compliance scaffolding for planned follow-on work
+under issue #30 and the linked Sprint 1 tracking issue.
+
+## Third-party source corpus reserved for planned pattern imports
+
+Source project: DefenseClaw
+Source repository: <https://github.com/cisco-ai-defense/defenseclaw>
+Source license: Apache License 2.0
+Copyright: Cisco Systems, Inc.
+
+Planned import scope:
+
+- secrets detection patterns
+- SSRF encoding and metadata-target patterns
+- cognitive tampering and prompt-injection patterns
+
+Planned upstream source files under review:
+
+- internal/scanner/clawshield_secrets.go
+- internal/scanner/clawshield_injection.go
+- internal/scanner/clawshield_vuln.go
+
+Attribution convention for future derived work:
+
+- Any file that materially adapts patterns from the DefenseClaw corpus should
+  retain a concise provenance comment near the adapted definitions.
+- This file should be updated with the exact imported pattern families and the
+  upstream source files they were derived from.
+- If upstream notice text becomes applicable to imported material, a readable
+  copy of that notice should be preserved here.
