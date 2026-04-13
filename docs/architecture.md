@@ -166,19 +166,19 @@ These modules never touch the filesystem, network, or terminal. They are safe to
 
 These modules interact with the outside world:
 
-| Module                | Side effect                                                               |
-| --------------------- | ------------------------------------------------------------------------- |
-| `discovery.rs`        | Reads filesystem (directory walking)                                      |
-| `detectors/*`         | Read file contents                                                        |
-| `submit.rs`           | HTTP POST, read/write config files                                        |
-| `identity.rs`         | Read/write UUID files in ~/.ahscan/                                       |
-| `network_evidence.rs` | Runs macOS firewall commands                                              |
-| `updater.rs`          | HTTP GET to hosted signed release metadata + artifact download            |
-| `contract_sync.rs`    | HTTP GET contract version from server, local cache in ~/.ahscan/contract/ |
+| Module                    | Side effect                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `discovery.rs`            | Reads filesystem (directory walking)                                                                                    |
+| `detectors/*`             | Read file contents                                                                                                      |
+| `submit.rs`               | HTTP POST, read/write config files                                                                                      |
+| `identity.rs`             | Read/write UUID files in ~/.ahscan/                                                                                     |
+| `network_evidence.rs`     | Runs macOS firewall commands                                                                                            |
+| `updater.rs`              | HTTP GET to hosted signed release metadata + artifact download                                                          |
+| `contract_sync.rs`        | HTTP GET contract version from server, local cache in ~/.ahscan/contract/                                               |
 | Planned incremental cache | Future local scan-state cache in `~/.ahscan/scan-cache/` (see [incremental-scan-design.md](incremental-scan-design.md)) |
-| `setup.rs`            | Interactive prompts + config file writes                                  |
-| `wizard.rs`           | Interactive terminal UI                                                   |
-| `progress.rs`         | Writes to stderr                                                          |
+| `setup.rs`                | Interactive prompts + config file writes                                                                                |
+| `wizard.rs`               | Interactive terminal UI                                                                                                 |
+| `progress.rs`             | Writes to stderr                                                                                                        |
 
 ### Orchestration
 
