@@ -154,6 +154,7 @@ fn classify_artifact(artifact: &mut ArtifactReport, mode: &str) {
     // --- registry_eligible ---
     artifact.registry_eligible = match atype {
         "cursor_rules" | "agents_md" => true,
+        "source_risk_surface" => false,
         "container_candidate" => false,
         "prompt_config" if artifact.artifact_scope == "docs" => false,
         "prompt_config" => {
@@ -188,12 +189,13 @@ const LOCAL_ANALYSIS_SIGNALS: &[&str] = &[
 ];
 
 fn tag_analysis_origin(artifact: &mut ArtifactReport) {
-    let has_local_signal = artifact.signals.iter().any(|s| {
-        LOCAL_ANALYSIS_SIGNALS.contains(&s.as_str())
-            || s.starts_with("secret:")
-            || s.starts_with("ssrf:")
-            || s.starts_with("cognitive_tampering:")
-    });
+    let has_local_signal = artifact.artifact_type == "source_risk_surface"
+        || artifact.signals.iter().any(|s| {
+            LOCAL_ANALYSIS_SIGNALS.contains(&s.as_str())
+                || s.starts_with("secret:")
+                || s.starts_with("ssrf:")
+                || s.starts_with("cognitive_tampering:")
+        });
 
     let origin = if has_local_signal || artifact.verification_status == "fail" {
         "local"
@@ -304,6 +306,13 @@ mod tests {
         assert!(a.registry_eligible);
     }
 
+    #[test]
+    fn source_risk_surface_never_registry_eligible() {
+        let mut a = artifact_at("source_risk_surface", "/project");
+        classify_artifact(&mut a, "workdir");
+        assert!(!a.registry_eligible);
+    }
+
     // --- tag_analysis_origin ---
 
     #[test]
@@ -318,6 +327,13 @@ mod tests {
     fn structured_ssrf_signal_tags_local_origin() {
         let mut a = artifact_at("prompt_config", "/project/prompt.md");
         a.signals.push("ssrf:metadata:aws".into());
+        tag_analysis_origin(&mut a);
+        assert_eq!(a.metadata["analysis_origin"], "local");
+    }
+
+    #[test]
+    fn source_risk_surface_tags_local_origin() {
+        let mut a = artifact_at("source_risk_surface", "/project");
         tag_analysis_origin(&mut a);
         assert_eq!(a.metadata["analysis_origin"], "local");
     }

@@ -121,6 +121,7 @@ fn type_base_score() -> HashMap<&'static str, i32> {
     HashMap::from([
         ("cursor_rules", 10),
         ("agents_md", 8),
+        ("source_risk_surface", 4),
         ("container_config", 12),
         ("container_candidate", 3),
         ("browser_footprint", 5),
@@ -259,6 +260,13 @@ mod tests {
         let mut a = make_artifact("agents_md", vec!["dangerous_keyword:steal"]);
         let score = score_artifact(&mut a);
         assert_eq!(score, 43); // 8 + 35
+    }
+
+    #[test]
+    fn test_source_risk_surface_base_score() {
+        let mut a = make_artifact("source_risk_surface", vec![]);
+        let score = score_artifact(&mut a);
+        assert_eq!(score, 4);
     }
 
     #[test]

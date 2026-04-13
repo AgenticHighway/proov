@@ -23,6 +23,7 @@ mod rule_engine;
 mod rules;
 mod scan;
 mod setup;
+mod source_analysis;
 mod submit;
 mod updater;
 mod verifier;
