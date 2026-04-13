@@ -6,7 +6,7 @@
 use crate::discovery::Candidate;
 use crate::models::ArtifactReport;
 use crate::source_analysis::{
-    build_source_risk_surface, common_root, has_ai_adjacent_candidate, is_scannable_json_file,
+    build_source_risk_surface, common_root, is_ai_adjacent_path, is_scannable_json_file,
     is_supported_source_file, scan_json_config_file, scan_source_file, MAX_SOURCE_SURFACE_FILES,
 };
 
@@ -30,36 +30,44 @@ impl Detector for SourceRiskDetector {
     }
 
     fn detect(&self, candidates: &[Candidate], _deep: bool) -> Vec<ArtifactReport> {
-        let supported: Vec<&Candidate> = candidates
-            .iter()
-            .filter(|candidate| {
-                is_supported_source_file(&candidate.path) || is_scannable_json_file(&candidate.path)
-            })
-            .take(MAX_SOURCE_SURFACE_FILES)
-            .collect();
+        let explicit_file_scan = self.mode == "file";
+        let mut supported = Vec::new();
+        let mut source_count = 0;
+        let mut json_count = 0;
+        let mut truncated = false;
+        let mut ai_adjacent = false;
+
+        for candidate in candidates {
+            if is_ai_adjacent_path(&candidate.path) {
+                ai_adjacent = true;
+            }
+
+            let is_source = is_supported_source_file(&candidate.path);
+            let is_json = is_scannable_json_file(&candidate.path);
+            if !is_source && !is_json {
+                continue;
+            }
+
+            if supported.len() == MAX_SOURCE_SURFACE_FILES {
+                truncated = true;
+                continue;
+            }
+
+            if is_source {
+                source_count += 1;
+            } else {
+                json_count += 1;
+            }
+            supported.push(candidate);
+        }
 
         if supported.is_empty() {
             return Vec::new();
         }
 
-        let explicit_file_scan = self.mode == "file";
-        let ai_adjacent = has_ai_adjacent_candidate(candidates);
         if !explicit_file_scan && !ai_adjacent {
             return Vec::new();
         }
-
-        let source_count = supported
-            .iter()
-            .filter(|candidate| is_supported_source_file(&candidate.path))
-            .count();
-        let json_count = supported
-            .iter()
-            .filter(|candidate| is_scannable_json_file(&candidate.path))
-            .count();
-        let truncated = supported.len() == MAX_SOURCE_SURFACE_FILES
-            && candidates.iter().any(|candidate| {
-                is_supported_source_file(&candidate.path) || is_scannable_json_file(&candidate.path)
-            });
 
         let findings = supported
             .iter()
@@ -249,5 +257,27 @@ await writeFile("AGENTS.md", "new identity");
         );
 
         assert!(reports.is_empty());
+    }
+
+    #[test]
+    fn workdir_truncation_is_detected_when_supported_files_exceed_limit() {
+        let detector = SourceRiskDetector::new("workdir");
+        let mut candidates = vec![candidate("/project/AGENTS.md")];
+        for index in 0..=MAX_SOURCE_SURFACE_FILES {
+            candidates.push(candidate(&format!("/project/src/file{index}.ts")));
+        }
+
+        let reports = detector.detect(&candidates, false);
+
+        assert_eq!(reports.len(), 1);
+        assert_eq!(
+            reports[0].metadata["bounded_scan_limit"],
+            MAX_SOURCE_SURFACE_FILES
+        );
+        assert_eq!(reports[0].metadata["truncated"], true);
+        assert_eq!(
+            reports[0].metadata["scanned_source_file_count"],
+            MAX_SOURCE_SURFACE_FILES
+        );
     }
 }
