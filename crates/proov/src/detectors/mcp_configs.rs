@@ -62,7 +62,7 @@ fn is_mcp_config_candidate(candidate: &Candidate) -> bool {
 }
 
 fn classify_candidate(candidate: &Candidate) -> Option<ArtifactReport> {
-    let content = read_head(&candidate.path)?;
+    let content = read_utf8_head(&candidate.path, MAX_READ_BYTES)?;
     let mut signals = Vec::new();
     let mut metadata = serde_json::Map::new();
 
@@ -169,10 +169,6 @@ fn extract_server_names(val: &Value) -> Vec<String> {
         .and_then(|v| v.as_object())
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default()
-}
-
-fn read_head(path: &std::path::Path) -> Option<String> {
-    read_utf8_head(path, MAX_READ_BYTES)
 }
 
 #[cfg(test)]
