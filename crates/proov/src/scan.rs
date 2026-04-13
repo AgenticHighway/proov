@@ -188,10 +188,12 @@ const LOCAL_ANALYSIS_SIGNALS: &[&str] = &[
 ];
 
 fn tag_analysis_origin(artifact: &mut ArtifactReport) {
-    let has_local_signal = artifact
-        .signals
-        .iter()
-        .any(|s| LOCAL_ANALYSIS_SIGNALS.contains(&s.as_str()));
+    let has_local_signal = artifact.signals.iter().any(|s| {
+        LOCAL_ANALYSIS_SIGNALS.contains(&s.as_str())
+            || s.starts_with("secret:")
+            || s.starts_with("ssrf:")
+            || s.starts_with("cognitive_tampering:")
+    });
 
     let origin = if has_local_signal || artifact.verification_status == "fail" {
         "local"
@@ -308,6 +310,14 @@ mod tests {
     fn local_signal_tags_local_origin() {
         let mut a = artifact_at("cursor_rules", "/project/.cursorrules");
         a.signals.push("keyword:shell".into());
+        tag_analysis_origin(&mut a);
+        assert_eq!(a.metadata["analysis_origin"], "local");
+    }
+
+    #[test]
+    fn structured_ssrf_signal_tags_local_origin() {
+        let mut a = artifact_at("prompt_config", "/project/prompt.md");
+        a.signals.push("ssrf:metadata:aws".into());
         tag_analysis_origin(&mut a);
         assert_eq!(a.metadata["analysis_origin"], "local");
     }

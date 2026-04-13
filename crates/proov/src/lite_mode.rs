@@ -60,6 +60,36 @@ fn local_policy_secret_signal_weight(signal: &str) -> Option<i32> {
     }
 }
 
+fn local_policy_ssrf_signal_weight(signal: &str) -> Option<i32> {
+    match signal {
+        "ssrf:metadata:aws"
+        | "ssrf:metadata:gcp"
+        | "ssrf:metadata:azure"
+        | "ssrf:metadata:alibaba"
+        | "ssrf:scheme:gopher" => Some(45),
+        "ssrf:scheme:file"
+        | "ssrf:scheme:dict"
+        | "ssrf:encoding:octal_ipv4"
+        | "ssrf:encoding:hex_ipv4"
+        | "ssrf:encoding:decimal_host" => Some(25),
+        "ssrf:private_network:10"
+        | "ssrf:private_network:172"
+        | "ssrf:private_network:192"
+        | "ssrf:private_network:localhost" => Some(20),
+        _ => None,
+    }
+}
+
+fn local_policy_cognitive_signal_weight(signal: &str) -> Option<i32> {
+    match signal {
+        "cognitive_tampering:role_override" | "cognitive_tampering:delimiter_framing" => Some(45),
+        "cognitive_tampering:instruction_injection"
+        | "cognitive_tampering:unicode_steganography" => Some(35),
+        "cognitive_tampering:base64_encoded" => Some(25),
+        _ => None,
+    }
+}
+
 fn local_policy_type_base() -> HashMap<&'static str, i32> {
     HashMap::from([("cursor_rules", 4), ("agents_md", 4), ("prompt_config", 3)])
 }
@@ -76,6 +106,8 @@ pub fn local_policy_score(artifact: &ArtifactReport) -> i32 {
         }
         score += signal_weights.get(sig).unwrap_or(&0);
         score += local_policy_secret_signal_weight(sig).unwrap_or(0);
+        score += local_policy_ssrf_signal_weight(sig).unwrap_or(0);
+        score += local_policy_cognitive_signal_weight(sig).unwrap_or(0);
     }
     score.min(100)
 }
@@ -212,6 +244,18 @@ mod tests {
         );
         let score = local_policy_score(&a);
         assert_eq!(score, 29); // 4 + 25, without double counting the generic signal
+    }
+
+    #[test]
+    fn local_policy_score_adds_ssrf_and_cognitive_weights() {
+        let a = make_artifact(
+            "prompt_config",
+            &["ssrf:metadata:aws", "cognitive_tampering:role_override"],
+            0,
+            0.5,
+        );
+        let score = local_policy_score(&a);
+        assert_eq!(score, 93); // base 3 + 45 + 45
     }
 
     #[test]

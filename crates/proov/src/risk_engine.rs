@@ -87,6 +87,36 @@ fn secret_signal_weight(signal: &str) -> Option<i32> {
     }
 }
 
+fn ssrf_signal_weight(signal: &str) -> Option<i32> {
+    match signal {
+        "ssrf:metadata:aws"
+        | "ssrf:metadata:gcp"
+        | "ssrf:metadata:azure"
+        | "ssrf:metadata:alibaba"
+        | "ssrf:scheme:gopher" => Some(45),
+        "ssrf:scheme:file"
+        | "ssrf:scheme:dict"
+        | "ssrf:encoding:octal_ipv4"
+        | "ssrf:encoding:hex_ipv4"
+        | "ssrf:encoding:decimal_host" => Some(25),
+        "ssrf:private_network:10"
+        | "ssrf:private_network:172"
+        | "ssrf:private_network:192"
+        | "ssrf:private_network:localhost" => Some(20),
+        _ => None,
+    }
+}
+
+fn cognitive_signal_weight(signal: &str) -> Option<i32> {
+    match signal {
+        "cognitive_tampering:role_override" | "cognitive_tampering:delimiter_framing" => Some(45),
+        "cognitive_tampering:instruction_injection"
+        | "cognitive_tampering:unicode_steganography" => Some(35),
+        "cognitive_tampering:base64_encoded" => Some(25),
+        _ => None,
+    }
+}
+
 fn type_base_score() -> HashMap<&'static str, i32> {
     HashMap::from([
         ("cursor_rules", 10),
@@ -155,6 +185,12 @@ pub fn score_artifact(artifact: &mut ArtifactReport) -> i32 {
             score += effective;
             contributions.push((effective, signal.clone()));
         } else if let Some(weight) = secret_signal_weight(sig) {
+            score += weight;
+            contributions.push((weight, signal.clone()));
+        } else if let Some(weight) = ssrf_signal_weight(sig) {
+            score += weight;
+            contributions.push((weight, signal.clone()));
+        } else if let Some(weight) = cognitive_signal_weight(sig) {
             score += weight;
             contributions.push((weight, signal.clone()));
         } else if let Some(&weight) = sig_weights.get(sig) {
@@ -234,6 +270,20 @@ mod tests {
         let score = score_artifact(&mut a);
         assert_eq!(score, 33); // 8 + 25, without double counting the generic signal
         assert!(a.risk_reasons[0].contains("secret:github:pat"));
+    }
+
+    #[test]
+    fn test_ssrf_metadata_signal_weight() {
+        let mut a = make_artifact("prompt_config", vec!["ssrf:metadata:aws"]);
+        let score = score_artifact(&mut a);
+        assert_eq!(score, 50); // unknown type base 5 + 45
+    }
+
+    #[test]
+    fn test_cognitive_tampering_signal_weight() {
+        let mut a = make_artifact("prompt_config", vec!["cognitive_tampering:role_override"]);
+        let score = score_artifact(&mut a);
+        assert_eq!(score, 50); // unknown type base 5 + 45
     }
 
     #[test]

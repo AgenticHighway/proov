@@ -380,6 +380,12 @@ fn humanize_reason(raw: &str) -> &str {
         "keyword:instructions" => "Contains instruction directives",
         "credential_exposure_signal" => "Credential / secret exposure",
         _ if key.starts_with("secret:") => "Credential / secret exposure",
+        _ if key.starts_with("ssrf:") => "Potential SSRF target or evasion pattern",
+        "cognitive_tampering:role_override" => "Role-override prompt injection",
+        "cognitive_tampering:instruction_injection" => "Instruction override / prompt injection",
+        "cognitive_tampering:delimiter_framing" => "Prompt framing / delimiter injection",
+        "cognitive_tampering:unicode_steganography" => "Hidden unicode instruction markers",
+        "cognitive_tampering:base64_encoded" => "Base64-encoded instruction content",
         "mcp_server_declared" => "Declares an MCP server",
         "dangerous_combo:shell+network+fs" => "Shell + network + filesystem combined",
         "dangerous_keyword:exfiltrate" => "References data exfiltration",
@@ -729,6 +735,14 @@ mod tests {
         assert_eq!(
             humanize_reason("secret:github:pat"),
             "Credential / secret exposure"
+        );
+        assert_eq!(
+            humanize_reason("ssrf:metadata:aws"),
+            "Potential SSRF target or evasion pattern"
+        );
+        assert_eq!(
+            humanize_reason("cognitive_tampering:role_override"),
+            "Role-override prompt injection"
         );
         assert_eq!(
             humanize_reason("dangerous_combo:shell+network+fs"),
