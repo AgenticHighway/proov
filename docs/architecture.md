@@ -100,7 +100,7 @@ to local output or optional submission:
         │
         ▼
  ┌─────────────┐   Picks discovery mode based on subcommand:
- │   scan.rs    │   host, home, workdir, filesystem, root, or file
+ │   scan.rs    │   host, scan, workdir, filesystem, root, or file
  └──────┬───────┘
         │
    ┌────┴────┐

@@ -10,7 +10,8 @@ use std::time::Instant;
 use crate::detectors::get_all_detectors;
 use crate::discovery::{
     discover_file_surface, discover_filesystem_surfaces, discover_home_surfaces,
-    discover_host_surfaces, discover_root_surfaces, discover_workdir_surfaces,
+    discover_host_surfaces, discover_root_surfaces, discover_scan_surfaces,
+    discover_workdir_surfaces,
 };
 use crate::models::{ArtifactReport, ScanReport};
 use crate::risk_engine::score_artifact;
@@ -53,7 +54,8 @@ fn timing_value_enabled(value: &str) -> bool {
 ///
 /// `mode` selects the discovery strategy:
 /// - `"host"` — bounded host config roots (quick scan / agentic areas)
-/// - `"home"` — recursive home directory scan (default)
+/// - `"scan"` — tiered default scan across critical host roots and bounded user-space roots
+/// - `"home"` — recursive home directory scan (legacy internal mode)
 /// - `"filesystem"` — full home + system app paths (legacy)
 /// - `"root"` — entire filesystem from / (full scan)
 /// - `"workdir"` — explicit project directory
@@ -91,6 +93,10 @@ pub fn run_scan(
                 .to_string();
             (discover_workdir_surfaces(p, deep, Some(tick)), resolved)
         }
+        "scan" => (
+            discover_scan_surfaces(Some(tick)),
+            "~ (default critical + user-space surfaces)".to_string(),
+        ),
         "filesystem" => (
             discover_filesystem_surfaces(Some(tick)),
             "/ (full filesystem)".to_string(),
@@ -187,6 +193,7 @@ const DOCS_PATH_SEGMENTS: &[&str] = &[
 
 fn classify_artifact(artifact: &mut ArtifactReport, mode: &str) {
     let atype = artifact.artifact_type.as_str();
+    let discovery_origin = artifact.artifact_scope.clone();
     let first_path = artifact
         .metadata
         .get("paths")
@@ -211,7 +218,7 @@ fn classify_artifact(artifact: &mut ArtifactReport, mode: &str) {
         .any(|seg| path_parts.contains(seg))
     {
         "docs".to_string()
-    } else if mode == "host" {
+    } else if mode == "host" || discovery_origin == "host" {
         "host".to_string()
     } else {
         "project".to_string()
@@ -322,6 +329,14 @@ mod tests {
     fn host_mode_produces_host_scope() {
         let mut a = artifact_at("cursor_rules", "/home/user/.cursorrules");
         classify_artifact(&mut a, "host");
+        assert_eq!(a.artifact_scope, "host");
+    }
+
+    #[test]
+    fn scan_mode_preserves_host_origin_scope() {
+        let mut a = artifact_at("cursor_rules", "/home/user/.cursor/rules.md");
+        a.artifact_scope = "host".to_string();
+        classify_artifact(&mut a, "scan");
         assert_eq!(a.artifact_scope, "host");
     }
 

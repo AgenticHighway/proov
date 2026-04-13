@@ -27,12 +27,12 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Default scan — home directory, recursive
+    /// Default scan — critical host roots plus bounded user-space/project roots
     Scan {
         #[command(flatten)]
         output: OutputArgs,
     },
-    /// Quick scan — agentic config areas (Cursor, VS Code, Claude, etc.)
+    /// Quick scan — critical OS-aware agent config areas only
     Quick {
         #[command(flatten)]
         output: OutputArgs,
@@ -248,7 +248,7 @@ struct ScanParams<'a> {
 fn resolve_scan_params(cmd: &Commands) -> ScanParams<'_> {
     match cmd {
         Commands::Scan { .. } => ScanParams {
-            mode: "home",
+            mode: "scan",
             workdir: None,
             file: None,
             deep: false,
@@ -1057,7 +1057,7 @@ mod tests {
             },
         };
         let params = resolve_scan_params(&cmd);
-        assert_eq!(params.mode, "home");
+        assert_eq!(params.mode, "scan");
         assert!(params.workdir.is_none());
         assert!(!params.deep);
     }

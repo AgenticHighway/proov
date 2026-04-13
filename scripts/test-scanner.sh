@@ -222,11 +222,11 @@ expect_json_file "quick scan (--out writes valid JSON)" "$QUICK_JSON"
 
 # ── 6. Default scan ─────────────────────────────────────────────────
 
-section "Default scan (home directory)"
+section "Default scan (tiered user-space surfaces)"
 DEFAULT_JSON="$OUT_DIR/${TIMESTAMP}-default.json"
 
-# This scans ~ recursively so may take a moment
-echo "  (this scans your home directory — may take a few seconds)"
+# This walks critical host roots plus bounded user-space roots
+echo "  (this scans critical host roots plus bounded user-space roots — may take a few seconds)"
 expect_ok       "default scan (overview)"            $RUN scan --summary
 $RUN scan --json > "$DEFAULT_JSON" 2>/dev/null || true
 expect_json_file "default scan (--json writes valid JSON)" "$DEFAULT_JSON"
