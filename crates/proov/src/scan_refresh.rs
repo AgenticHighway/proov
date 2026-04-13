@@ -1,6 +1,10 @@
-use crate::scan_cache::{RootCursor, ScanCache};
+use crate::scan_cache::ScanCache;
+#[cfg(target_os = "macos")]
+use crate::scan_cache::RootCursor;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::path::Path;
+use std::path::PathBuf;
 
 pub const MACOS_FSEVENTS_BACKEND: &str = "macos_fsevents_v1";
 
