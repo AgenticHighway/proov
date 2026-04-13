@@ -24,6 +24,7 @@ mod rules;
 mod scan;
 mod setup;
 mod source_analysis;
+mod source_patterns;
 mod submit;
 mod updater;
 mod verifier;

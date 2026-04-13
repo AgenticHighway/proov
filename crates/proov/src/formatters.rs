@@ -382,6 +382,13 @@ fn humanize_reason(raw: &str) -> &str {
         "credential_exposure_signal" => "Credential / secret exposure",
         _ if key.starts_with("secret:") => "Credential / secret exposure",
         _ if key.starts_with("ssrf:") => "Potential SSRF target or evasion pattern",
+        "json_config:credential_connection_string" => {
+            "JSON config embeds credentials in a connection string"
+        }
+        "json_config:credential_value" => "JSON config contains an embedded credential value",
+        "json_config:metadata_url" => "JSON config references a metadata or localhost URL",
+        "json_config:internal_url" => "JSON config references an internal-only URL",
+        "json_config:c2_url" => "JSON config references a known collector or C2 URL",
         "cognitive_tampering:role_override" => "Role-override prompt injection",
         "cognitive_tampering:instruction_injection" => "Instruction override / prompt injection",
         "cognitive_tampering:delimiter_framing" => "Prompt framing / delimiter injection",
@@ -749,6 +756,10 @@ mod tests {
         assert_eq!(
             humanize_reason("dangerous_combo:shell+network+fs"),
             "Shell + network + filesystem combined"
+        );
+        assert_eq!(
+            humanize_reason("json_config:c2_url"),
+            "JSON config references a known collector or C2 URL"
         );
     }
 

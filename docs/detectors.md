@@ -107,6 +107,33 @@ Container-related configuration files that may describe AI execution environment
 | `ai_artifact_proximity`   | boolean  | Yes             | Whether nearby AI artifacts were found             |
 | `services`                | string[] | If found        | Top-level service names                            |
 
+### Source Risks (`source_risks.rs`)
+
+**Detects:** bounded source trees and selected JSON config files in `workdir` and `file` scan modes
+
+This detector emits a single aggregated `source_risk_surface` artifact instead of one artifact per line-level finding. In `workdir` mode it only runs when the candidate set is AI-adjacent. In `file` mode it always analyzes the targeted file if it is a supported source or JSON config.
+
+Current bounded behavior:
+
+- considers at most 512 supported source/JSON candidates per scan
+- scans JSON config content up to 256 KiB per file
+- skips noisy JSON metadata files such as `package.json`, `package-lock.json`, `tsconfig.json`, and `openclaw.plugin.json`
+- reuses the shared secret engine plus JSON-specific heuristics for credential-shaped key/value pairs, embedded credential connection strings, metadata/localhost URLs, internal-only URLs, and known collector/C2 destinations
+
+**Metadata contract:**
+
+| Key                       | Type               | Always present? | Description                                                |
+| ------------------------- | ------------------ | --------------- | ---------------------------------------------------------- |
+| `paths`                   | array              | Yes             | Aggregated root path for the scanned surface               |
+| `matched_families`        | string[]           | Yes             | Matched finding families such as `json_secret`             |
+| `finding_counts`          | object             | Yes             | Count of findings by family                                |
+| `top_risky_files`         | string[]           | Yes             | Up to 5 files with the most findings                       |
+| `scanned_source_file_count` | number           | Yes             | Number of supported source files included in the surface   |
+| `scanned_json_file_count` | number             | Yes             | Number of scannable JSON configs included in the surface   |
+| `ai_adjacent_context`     | boolean            | Yes             | Whether an AI-adjacent artifact was present in the scan    |
+| `bounded_scan_limit`      | number             | Yes             | Maximum supported candidates considered by the detector    |
+| `truncated`               | boolean            | Yes             | Whether candidate selection hit the detector limit         |
+
 ### Browser Footprints (`browser_footprints.rs`)
 
 **Detects:** Chrome, Edge, Brave, Arc extension directories
@@ -141,7 +168,7 @@ Each candidate has:
 
 ### Content reading limit
 
-All detectors respect an 8 KB content limit for keyword scanning. Files larger than this are truncated for keyword analysis, but file primitives (`content_hash`, `file_size_bytes`) are computed from the complete file.
+Most detectors respect an 8 KB content limit for keyword scanning. The `source_risks` detector is the current exception: it does not do generic keyword scanning, but it will read individual JSON configs up to 256 KiB to run bounded secret and suspicious-URL heuristics. File primitives (`content_hash`, `file_size_bytes`) are still computed from the complete file.
 
 ## Signals
 
