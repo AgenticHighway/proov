@@ -15,6 +15,10 @@ use std::io::Read;
 use std::path::Path;
 
 const HASH_BUFFER_BYTES: usize = 8192;
+const MAX_FULL_FILE_HASH_BYTES: u64 = 8 * 1024 * 1024;
+const LARGE_FILE_HASH_BYTES: u64 = 1024 * 1024;
+const CONTENT_HASH_MODE_FULL: &str = "full_sha256";
+const CONTENT_HASH_MODE_PREFIX: &str = "prefix_sha256";
 
 // ---------------------------------------------------------------------------
 // Per-artifact model
@@ -65,7 +69,7 @@ impl ArtifactReport {
             if let Some(first) = sorted.first() {
                 let p = Path::new(first);
                 if p.is_file() {
-                    if let Some(hash) = hex_sha256_file(p) {
+                    if let Some(hash) = file_content_digest(p).map(|digest| digest.hash) {
                         return hash;
                     }
                 }
@@ -297,9 +301,19 @@ pub fn gather_file_primitives(path: &Path) -> serde_json::Map<String, serde_json
         );
     }
 
-    // Full-file SHA-256 (not truncated to 8KB head)
-    if let Some(hash) = hex_sha256_file(path) {
-        map.insert("content_hash".into(), serde_json::Value::String(hash));
+    if let Some(digest) = file_content_digest(path) {
+        map.insert(
+            "content_hash".into(),
+            serde_json::Value::String(digest.hash),
+        );
+        map.insert(
+            "content_hash_mode".into(),
+            serde_json::Value::String(digest.mode.to_string()),
+        );
+        map.insert(
+            "content_hash_bytes_hashed".into(),
+            serde_json::Value::Number(serde_json::Number::from(digest.bytes_hashed)),
+        );
     }
 
     map
@@ -315,20 +329,43 @@ fn hex_sha256(data: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn hex_sha256_file(path: &Path) -> Option<String> {
+struct FileContentDigest {
+    hash: String,
+    mode: &'static str,
+    bytes_hashed: u64,
+}
+
+fn file_content_digest(path: &Path) -> Option<FileContentDigest> {
+    let file_size = std::fs::metadata(path).ok()?.len();
+    let hash_limit = if file_size > MAX_FULL_FILE_HASH_BYTES {
+        LARGE_FILE_HASH_BYTES
+    } else {
+        file_size
+    };
     let mut file = File::open(path).ok()?;
+    let mut limited = file.by_ref().take(hash_limit);
     let mut hasher = Sha256::new();
     let mut buf = [0u8; HASH_BUFFER_BYTES];
+    let mut bytes_hashed = 0u64;
 
     loop {
-        let n = file.read(&mut buf).ok()?;
+        let n = limited.read(&mut buf).ok()?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
+        bytes_hashed += n as u64;
     }
 
-    Some(format!("{:x}", hasher.finalize()))
+    Some(FileContentDigest {
+        hash: format!("{:x}", hasher.finalize()),
+        mode: if file_size > MAX_FULL_FILE_HASH_BYTES {
+            CONTENT_HASH_MODE_PREFIX
+        } else {
+            CONTENT_HASH_MODE_FULL
+        },
+        bytes_hashed,
+    })
 }
 
 #[cfg(test)]
@@ -347,6 +384,8 @@ mod tests {
         let prims = gather_file_primitives(&file);
         assert_eq!(prims["file_size_bytes"].as_u64().unwrap(), 11);
         assert!(prims["content_hash"].as_str().unwrap().len() == 64);
+        assert_eq!(prims["content_hash_mode"], CONTENT_HASH_MODE_FULL);
+        assert_eq!(prims["content_hash_bytes_hashed"], 11);
         assert!(prims.contains_key("last_modified"));
     }
 
@@ -380,6 +419,24 @@ mod tests {
         assert_eq!(
             prims["content_hash"].as_str().unwrap(),
             hex_sha256(&content)
+        );
+        assert_eq!(prims["content_hash_mode"], CONTENT_HASH_MODE_FULL);
+    }
+
+    #[test]
+    fn oversized_files_use_bounded_prefix_hashing() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("oversized.bin");
+        let content = vec![b'z'; (MAX_FULL_FILE_HASH_BYTES + 1) as usize];
+        std::fs::write(&file, &content).unwrap();
+
+        let prims = gather_file_primitives(&file);
+
+        assert_eq!(prims["content_hash_mode"], CONTENT_HASH_MODE_PREFIX);
+        assert_eq!(prims["content_hash_bytes_hashed"], LARGE_FILE_HASH_BYTES);
+        assert_eq!(
+            prims["content_hash"].as_str().unwrap(),
+            hex_sha256(&content[..LARGE_FILE_HASH_BYTES as usize])
         );
     }
 
@@ -422,6 +479,25 @@ mod tests {
         );
 
         assert_eq!(report.content_digest(), hex_sha256(&content));
+    }
+
+    #[test]
+    fn content_digest_uses_bounded_hash_for_oversized_file_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("oversized-prompt.md");
+        let content = vec![b'q'; (MAX_FULL_FILE_HASH_BYTES + 1) as usize];
+        std::fs::write(&file, &content).unwrap();
+
+        let mut report = ArtifactReport::new("prompt_config", 0.8);
+        report.metadata.insert(
+            "paths".into(),
+            serde_json::json!([file.to_string_lossy().to_string()]),
+        );
+
+        assert_eq!(
+            report.content_digest(),
+            hex_sha256(&content[..LARGE_FILE_HASH_BYTES as usize])
+        );
     }
 
     #[test]
