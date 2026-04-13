@@ -213,7 +213,7 @@ jobs:
             # scope to just the diff with --log-opts="origin/main..HEAD"
             # but scanning everything catches pre-existing issues too.
             - name: Scan for secrets
-              run: gitleaks detect --source . --verbose
+              run: gitleaks detect --source . --config .gitleaks.toml --verbose
 
     # ── Unsafe Code Audit ────────────────────────────────────────────
     # cargo-geiger counts `unsafe` usage across the entire dependency

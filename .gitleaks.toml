@@ -1,0 +1,26 @@
+title = "proov gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Intentional GitHub PAT fixture used in source-analysis tests"
+condition = "AND"
+paths = [
+  '''(^|/)crates/proov/src/source_analysis\.rs$''',
+]
+regexTarget = "line"
+regexes = [
+  '''"github_token": "ghp_[A-Za-z0-9]{36}",''',
+]
+
+[[allowlists]]
+description = "Intentional private-key detector literals in content pattern definitions"
+condition = "AND"
+paths = [
+  '''(^|/)crates/proov/src/content_patterns\.rs$''',
+]
+regexTarget = "line"
+regexes = [
+  '''expression: r"-----BEGIN (?:RSA|EC|DSA|OPENSSH)? ?PRIVATE KEY-----",''',
+]
