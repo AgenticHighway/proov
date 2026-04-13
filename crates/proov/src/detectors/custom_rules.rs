@@ -14,9 +14,9 @@ use crate::rule_engine::{
 };
 
 use super::base::Detector;
+use super::read_utf8_head;
 use serde_json::json;
 use std::collections::HashMap;
-use std::fs;
 
 const MAX_READ_BYTES: usize = 8192;
 
@@ -224,9 +224,7 @@ fn apply_rule(
 }
 
 fn read_head(path: &std::path::Path) -> Option<String> {
-    let bytes = fs::read(path).ok()?;
-    let len = bytes.len().min(MAX_READ_BYTES);
-    String::from_utf8(bytes[..len].to_vec()).ok()
+    read_utf8_head(path, MAX_READ_BYTES)
 }
 
 #[cfg(test)]

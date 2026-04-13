@@ -2,8 +2,8 @@ use crate::discovery::Candidate;
 use crate::models::{check_for_secrets, gather_file_primitives, ArtifactReport};
 
 use super::base::Detector;
+use super::read_utf8_head;
 use serde_json::{json, Value};
-use std::fs;
 use std::sync::LazyLock;
 
 static URL_REGEX: LazyLock<regex::Regex> =
@@ -172,9 +172,7 @@ fn extract_server_names(val: &Value) -> Vec<String> {
 }
 
 fn read_head(path: &std::path::Path) -> Option<String> {
-    let bytes = fs::read(path).ok()?;
-    let len = bytes.len().min(MAX_READ_BYTES);
-    String::from_utf8(bytes[..len].to_vec()).ok()
+    read_utf8_head(path, MAX_READ_BYTES)
 }
 
 #[cfg(test)]
