@@ -4,6 +4,7 @@
 //! All detectors, analysis, and reporting modules MUST produce / consume
 //! these types so the output stays consistent.
 
+use crate::content_patterns::{scan_dangerous_signals, scan_secret_signals};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -187,60 +188,15 @@ impl ScanReport {
 // Privacy helpers
 // ---------------------------------------------------------------------------
 
-pub const SECRET_PATTERNS: &[&str] = &["sk-", "ghp_", "gho_", "github_pat_", "AKIA", "eyJ"];
-
-pub const DANGEROUS_KEYWORDS: &[&str] = &[
-    "exfiltrate",
-    "wipe",
-    "rm -rf",
-    "steal",
-    "upload credentials",
-    "reverse shell",
-    "disable security",
-    "bypass auth",
-];
-
-const SHELL_WORDS: &[&str] = &["shell", "bash", "exec", "subprocess"];
-const NETWORK_WORDS: &[&str] = &["http", "fetch", "curl", "requests", "network", "api"];
-const FS_WORDS: &[&str] = &[
-    "filesystem",
-    "write_file",
-    "read_file",
-    "os.remove",
-    "shutil",
-];
-
 /// Return redacted signals if token-like strings are found.
 /// Never stores or returns the actual secret value.
 pub fn check_for_secrets(content: &str) -> Vec<String> {
-    for pattern in SECRET_PATTERNS {
-        if content.contains(pattern) {
-            return vec!["credential_exposure_signal".to_string()];
-        }
-    }
-    Vec::new()
+    scan_secret_signals(content)
 }
 
 /// Return signals for dangerous instruction keywords and combos.
 pub fn check_for_dangerous_patterns(content: &str) -> Vec<String> {
-    let lowered = content.to_lowercase();
-    let mut signals = Vec::new();
-
-    for keyword in DANGEROUS_KEYWORDS {
-        if lowered.contains(keyword) {
-            let first_word = keyword.split_whitespace().next().unwrap_or(keyword);
-            signals.push(format!("dangerous_keyword:{first_word}"));
-        }
-    }
-
-    let has_shell = SHELL_WORDS.iter().any(|w| lowered.contains(w));
-    let has_network = NETWORK_WORDS.iter().any(|w| lowered.contains(w));
-    let has_fs = FS_WORDS.iter().any(|w| lowered.contains(w));
-    if has_shell && has_network && has_fs {
-        signals.push("dangerous_combo:shell+network+fs".to_string());
-    }
-
-    signals
+    scan_dangerous_signals(content)
 }
 
 // ---------------------------------------------------------------------------
