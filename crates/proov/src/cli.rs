@@ -435,9 +435,7 @@ pub fn run() {
                 eprintln!("  Pass --allow-public-endpoint to permit public endpoints.");
                 std::process::exit(1);
             }
-        } else if let Err(e) =
-            crate::network::ensure_endpoint_allowed(&resolved_endpoint, true)
-        {
+        } else if let Err(e) = crate::network::ensure_endpoint_allowed(&resolved_endpoint, true) {
             // Default endpoint: still validate scheme/format, but allow public.
             eprintln!("Error: {e}");
             std::process::exit(1);
@@ -556,7 +554,11 @@ pub fn run() {
         }
 
         if wants_submit {
-            let auth = match resolve_submit_auth(&out.submit, out.api_key.as_deref(), out.allow_public_endpoint) {
+            let auth = match resolve_submit_auth(
+                &out.submit,
+                out.api_key.as_deref(),
+                out.allow_public_endpoint,
+            ) {
                 Ok(auth) => auth,
                 Err(e) => {
                     eprintln!("Error: {e}");
@@ -612,11 +614,7 @@ fn prompt_post_scan_action(report: &ScanReport, scan_duration_ms: u64) {
     let submit_host = crate::network::endpoint_display_host(endpoint);
     let submit_label = format!("Submit results to {submit_host}");
 
-    let options = [
-        "Write report to disk",
-        submit_label.as_str(),
-        "Do nothing",
-    ];
+    let options = ["Write report to disk", submit_label.as_str(), "Do nothing"];
 
     let action = match crate::wizard::pick("Next step", &options, 2) {
         0 => PostScanAction::SaveReport,
