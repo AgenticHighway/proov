@@ -12,9 +12,11 @@
 #   • OIDC (`id-token: write`) is used for AWS instead of long-lived keys.
 #
 # RUNNERS:
-#   • Linux/Windows builds use Blacksmith runners for 2× speed + colocated
-#     cache (https://docs.blacksmith.sh). macOS uses GitHub-hosted runners
-#     because Blacksmith doesn't offer macOS.
+#   • Linux/Windows/macOS builds use Blacksmith runners for faster execution
+#     + colocated cache (https://docs.blacksmith.sh).
+#   • Blacksmith macOS runners are Apple Silicon (ARM64). Darwin AMD64 is
+#     cross-compiled on the same macOS image via the explicit target install
+#     below, preserving the existing proov-darwin-amd64.tar.gz artifact.
 #   • Swatinem/rust-cache works on all runners — Blacksmith transparently
 #     intercepts cache calls on its runners for 4× faster downloads.
 #     (useblacksmith/rust-cache is archived and no longer maintained.)
@@ -50,10 +52,10 @@ jobs:
             matrix:
                 include:
                     - target: aarch64-apple-darwin
-                      os: macos-latest # no Blacksmith macOS runners
+                      os: blacksmith-6vcpu-macos-15
                       artifact: proov-darwin-arm64.tar.gz
                     - target: x86_64-apple-darwin
-                      os: macos-latest
+                      os: blacksmith-6vcpu-macos-15
                       artifact: proov-darwin-amd64.tar.gz
                     - target: aarch64-unknown-linux-gnu
                       os: blacksmith-4vcpu-ubuntu-2204
