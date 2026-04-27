@@ -2,7 +2,7 @@
 
 use crate::models::ArtifactReport;
 
-use super::helpers::{declared_tools, read_artifact_head};
+use super::helpers::{declared_tools, first_path, make_id, qualified_name, read_artifact_head};
 use super::types::{Agent, Skill, SkillConsumer, SkillDependencies, SkillPermission};
 
 pub fn build_skills(artifacts: &[ArtifactReport], agents: &[Agent]) -> Vec<Skill> {
@@ -10,6 +10,13 @@ pub fn build_skills(artifacts: &[ArtifactReport], agents: &[Agent]) -> Vec<Skill
     let mut skills = Vec::new();
 
     for artifact in artifacts {
+        if artifact.artifact_type == "skill" {
+            let skill = artifact_to_skill(artifact, agents);
+            if seen.insert(skill.name.clone()) {
+                skills.push(skill);
+            }
+        }
+
         let tools = declared_tools(artifact);
         for tool in tools {
             if seen.insert(tool.clone()) {
@@ -28,6 +35,118 @@ pub fn build_skills(artifacts: &[ArtifactReport], agents: &[Agent]) -> Vec<Skill
     }
 
     skills
+}
+
+fn artifact_to_skill(artifact: &ArtifactReport, agents: &[Agent]) -> Skill {
+    let source_path = first_path(artifact);
+    let name = qualified_name(source_path);
+    let id = make_id(source_path, &artifact.artifact_hash);
+    let capabilities = crate::capabilities::derive_capabilities(artifact);
+    let permissions = infer_permissions_from_capabilities(&capabilities);
+
+    Skill {
+        id,
+        name,
+        skill_type: "Instruction Skill".to_string(),
+        trust_level: trust_level(artifact).to_string(),
+        execution_environment: "Agent Runtime".to_string(),
+        description: skill_artifact_description(artifact),
+        permissions,
+        dependencies: SkillDependencies {
+            libraries: Vec::new(),
+            binaries: skill_artifact_binaries(&capabilities),
+            apis: skill_artifact_apis(&capabilities),
+        },
+        consumers: find_skill_consumers_by_path(source_path, agents),
+    }
+}
+
+fn trust_level(artifact: &ArtifactReport) -> &'static str {
+    if artifact.risk_score >= 70 {
+        "Untrusted"
+    } else if artifact.risk_score >= 40 {
+        "Conditional"
+    } else {
+        "Trusted"
+    }
+}
+
+fn skill_artifact_description(artifact: &ArtifactReport) -> String {
+    let path = first_path(artifact);
+    if path == "unknown" {
+        "Reusable agent skill instructions".to_string()
+    } else {
+        format!("Reusable agent skill instructions from {path}")
+    }
+}
+
+fn infer_permissions_from_capabilities(capabilities: &[String]) -> Vec<SkillPermission> {
+    let mut permissions = Vec::new();
+    let mut push = |name: &str| {
+        if !permissions
+            .iter()
+            .any(|permission: &SkillPermission| permission.name == name)
+        {
+            permissions.push(SkillPermission {
+                name: name.to_string(),
+                required: true,
+            });
+        }
+    };
+
+    for capability in capabilities {
+        match capability.as_str() {
+            "shell_execution" | "code_execution" => push("Shell execution"),
+            "filesystem_access" => push("Filesystem read/write"),
+            "network_access" | "external_api_calls" | "browser_access" => push("Network access"),
+            "container_runtime" => {
+                push("Shell execution");
+                push("Network access");
+            }
+            "secret_references" => push("Secret access"),
+            _ => {}
+        }
+    }
+
+    permissions
+}
+
+fn skill_artifact_binaries(capabilities: &[String]) -> Vec<String> {
+    let mut binaries = Vec::new();
+    if capabilities
+        .iter()
+        .any(|cap| cap == "shell_execution" || cap == "code_execution")
+    {
+        binaries.push("shell".to_string());
+    }
+    if capabilities.iter().any(|cap| cap == "container_runtime") {
+        binaries.push("docker".to_string());
+    }
+    binaries
+}
+
+fn skill_artifact_apis(capabilities: &[String]) -> Vec<String> {
+    if capabilities
+        .iter()
+        .any(|cap| cap == "external_api_calls" || cap == "network_access")
+    {
+        vec!["HTTP".to_string()]
+    } else {
+        Vec::new()
+    }
+}
+
+fn find_skill_consumers_by_path(source_path: &str, agents: &[Agent]) -> Vec<SkillConsumer> {
+    agents
+        .iter()
+        .filter(|agent| agent.source_file_path == source_path)
+        .map(|agent| SkillConsumer {
+            id: agent.id.clone(),
+            name: agent.name.clone(),
+            consumer_type: "Agent".to_string(),
+            invocations: 0,
+        })
+        .collect()
 }
 
 fn extract_mcp_command_skills(
@@ -104,14 +223,6 @@ fn tool_to_skill(tool_name: &str, artifact: &ArtifactReport, agents: &[Agent]) -
         _ => ("Local Function", "Local Process"),
     };
 
-    let trust_level = if artifact.risk_score >= 70 {
-        "Untrusted"
-    } else if artifact.risk_score >= 40 {
-        "Conditional"
-    } else {
-        "Trusted"
-    };
-
     let permissions = infer_permissions(tool_name);
 
     let binaries: Vec<String> = match tool_name {
@@ -126,7 +237,7 @@ fn tool_to_skill(tool_name: &str, artifact: &ArtifactReport, agents: &[Agent]) -
         id: tool_name.to_string(),
         name: tool_name.to_string(),
         skill_type: skill_type.to_string(),
-        trust_level: trust_level.to_string(),
+        trust_level: trust_level(artifact).to_string(),
         execution_environment: exec_env.to_string(),
         description: skill_description(tool_name),
         permissions,
@@ -372,5 +483,31 @@ mod tests {
         assert!(names.contains(&"api"));
         // "shell" should appear only once
         assert_eq!(names.iter().filter(|n| **n == "shell").count(), 1);
+    }
+
+    #[test]
+    fn build_skills_includes_skill_artifacts() {
+        let mut a = ArtifactReport::new("skill", 0.9);
+        a.metadata.insert(
+            "paths".to_string(),
+            serde_json::json!(["/repo/skills/release-notes/SKILL.md"]),
+        );
+        a.signals = vec!["keyword:shell".to_string(), "keyword:api".to_string()];
+        a.compute_hash();
+
+        let skills = build_skills(&[a], &[]);
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "release-notes/SKILL");
+        assert_eq!(skills[0].skill_type, "Instruction Skill");
+        assert_eq!(skills[0].execution_environment, "Agent Runtime");
+        assert!(skills[0]
+            .permissions
+            .iter()
+            .any(|permission| permission.name == "Shell execution"));
+        assert!(skills[0]
+            .permissions
+            .iter()
+            .any(|permission| permission.name == "Network access"));
     }
 }

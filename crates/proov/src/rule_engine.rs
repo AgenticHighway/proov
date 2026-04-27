@@ -33,6 +33,7 @@ const RESERVED_ARTIFACT_TYPES: &[&str] = &[
     "container_config",
     "container_candidate",
     "browser_footprint",
+    "skill",
 ];
 
 const BUILTIN_RULE_SOURCES: &[(&str, &str)] = &[
@@ -49,6 +50,7 @@ const BUILTIN_RULE_SOURCES: &[(&str, &str)] = &[
         "prompt-configs-weak",
         include_str!("../../../rules/prompt-configs-weak.toml"),
     ),
+    ("skills", include_str!("../../../rules/skills.toml")),
 ];
 
 #[derive(Copy, Clone)]
@@ -620,6 +622,19 @@ signals_prefix = "deep_keyword"
     }
 
     #[test]
+    fn builtin_skills_rule_matches_skill_md() {
+        let rules = load_builtin_rules();
+        let skills = rules
+            .iter()
+            .find(|rule| rule.detector.name == "skills")
+            .expect("built-in skills rule should load");
+
+        assert_eq!(skills.detector.artifact_type, "skill");
+        assert!(matches_rule("SKILL.md", skills));
+        assert!(matches_rule("skill.md", skills));
+    }
+
+    #[test]
     fn matches_exact_filename() {
         let rule = sample_rule();
         assert!(matches_rule("main.tf", &rule));
@@ -887,7 +902,7 @@ confidence = 0.7
     #[test]
     fn builtin_rules_load_and_cover_expected_artifact_types() {
         let rules = load_builtin_rules();
-        assert_eq!(rules.len(), 4, "expected 4 built-in rules");
+        assert_eq!(rules.len(), 5, "expected 5 built-in rules");
 
         let types: Vec<&str> = rules
             .iter()
@@ -895,6 +910,7 @@ confidence = 0.7
             .collect();
         assert!(types.contains(&"cursor_rules"), "missing cursor_rules");
         assert!(types.contains(&"agents_md"), "missing agents_md");
+        assert!(types.contains(&"skill"), "missing skill");
         // Two prompt_config rules (strong + weak)
         assert_eq!(
             types.iter().filter(|&&t| t == "prompt_config").count(),

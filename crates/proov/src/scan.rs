@@ -884,4 +884,36 @@ mod tests {
             .description
             .contains("Container image definition"));
     }
+
+    #[test]
+    fn workdir_scan_detects_nested_skill_files_as_skills_not_prompts() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("skills").join("release-notes");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "# Release notes\n\nUse shell tools and API calls to draft release notes.",
+        )
+        .unwrap();
+
+        let report = run_scan("workdir", Some(tmp.path()), None, false, None);
+        let skill_artifact = report
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.artifact_type == "skill")
+            .expect("expected nested SKILL.md to be detected as a skill artifact");
+
+        assert!(skill_artifact
+            .metadata
+            .get("paths")
+            .and_then(|value| value.as_array())
+            .and_then(|paths| paths.first())
+            .and_then(|path| path.as_str())
+            .is_some_and(|path| path.ends_with("skills/release-notes/SKILL.md")));
+
+        let payload = build_contract_payload(&report, 0);
+        assert_eq!(payload.skills.len(), 1);
+        assert_eq!(payload.skills[0].name, "release-notes/SKILL");
+        assert!(payload.prompts.is_empty());
+    }
 }

@@ -8,7 +8,12 @@ use crate::scoring::{
 pub const LITE_MODE_VISIBLE_RESULTS: usize = 3;
 
 fn local_policy_type_base() -> HashMap<&'static str, i32> {
-    HashMap::from([("cursor_rules", 4), ("agents_md", 4), ("prompt_config", 3)])
+    HashMap::from([
+        ("cursor_rules", 4),
+        ("agents_md", 4),
+        ("skill", 4),
+        ("prompt_config", 3),
+    ])
 }
 
 pub fn local_policy_score(artifact: &ArtifactReport) -> i32 {
