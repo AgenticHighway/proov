@@ -71,6 +71,7 @@ fn type_base_score() -> HashMap<&'static str, i32> {
     HashMap::from([
         ("cursor_rules", 10),
         ("agents_md", 8),
+        ("skill", 8),
         ("source_risk_surface", 4),
         ("container_config", 12),
         ("container_candidate", 3),

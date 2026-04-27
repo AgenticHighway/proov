@@ -76,6 +76,7 @@ fn pretty_type(raw: &str) -> &str {
         "agents_md" => "AGENTS.md",
         "cursor_rules" => "Cursor rules",
         "prompt_config" => "prompt config",
+        "skill" => "skill",
         "source_risk_surface" => "source risk surface",
         "mcp_config" => "MCP server config",
         "container_config" => "Docker config",
@@ -648,6 +649,7 @@ mod tests {
         assert_eq!(pretty_type("agents_md"), "AGENTS.md");
         assert_eq!(pretty_type("cursor_rules"), "Cursor rules");
         assert_eq!(pretty_type("prompt_config"), "prompt config");
+        assert_eq!(pretty_type("skill"), "skill");
         assert_eq!(pretty_type("source_risk_surface"), "source risk surface");
         assert_eq!(pretty_type("mcp_config"), "MCP server config");
         assert_eq!(pretty_type("container_config"), "Docker config");

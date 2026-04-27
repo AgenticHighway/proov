@@ -231,6 +231,8 @@ pub const CONTENT_READ_ALLOWLIST: &[&str] = &[
     "compose.yml",
     "docker-compose.yaml",
     "docker-compose.yml",
+    "SKILL.md",
+    "skill.md",
 ];
 
 pub const CONTENT_READ_GLOB_PATTERNS: &[&str] = &["*prompt*", "*.instructions.md"];

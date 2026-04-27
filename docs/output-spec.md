@@ -48,6 +48,7 @@ This is the current intended mapping.
 | --------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `cursor_rules`        | `.cursorrules`                                                          | `prompts`, sometimes `skills`                                                    | Editor or tool instruction files that shape AI behavior                               |
 | `prompt_config`       | `*.prompt.md`, `*.instructions.md`, `copilot-instructions.md`           | `prompts`, sometimes `skills`                                                    | Prompt or instruction documents used by AI tooling                                    |
+| `skill`               | `SKILL.md`, `skill.md`                                                  | `skills`                                                                         | Reusable agent skill instruction files; distinct from prompts though they may contain prompt text |
 | `agents_md`           | `agents.md`, `AGENTS.md`                                                | `prompts`, `agents`, sometimes `skills`, sometimes `agenticApps` via co-location | First-class agent definition files                                                    |
 | `mcp_config`          | `mcp.json`, `mcp_config.json`, `claude_desktop_config.json`, similar    | `mcpServers`, sometimes `skills`, linked into `agents`                           | MCP server declarations and connection metadata                                       |
 | `container_config`    | Dockerfiles or compose files with direct AI content                     | sometimes `agenticApps`                                                          | Container-related files with direct AI evidence                                       |
@@ -107,6 +108,7 @@ They are not meant to prove runtime execution. They describe instruction surface
 
 Current sources:
 
+- `skill` artifacts detected from `SKILL.md`
 - `declared_tools` metadata on any artifact
 - MCP server command names extracted from MCP config files
 

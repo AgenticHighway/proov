@@ -1,0 +1,41 @@
+# Detect Codex/agent skill instruction files.
+#
+# SKILL.md files define reusable task instructions for agentic coding
+# environments and can declare tools, permissions, and dependencies.
+
+[detector]
+name = "skills"
+description = "Detect SKILL.md agent skill instruction files"
+artifact_type = "skill"
+
+[match]
+filenames = ["SKILL.md", "skill.md"]
+confidence = 0.75
+
+[keywords]
+keywords = [
+  "tools",
+  "permissions",
+  "instructions",
+  "dependencies",
+  "workflow",
+  "agent",
+  "shell",
+  "browser",
+  "api",
+  "filesystem",
+  "network",
+  "docker",
+  "secrets",
+  "execute",
+  "system",
+]
+signals_prefix = "keyword"
+boost_confidence = 0.9
+boost_threshold = 1
+
+[deep_keywords]
+keywords = ["sudo", "token", "credential", "subprocess", "spawn", "http", "socket"]
+signals_prefix = "deep_keyword"
+boost_confidence = 0.9
+boost_threshold = 1
