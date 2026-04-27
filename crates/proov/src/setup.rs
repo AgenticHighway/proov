@@ -7,7 +7,7 @@
 use std::io::{self, BufRead, IsTerminal, Write};
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     terminal,
 };
 
@@ -34,7 +34,10 @@ fn is_tty() -> bool {
 fn read_key() -> String {
     loop {
         if let Ok(Event::Key(KeyEvent {
-            code, modifiers, ..
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            ..
         })) = event::read()
         {
             if modifiers.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
