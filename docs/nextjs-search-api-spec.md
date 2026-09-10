@@ -95,13 +95,18 @@ of the skill envelope below. See `vettd/docs/search-beta-api-spec.md`
 "Phase 3".
 
 Validation the handler owns:
-- `languages`/`agentCompatibility` filtering semantics (AND vs OR across
-  multiple values) — **open question**, not yet decided by the CLI side; see
-  `SEARCH_INTERFACE.md`'s "Open questions". The CLI passes the raw arrays
-  through unfiltered, so this is purely a server-side decision.
-- Whether unknown `rankings` keys are rejected (400) or ignored. Also open;
-  pick one and document it, since the CLI does no client-side validation of
-  key names today.
+- `languages`/`agentCompatibility` filtering semantics — **decided
+  2026-09-10: OR within a field, AND across fields**, matching what the
+  query-service already builds (`MatchAny` per field inside one
+  `Filter(must=[...])`). See `SEARCH_INTERFACE.md`'s "Resolved questions".
+  The CLI passes the raw arrays through unfiltered, so this stays a
+  server-side property.
+- Unknown `rankings` keys are **rejected with a 400**
+  (`RankingsFilterSchema` is `.strict()`, and the error names the key).
+  Decided 2026-09-10: strict is the reversible direction, since a key can be
+  accepted later but never un-accepted. The CLI does no client-side
+  validation of key names, so the server is the only place this can be
+  caught.
 
 **Response body** — same envelope as GET, with three additive fields per
 result item:

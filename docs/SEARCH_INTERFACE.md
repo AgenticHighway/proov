@@ -671,12 +671,38 @@ flag, so there's no accidental mock in that path either (confirmed live: an
 un-authed run during testing this doc made a real, harmless GET to
 production before the fix to always `auth` first was written up above).
 
-## Open questions
+## Resolved questions
 
-- Is `--language`/`--agent-compatibility` an AND (skill must match all
-  given values) or an OR (skill must match any)? Precedent: `--rankings` is
-  AND-of-thresholds, so probably AND for consistency, but worth confirming
-  against the real API contract. The CLI currently passes the raw list
-  through unfiltered — the AND/OR semantics are the server's to define.
-- Should `--rankings` reject unknown keys server-side, or ignore them the
-  same way response deserialization does client-side?
+Answered 2026-09-10. Rationale and the alternatives considered are in
+`vettd-e2e/docs/system/search-pipeline.md` and
+`vettd-e2e/docs/system/house-rules.md`.
+
+- **Is `--language`/`--agent-compatibility` an AND or an OR?** **OR within a
+  flag, AND across flags.** `--language go --language rust` matches go *or*
+  rust; adding `--agent-compatibility cursor` then narrows that set. This is
+  what the query-service already does — `filters_to_qdrant_filter` builds
+  `MatchAny` per field inside a single `Filter(must=[...])` — and it is the
+  convention of the comparable interfaces (`aws --filters`, `docker
+  --filter`) and of faceted search generally. The `--rankings`
+  AND-of-thresholds precedent does not carry over: `language` is a **scalar**
+  on the hit (`SkillHit.language: str`), so an AND across two languages could
+  never match anything. Note the cost: `agent_compatibility` *is* a list, so
+  "works in both claude-code and cursor" is a real query this cannot express.
+  If it is ever wanted, add it as `--agent-compatibility-mode all` rather than
+  by changing the default.
+- **Should `--rankings` reject unknown keys server-side?** **Reject — 400.**
+  `RankingsFilterSchema` is `.strict()`, and the error names the offending
+  key. Strict is the reversible direction: a server can start accepting a key
+  later without breaking any caller, but can never start rejecting one. The
+  asymmetry with client-side response deserialization (which ignores unknown
+  fields) is deliberate — strict on input, lenient on output.
+- **What about ranking keys that are accepted but never applied?**
+  `rankings.stars` is the only sub-field that actually filters (it maps to the
+  query-service's `min_stars`). `skillsShLeaderboardRank`,
+  `numberOfAggregators` and `officialClaudeMarketplace` are accepted,
+  validated, and then silently ignored as *filters*, even though their
+  *response* values are real. **The decision is to reject them too**, so that
+  every accepted filter key actually filters — but the change is deferred to
+  its own issue, because the three keys appear in both the request and the
+  response and separating them means splitting one schema into two. Until
+  that lands, treat them as no-ops and do not advertise them as filters.

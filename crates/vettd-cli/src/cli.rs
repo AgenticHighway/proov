@@ -198,14 +198,17 @@ pub enum DirectorySubcommand {
         /// Reverse the sort order
         #[arg(long, short = 'r')]
         reverse: bool,
-        /// Filter by implementation language (repeatable). Requires SEARCH_BETA_TESTING=1.
+        /// Filter by implementation language (repeatable; matches any of the
+        /// given values). Requires SEARCH_BETA_TESTING=1.
         #[arg(long = "language")]
         languages: Vec<String>,
-        /// Filter by agent/runtime compatibility (repeatable). Requires SEARCH_BETA_TESTING=1.
+        /// Filter by agent/runtime compatibility (repeatable; matches any of
+        /// the given values). Requires SEARCH_BETA_TESTING=1.
         #[arg(long = "agent-compatibility")]
         agent_compatibility: Vec<String>,
         /// Minimum-threshold ranking filter as a JSON object, e.g.
-        /// '{"stars": 50, "officialClaudeMarketplace": true}'. Requires SEARCH_BETA_TESTING=1.
+        /// '{"stars": 50}'. Only `stars` filters today; the other keys are
+        /// accepted but not applied. Requires SEARCH_BETA_TESTING=1.
         #[arg(long)]
         rankings: Option<String>,
         /// Which catalog to search: skill (default) or mcp. `mcp` requires SEARCH_BETA_TESTING=1.
